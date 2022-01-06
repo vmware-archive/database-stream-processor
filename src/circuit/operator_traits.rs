@@ -76,26 +76,26 @@ pub trait SourceOperator<O>: Operator {
 /// output stream.  Such operators are used to send results of the computation
 /// performed by the circuit to the outside world.
 pub trait SinkRefOperator<I>: Operator {
-    fn eval(&mut self, i: &I);
+    fn eval(&mut self, input: &I);
 }
 
 /// A unary operator that consumes a stream of inputs of type `I`
 /// by reference and produces a stream of outputs of type `O`.
 pub trait UnaryRefOperator<I, O>: Operator {
-    fn eval(&mut self, i: &I) -> O;
+    fn eval(&mut self, input: &I) -> O;
 }
 
 /// A unary operator that consumes a stream of inputs of type `I`
 /// by value and produces a stream of outputs of type `O`.
 pub trait UnaryValOperator<I, O>: Operator {
-    fn eval(&mut self, i: I) -> O;
+    fn eval(&mut self, input: I) -> O;
 }
 
 /// A binary operator that consumes two input streams carrying values
 /// of types `I1` and `I2` by reference and produces a stream of
 /// outputs of type `O`.
 pub trait BinaryRefRefOperator<I1, I2, O>: Operator {
-    fn eval(&mut self, i1: &I1, i2: &I2) -> O;
+    fn eval(&mut self, lhs: &I1, rhs: &I2) -> O;
 }
 
 /// The output of a strict operator only depends on inputs from previous
@@ -119,5 +119,5 @@ pub trait StrictUnaryValOperator<I, O>: StrictOperator<O> {
     /// Feed input for the current timestamp to the operator.  The output will
     /// be consumed via [`get_output`](`StrictOperator::get_output`) during
     /// the next timestamp.
-    fn eval_strict(&mut self, i: I);
+    fn eval_strict(&mut self, input: I);
 }
