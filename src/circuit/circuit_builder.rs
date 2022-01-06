@@ -9,7 +9,10 @@
 //! # Examples
 //!
 //! ```
-//! use dbsp::circuit::{Circuit, operator::{Inspect, Repeat}};
+//! use dbsp::circuit::{
+//!     operator::{Inspect, Repeat},
+//!     Circuit,
+//! };
 //!
 //! // Create an empty circuit.
 //! let circuit = Circuit::new();
@@ -20,7 +23,7 @@
 //! // Add a sink operator and wire the source directly to it.
 //! let sinkid = circuit.add_ref_sink(
 //!     Inspect::new(|n| println!("New output: {}", n)),
-//!     &source_stream
+//!     &source_stream,
 //! );
 //! ```
 
@@ -36,9 +39,9 @@ use super::operator_traits::{
     UnaryRefOperator, UnaryValOperator,
 };
 
-/// A stream stores the output of an operator.  Circuits are synchronous, meaning
-/// that each value is produced and consumed in the same clock cycle, so there can
-/// be at most one value in the stream at any time.
+/// A stream stores the output of an operator.  Circuits are synchronous,
+/// meaning that each value is produced and consumed in the same clock cycle, so
+/// there can be at most one value in the stream at any time.
 pub struct Stream<C, D> {
     // Id of the associated operator.
     id: NodeId,
@@ -85,8 +88,8 @@ impl<C, D> Stream<C, D> {
         }
     }
 
-    // Returns `Some` if the operator has produced output for the current timestamp and `None`
-    // otherwise.
+    // Returns `Some` if the operator has produced output for the current timestamp
+    // and `None` otherwise.
     unsafe fn get(&self) -> &Option<D> {
         &*self.val.get()
     }
@@ -314,20 +317,23 @@ where
 
     /// Add a feedback loop to the circuit.
     ///
-    /// Other methods in this API only support the construction of acyclic graphs, as they require
-    /// the input stream to exist before nodes that consumes it are created.  This method
-    /// instantiates an operator whose input stream can be connected later, and thus may depend on
-    /// the operator's output.  This enables the construction of feedback loops.  Since all loops
-    /// in a well-formed circuit must include a [strict
-    /// operator](`crate::circuit::operator_traits::StrictOperator`), `operator` must be strict.
+    /// Other methods in this API only support the construction of acyclic
+    /// graphs, as they require the input stream to exist before nodes that
+    /// consumes it are created.  This method instantiates an operator whose
+    /// input stream can be connected later, and thus may depend on
+    /// the operator's output.  This enables the construction of feedback loops.
+    /// Since all loops in a well-formed circuit must include a [strict
+    /// operator](`crate::circuit::operator_traits::StrictOperator`), `operator`
+    /// must be strict.
     ///
-    /// Returns the output stream of the operator and an object that can be used to later
-    /// connect its input.
+    /// Returns the output stream of the operator and an object that can be used
+    /// to later connect its input.
     ///
     /// # Examples
-    /// We build the following circuit to compute the sum of input values received from `source`.
-    /// `z1` stores the sum accumulated during previous timestamps.  At every timestamp,
-    /// the [`crate::circuit::operator::Plus`] operator (`+`) computes the sum of the new value
+    /// We build the following circuit to compute the sum of input values
+    /// received from `source`. `z1` stores the sum accumulated during
+    /// previous timestamps.  At every timestamp, the [`crate::circuit::
+    /// operator::Plus`] operator (`+`) computes the sum of the new value
     /// received from source with the value stored in `z1`.
     ///
     /// ```text
@@ -639,11 +645,11 @@ where
     }
 }
 
-// The output half of a feedback node.  We implement a feedback node using a pair of nodes:
-// `FeedbackOutputNode` is connected to the circuit as a source node (i.e., it does not have
-// an input stream) and thus gets evaluated first in each time stamp.  `FeedbackInputNode`
-// is a sink node.  This way the circuit graph remains acyclic and can be scheduled in a
-// topological order.
+// The output half of a feedback node.  We implement a feedback node using a
+// pair of nodes: `FeedbackOutputNode` is connected to the circuit as a source
+// node (i.e., it does not have an input stream) and thus gets evaluated first
+// in each time stamp.  `FeedbackInputNode` is a sink node.  This way the
+// circuit graph remains acyclic and can be scheduled in a topological order.
 struct FeedbackOutputNode<C, I, O, Op> {
     operator: Rc<UnsafeCell<Op>>,
     output_stream: Stream<C, O>,
@@ -723,7 +729,8 @@ where
         );
     }
 
-    // Don't call `stream_start`/`stream_end` on the operator.  `FeedbackOutputNode` will do that.
+    // Don't call `stream_start`/`stream_end` on the operator.  `FeedbackOutputNode`
+    // will do that.
     fn stream_start(&mut self) {}
 
     unsafe fn stream_end(&mut self) {}
@@ -731,11 +738,11 @@ where
 
 /// Input connector of a feedback operator.
 ///
-/// This struct is part of the mechanism for constructing a feedback loop in a circuit.
-/// It is returned by [`Circuit::add_feedback`] and represents the input port of an operator
-/// whose input stream does not exist yet.  Once the input stream has been created, it
-/// can be connected to the operator using [`FeedbackConnector::connect`].
-/// See [`Circuit::add_feedback`] for details.
+/// This struct is part of the mechanism for constructing a feedback loop in a
+/// circuit. It is returned by [`Circuit::add_feedback`] and represents the
+/// input port of an operator whose input stream does not exist yet.  Once the
+/// input stream has been created, it can be connected to the operator using
+/// [`FeedbackConnector::connect`]. See [`Circuit::add_feedback`] for details.
 pub struct FeedbackConnector<C, I, O, Op> {
     circuit: C,
     operator: Rc<UnsafeCell<Op>>,

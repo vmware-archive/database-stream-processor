@@ -8,9 +8,9 @@ use std::mem::swap;
 use num::Zero;
 
 /// z^-1 operator delays its input by one timestamp.  It outputs the default
-/// value of `T` in the first timestamp after [stream_start](`Z1::stream_start`).
-/// For all subsequent timestamps, it outputs the value received as input at the
-/// previous timestamp.
+/// value of `T` in the first timestamp after
+/// [stream_start](`Z1::stream_start`). For all subsequent timestamps, it
+/// outputs the value received as input at the previous timestamp.
 ///
 /// # Examples
 ///

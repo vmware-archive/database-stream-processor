@@ -9,11 +9,12 @@ pub trait Data: Clone + 'static {}
 impl<T: Clone + 'static> Data for T {}
 
 /// Trait that must be implemented by all operators regardless of their arity.
-/// Methods in this trait are necessary to support operators over nested streams.
-/// A nested stream is a stream whose elements are streams.  Since streams are
-/// generated one value at a time, we need a separate operator invocation for each
-/// element of the inner-most stream.  The `stream_start` and `stream_end` methods
-/// signals respectively the start and completion of a nested stream.
+/// Methods in this trait are necessary to support operators over nested
+/// streams. A nested stream is a stream whose elements are streams.  Since
+/// streams are generated one value at a time, we need a separate operator
+/// invocation for each element of the inner-most stream.  The `stream_start`
+/// and `stream_end` methods signals respectively the start and completion of a
+/// nested stream.
 ///
 /// For example, feeding the following matrix, where rows represent nested
 /// streams
@@ -22,7 +23,7 @@ impl<T: Clone + 'static> Data for T {}
 /// ┌       ┐
 /// │1 2    │
 /// │3 4 5 6│
-/// │7 8 9  |
+/// │7 8 9  │
 /// └       ┘
 /// ```
 ///
@@ -48,11 +49,11 @@ impl<T: Clone + 'static> Data for T {}
 /// stream_end()   // End outer stream.
 /// ```
 ///
-/// Note that the input and output of an operator always belong to the same clock
-/// domain, i.e., an operator cannot consume a single value and produce a stream,
-/// or the other way around.  Nested clock domains are implemented by special
-/// operators that wrap a nested circuit and, for each input value, run the nested
-/// circuit to a fixed point (or some other termination condition).
+/// Note that the input and output of an operator always belong to the same
+/// clock domain, i.e., an operator cannot consume a single value and produce a
+/// stream, or the other way around.  Nested clock domains are implemented by
+/// special operators that wrap a nested circuit and, for each input value, run
+/// the nested circuit to a fixed point (or some other termination condition).
 ///
 /// An operator can have multiple input streams, all of which also belong to the
 /// same clock domain and therefore start and end at the same time.  Hence
@@ -63,17 +64,17 @@ pub trait Operator: 'static {
     fn stream_end(&mut self);
 }
 
-/// A source operator that injects data from the outside world or from the parent
-/// circuit into the local circuit.  Consumes no input streams and emits a single
-/// output stream.
+/// A source operator that injects data from the outside world or from the
+/// parent circuit into the local circuit.  Consumes no input streams and emits
+/// a single output stream.
 pub trait SourceOperator<O>: Operator {
     /// Yield the next value
     fn eval(&mut self) -> O;
 }
 
-/// A sink operator that consumes an input stream, but does not produce an output
-/// stream.  Such operators are used to send results of the computation performed
-/// by the circuit to the outside world.
+/// A sink operator that consumes an input stream, but does not produce an
+/// output stream.  Such operators are used to send results of the computation
+/// performed by the circuit to the outside world.
 pub trait SinkRefOperator<I>: Operator {
     fn eval(&mut self, i: &I);
 }
@@ -97,24 +98,26 @@ pub trait BinaryRefRefOperator<I1, I2, O>: Operator {
     fn eval(&mut self, i1: &I1, i2: &I2) -> O;
 }
 
-/// The output of a strict operator only depends on inputs from previous timestamps and
-/// hence can be produced before consuming new inputs.  This way a strict operator can
-/// be used as part of a feedback loop where its output is needed before input for the
-/// current timestamp is available.
+/// The output of a strict operator only depends on inputs from previous
+/// timestamps and hence can be produced before consuming new inputs.  This way
+/// a strict operator can be used as part of a feedback loop where its output is
+/// needed before input for the current timestamp is available.
 pub trait StrictOperator<O>: Operator {
-    /// Returns the output value computed based on data consumed by the operator during
-    /// previous timestamps.  This method is invoked **before** `eval_strict()` has been invoked
-    /// for the current timestamp.  It can be invoked **at most once** for each timestamp,
-    /// as the implementation may mutate or destroy the operator's internal state
-    /// (for example [Z1](`crate::circuit::operator::Z1`) returns its inner value, leaving
-    /// the operator empty).
+    /// Returns the output value computed based on data consumed by the operator
+    /// during previous timestamps.  This method is invoked **before**
+    /// `eval_strict()` has been invoked for the current timestamp.  It can
+    /// be invoked **at most once** for each timestamp,
+    /// as the implementation may mutate or destroy the operator's internal
+    /// state (for example [Z1](`crate::circuit::operator::Z1`) returns its
+    /// inner value, leaving the operator empty).
     fn get_output(&mut self) -> O;
 }
 
 /// A strict unary operator that consumes a stream of inputs of type `I`
 /// by reference and produces a stream of outputs of type `O`.
 pub trait StrictUnaryValOperator<I, O>: StrictOperator<O> {
-    /// Feed input for the current timestamp to the operator.  The output will be consumed
-    /// via [`get_output`](`StrictOperator::get_output`) during the next timestamp.
+    /// Feed input for the current timestamp to the operator.  The output will
+    /// be consumed via [`get_output`](`StrictOperator::get_output`) during
+    /// the next timestamp.
     fn eval_strict(&mut self, i: I);
 }

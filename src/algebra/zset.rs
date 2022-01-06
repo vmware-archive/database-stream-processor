@@ -39,10 +39,11 @@ where
     /// not the same, since `mul_add_assign` multiplies `self`, whereas
     /// this trait multiplies `other`.
     fn add_assign_weighted(&mut self, weight: &WeightType, other: &Self);
-    // FIXME: the return type is wrong, the result should be a more abstract iterator.
+    // FIXME: the return type is wrong, the result should be a more abstract
+    // iterator.
     fn support(&self) -> hash_map::Keys<'_, DataType, WeightType>;
-    /// Returns a Z-set that contains all elements with positive weights from `self`
-    /// with weights set to 1.
+    /// Returns a Z-set that contains all elements with positive weights from
+    /// `self` with weights set to 1.
     fn distinct(&self) -> Self;
     /// Add one value `key` to the zset with the specified `weight`
     fn insert(&mut self, key: DataType, weight: &WeightType);
@@ -58,7 +59,8 @@ where
     C: FnMut(&DataType, &DataType) -> Ordering,
 {
     /// Write a string representation of set `z` into an internal builder.
-    /// The `elem_compare` function is used to sort keys to get a deterministic output.
+    /// The `elem_compare` function is used to sort keys to get a deterministic
+    /// output.
     fn serialize(&mut self, z: &ZS, elem_compare: C);
 }
 
