@@ -783,27 +783,31 @@ where
 #[cfg(test)]
 mod tests {
     use super::Circuit;
-    use crate::circuit::operator::{Inspect, Plus, Z1};
-    use crate::circuit::operator_traits::{
-        Operator, SinkRefOperator, SourceOperator, UnaryRefOperator,
+    use crate::circuit::{
+        operator::{Inspect, Plus, Z1},
+        operator_traits::{Operator, SinkRefOperator, SourceOperator, UnaryRefOperator},
     };
-    use std::{cell::RefCell, fmt::Display, marker::PhantomData, ops::Deref, rc::Rc, vec::Vec};
+    use std::{cell::RefCell, fmt::Display, marker::PhantomData, ops::Deref, rc::Rc};
 
     // Source operator that generates a stream of consecutive integers.
     struct Counter {
         n: usize,
     }
+
     impl Counter {
         fn new() -> Self {
             Self { n: 0 }
         }
     }
+
     impl Operator for Counter {
         fn stream_start(&mut self) {}
+
         fn stream_end(&mut self) {
             self.n = 0;
         }
     }
+
     impl SourceOperator<usize> for Counter {
         fn eval(&mut self) -> usize {
             let res = self.n;
@@ -816,20 +820,23 @@ mod tests {
     struct Integrator {
         sum: usize,
     }
+
     impl Integrator {
         fn new() -> Self {
             Self { sum: 0 }
         }
     }
+
     impl Operator for Integrator {
         fn stream_start(&mut self) {}
         fn stream_end(&mut self) {
             self.sum = 0;
         }
     }
+
     impl UnaryRefOperator<usize, usize> for Integrator {
-        fn eval(&mut self, i: &usize) -> usize {
-            self.sum = self.sum + *i;
+        fn eval(&mut self, &i: &usize) -> usize {
+            self.sum += i;
             self.sum
         }
     }
@@ -838,6 +845,7 @@ mod tests {
     struct Printer<T> {
         phantom: PhantomData<T>,
     }
+
     impl<T> Printer<T> {
         fn new() -> Self {
             Self {
@@ -845,10 +853,13 @@ mod tests {
             }
         }
     }
+
     impl<T: 'static> Operator for Printer<T> {
         fn stream_start(&mut self) {}
+
         fn stream_end(&mut self) {}
     }
+
     impl<T: Display + 'static> SinkRefOperator<T> for Printer<T> {
         fn eval(&mut self, i: &T) {
             println!("new output: {}", i);

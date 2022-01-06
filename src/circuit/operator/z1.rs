@@ -3,9 +3,8 @@
 use crate::circuit::operator_traits::{
     Operator, StrictOperator, StrictUnaryValOperator, UnaryValOperator,
 };
-use std::mem::swap;
-
 use num::Zero;
+use std::mem::swap;
 
 /// z^-1 operator delays its input by one timestamp.  It outputs the default
 /// value of `T` in the first timestamp after
@@ -56,6 +55,7 @@ where
     T: Zero + 'static,
 {
     fn stream_start(&mut self) {}
+
     fn stream_end(&mut self) {
         self.reset();
     }

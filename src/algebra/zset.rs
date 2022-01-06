@@ -16,7 +16,6 @@ use std::collections::{hash_map, HashMap};
 use std::hash::Hash;
 use string_builder::Builder;
 
-////////////////////////////////////////////////////////
 /// Z-set trait.
 ///
 /// A Z-set is a set where each element has a weight.
@@ -64,7 +63,6 @@ where
     fn serialize(&mut self, z: &ZS, elem_compare: C);
 }
 
-///////////////////////////////////////////////////////
 /// Implementation of ZSets in terms of HashMaps
 #[derive(Debug, Clone)]
 struct ZSetHashMap<DataType, WeightType>
@@ -279,9 +277,11 @@ impl Printer {
             builder: Builder::new(10),
         }
     }
-    pub fn to_string(self) -> String {
+
+    pub fn into_string(self) -> String {
         self.builder.string().unwrap()
     }
+
     pub fn serialize_set<DataType, WeightType, ZS>(&mut self, z: &ZS)
     where
         DataType: Clone + 'static + Hash + Display + Ord,
@@ -294,7 +294,15 @@ impl Printer {
 
 #[cfg(test)]
 mod zset_tests {
-    use super::*;
+    use super::{Ordering, Printer, ZRingValue, ZSet, ZSetHashMap, Zero};
+    use crate::algebra::Checked;
+    use std::{
+        fmt::{self, Display},
+        hash::Hash,
+        ops::{Add, AddAssign, Neg},
+    };
+
+    type CheckedI64 = Checked<i64>;
 
     // zset to string
     fn to_string<DataType, WeightType, ZS>(z: &ZS) -> String
@@ -305,7 +313,7 @@ mod zset_tests {
     {
         let mut pr = Printer::new();
         pr.serialize_set(z);
-        pr.to_string()
+        pr.into_string()
     }
 
     #[test]
@@ -325,7 +333,7 @@ mod zset_tests {
         assert_eq!(1, z.lookup(&0));
         assert_eq!(0, z.lookup(&1));
         assert_ne!(z, ZSetHashMap::<i64, i64>::zero());
-        assert_eq!(false, z.is_zero());
+        assert!(!z.is_zero());
 
         z.insert(2, &0);
         assert_eq!(1, z.size());
@@ -378,7 +386,7 @@ mod zset_tests {
         assert_eq!(CheckedI64::from(1), z.lookup(&0));
         assert_eq!(CheckedI64::from(0), z.lookup(&1));
         assert_ne!(z, ZSetHashMap::<i64, CheckedI64>::zero());
-        assert_eq!(false, z.is_zero());
+        assert!(!z.is_zero());
 
         z.insert(2, &CheckedI64::from(0));
         assert_eq!(1, z.size());
@@ -427,7 +435,7 @@ mod zset_tests {
     }
 
     impl Display for TestTuple {
-        fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             write!(f, "({},{})", self.left, self.right)
         }
     }
@@ -438,6 +446,7 @@ mod zset_tests {
             if lo != Ordering::Equal {
                 return Some(lo);
             }
+
             Some(self.right.cmp(&other.right))
         }
     }
@@ -448,6 +457,7 @@ mod zset_tests {
             if lo != Ordering::Equal {
                 return lo;
             }
+
             self.right.cmp(&other.right)
         }
     }
@@ -469,7 +479,7 @@ mod zset_tests {
         assert_eq!(CheckedI64::from(1), z.lookup(&TestTuple::new(0, 0)));
         assert_eq!(CheckedI64::from(0), z.lookup(&TestTuple::new(0, 1)));
         assert_ne!(z, ZSetHashMap::<TestTuple, CheckedI64>::zero());
-        assert_eq!(false, z.is_zero());
+        assert!(!z.is_zero());
 
         z.insert(TestTuple::new(2, 0), &CheckedI64::from(0));
         assert_eq!(1, z.size());

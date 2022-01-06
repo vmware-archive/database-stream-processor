@@ -1,8 +1,7 @@
 //! Binary plus operator
 
-use std::{marker::PhantomData, ops::Add};
-
 use crate::circuit::operator_traits::{BinaryRefRefOperator, Operator};
+use std::{marker::PhantomData, ops::Add};
 
 /// Binary plus operator.
 ///
