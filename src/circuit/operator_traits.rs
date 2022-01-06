@@ -41,7 +41,7 @@ impl<T: Clone + 'static> Data for T {}
 /// eval(5)
 /// eval(6)
 /// stream_end()   // End nested stream.
-/// stream_start() // Start nested strea (second row).
+/// stream_start() // Start nested stream (second row).
 /// eval(7)
 /// eval(8)
 /// eval(9)
