@@ -1637,7 +1637,7 @@ mod tests {
     }
     impl UnaryOperator<usize, usize> for Integrator {
         fn eval(&mut self, i: &usize) -> usize {
-            self.sum = self.sum + *i;
+            self.sum += *i;
             self.sum
         }
     }
@@ -1689,7 +1689,7 @@ mod tests {
                 circuit,
                 "monitor",
             );
-            let source = circuit.add_source(Generator::new(0, |n: &mut usize| *n = *n + 1));
+            let source = circuit.add_source(Generator::new(0, |n: &mut usize| *n += 1));
             let integrator = circuit.add_unary_operator(Integrator::new(), &source);
             circuit.add_sink(Printer::new(), &integrator);
             circuit.add_sink(
@@ -1736,7 +1736,7 @@ mod tests {
                 "monitor",
             );
 
-            let source = circuit.add_source(Generator::new(0, |n: &mut usize| *n = *n + 1));
+            let source = circuit.add_source(Generator::new(0, |n: &mut usize| *n += 1));
             let (z1_output, z1_feedback) = circuit.add_feedback(Z1::new(0));
             let plus = circuit.add_binary_operator(
                 Apply2::new(|n1: &usize, n2: &usize| *n1 + *n2),
@@ -1791,13 +1791,13 @@ mod tests {
                 "monitor",
             );
 
-            let source = circuit.add_source(Generator::new(1, |n: &mut usize| *n = *n + 1));
+            let source = circuit.add_source(Generator::new(1, |n: &mut usize| *n += 1));
             let fact = circuit.iterate_with_scheduler::<_, _, _, S>(|child| {
                 let counter = Rc::new(RefCell::new(0));
                 let counter_clone = counter.clone();
                 let countdown =
                     child.add_source(NestedSource::new(source, child, move |n: &mut usize| {
-                        *n = *n - 1;
+                        *n -= 1;
                         *counter_clone.borrow_mut() = *n;
                     }));
                 let (z1_output, z1_feedback) = child.add_feedback(Z1::new(1));

@@ -210,7 +210,7 @@ fn zset_integer_tests() {
     assert_eq!(1, z.lookup(&0));
     assert_eq!(0, z.lookup(&1));
     assert_ne!(z, ZSetHashMap::<i64, i64>::zero());
-    assert_eq!(false, z.is_zero());
+    assert!(!z.is_zero());
 
     z.increment(&2, &0);
     assert_eq!(1, z.support_size());
@@ -263,7 +263,7 @@ fn checked_zset_integer_weights_tests() {
     assert_eq!(CheckedI64::from(1), z.lookup(&0));
     assert_eq!(CheckedI64::from(0), z.lookup(&1));
     assert_ne!(z, ZSetHashMap::<i64, CheckedI64>::zero());
-    assert_eq!(false, z.is_zero());
+    assert!(!z.is_zero());
 
     z.increment(&2, &CheckedI64::from(0));
     assert_eq!(1, z.support_size());
@@ -359,7 +359,7 @@ fn zset_tuple_tests() {
     assert_eq!(CheckedI64::from(1), z.lookup(&TestTuple::new(0, 0)));
     assert_eq!(CheckedI64::from(0), z.lookup(&TestTuple::new(0, 1)));
     assert_ne!(z, ZSetHashMap::<TestTuple, CheckedI64>::zero());
-    assert_eq!(false, z.is_zero());
+    assert!(!z.is_zero());
 
     z.increment(&TestTuple::new(2, 0), &CheckedI64::from(0));
     assert_eq!(1, z.support_size());

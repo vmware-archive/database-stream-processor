@@ -321,11 +321,11 @@ mod checked_integer_ring_tests {
         let two = CheckedI64::one().add_by_ref(&CheckedI64::one());
         assert_eq!(2i64, two.clone().into());
         assert_eq!(-2i64, two.neg_by_ref().into());
-        assert_eq!(-4i64, two.clone().mul_by_ref(&two.neg_by_ref()).into());
+        assert_eq!(-4i64, two.mul_by_ref(&two.neg_by_ref()).into());
         let mut three = two;
         three.add_assign_by_ref(&CheckedI64::from(1i64));
         assert_eq!(3i64, three.clone().into());
-        assert_eq!(false, three.is_zero());
+        assert!(!three.is_zero());
     }
 
     #[test]

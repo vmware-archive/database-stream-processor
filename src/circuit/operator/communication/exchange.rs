@@ -646,13 +646,13 @@ mod tests {
         where
             S: Scheduler + 'static,
         {
-            let hruntime = Runtime::run(workers.clone(), move |runtime, index| {
+            let hruntime = Runtime::run(workers, move |runtime, index| {
                 let root = Root::build_with_scheduler::<_, S>(move |circuit| {
                     let source = circuit.add_source(Generator::new(0, |n: &mut usize| *n += 1));
                     let (sender, receiver) = new_exchange_operators(
                         runtime,
                         index,
-                        move |n| repeat(n).take(workers.clone()),
+                        move |n| repeat(n).take(workers),
                         |v: &mut Vec<usize>, n| v.push(n),
                     );
                     let combined = circuit.add_exchange(sender, receiver, &source);
