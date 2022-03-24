@@ -1,6 +1,6 @@
 use crate::algebra::{
     finite_map::{FiniteMap, MapBuilder},
-    zset::{IndexedZSet, ZSet, ZSetHashMap},
+    zset::{ZSet, ZSetHashMap},
     AddAssignByRef, AddByRef, CheckedInt, HasZero, NegByRef,
 };
 
@@ -256,6 +256,7 @@ fn zset_tuple_tests() {
     );
 }
 
+/*
 #[test]
 pub fn indexed_zset_tests() {
     let mut set = ZSetHashMap::<(i64, i64), CheckedI64>::with_capacity(5);
@@ -295,3 +296,4 @@ pub fn indexed_zset_tests() {
     let z3 = partitioned.sum();
     assert_eq!(set, z3);
 }
+*/
