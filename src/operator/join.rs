@@ -1,15 +1,20 @@
 //! Relational join operator.
 
 use crate::{
-    algebra::{finite_map::KeyProperties, IndexedZSet, MapBuilder, ZRingValue, ZSet},
+    algebra::{IndexedZSet, MulByRef, ZSet},
     circuit::{
         operator_traits::{BinaryOperator, Operator},
         Circuit, Scope, Stream,
     },
+    layers::{Builder, Cursor, Trie, TupleBuilder},
     operator::BinaryOperatorAdapter,
-    NumEntries, SharedRef,
+    SharedRef,
 };
-use std::{borrow::Cow, marker::PhantomData};
+use std::{
+    borrow::Cow,
+    cmp::{min, Ordering},
+    marker::PhantomData,
+};
 
 impl<P, SR1> Stream<Circuit<P>, SR1>
 where
@@ -18,39 +23,23 @@ where
     /// Apply [`Join`] operator to `self` and `other`.
     ///
     /// See [`Join`] operator for more info.
-    pub fn join<K, V1, V2, V, W, F, SR2, Z>(
-        &self,
-        other: &Stream<Circuit<P>, SR2>,
-        f: F,
-    ) -> Stream<Circuit<P>, Z>
+    pub fn join<V, F, SR2, Z>(&self, other: &Stream<Circuit<P>, SR2>, f: F) -> Stream<Circuit<P>, Z>
     where
-        K: KeyProperties,
-        V1: KeyProperties,
-        V2: KeyProperties,
-        W: ZRingValue,
         SR1: SharedRef + 'static,
-        <SR1 as SharedRef>::Target: IndexedZSet<K, V1, W>,
-        for<'a> &'a <SR1 as SharedRef>::Target: IntoIterator<
-            Item = (
-                &'a K,
-                &'a <<SR1 as SharedRef>::Target as IndexedZSet<K, V1, W>>::ZSet,
-            ),
-        >,
-        for<'a> &'a <<SR1 as SharedRef>::Target as IndexedZSet<K, V1, W>>::ZSet:
-            IntoIterator<Item = (&'a V1, &'a W)>,
         SR2: SharedRef + 'static,
-        <SR2 as SharedRef>::Target: IndexedZSet<K, V2, W>,
-        for<'a> &'a <SR2 as SharedRef>::Target: IntoIterator<
-            Item = (
-                &'a K,
-                &'a <<SR2 as SharedRef>::Target as IndexedZSet<K, V2, W>>::ZSet,
-            ),
+        SR1::Target: IndexedZSet,
+        SR2::Target: IndexedZSet<
+            IndexKey = <SR1::Target as IndexedZSet>::IndexKey,
+            Weight = <SR1::Target as IndexedZSet>::Weight,
         >,
-        for<'a> &'a <<SR2 as SharedRef>::Target as IndexedZSet<K, V2, W>>::ZSet:
-            IntoIterator<Item = (&'a V2, &'a W)>,
-        F: Fn(&K, &V1, &V2) -> V + 'static,
+        F: Fn(
+                &<SR1::Target as IndexedZSet>::IndexKey,
+                &<SR1::Target as IndexedZSet>::Value,
+                &<SR2::Target as IndexedZSet>::Value,
+            ) -> V
+            + 'static,
         V: 'static,
-        Z: Clone + MapBuilder<V, W> + 'static,
+        Z: Clone + Trie<Item = (V, <SR1::Target as IndexedZSet>::Weight)> + 'static,
     {
         self.circuit().add_binary_operator(
             <BinaryOperatorAdapter<Z, _>>::new(Join::new(f)),
@@ -73,25 +62,16 @@ where
     /// ```text
     /// delta(A <> B) = A <> B - z^-1(A) <> z^-1(B) = a <> z^-1(B) + z^-1(A) <> b + a <> b
     /// ```
-    pub fn join_incremental<K, V1, V2, V, W, F, I2, Z>(
+    pub fn join_incremental<F, I2, Z>(
         &self,
         other: &Stream<Circuit<P>, I2>,
         join_func: F,
     ) -> Stream<Circuit<P>, Z>
     where
-        K: KeyProperties,
-        V1: KeyProperties,
-        V2: KeyProperties,
-        W: ZRingValue,
-        I1: NumEntries + IndexedZSet<K, V1, W> + SharedRef<Target = I1>,
-        for<'a> &'a I1: IntoIterator<Item = (&'a K, &'a I1::ZSet)>,
-        for<'a> &'a I1::ZSet: IntoIterator<Item = (&'a V1, &'a W)>,
-        I2: NumEntries + IndexedZSet<K, V2, W> + SharedRef<Target = I2>,
-        for<'a> &'a I2: IntoIterator<Item = (&'a K, &'a I2::ZSet)>,
-        for<'a> &'a I2::ZSet: IntoIterator<Item = (&'a V2, &'a W)>,
-        F: Clone + Fn(&K, &V1, &V2) -> V + 'static,
-        V: KeyProperties + 'static,
-        Z: ZSet<V, W>,
+        I1: IndexedZSet,
+        I2: IndexedZSet<IndexKey = I1::IndexKey, Weight = I1::Weight>,
+        F: Clone + Fn(&I1::IndexKey, &I1::Value, &I2::Value) -> Z::Data + 'static,
+        Z: ZSet<Weight = I1::Weight>,
     {
         self.integrate()
             .delay()
@@ -111,25 +91,16 @@ where
     ///     a <> I(↑I(↑z^-1(b)))     +
     ///     I(z^-1(a)) <> ↑I(↑z^-1(b)).
     /// ```
-    pub fn join_incremental_nested<K, V1, V2, V, W, F, I2, Z>(
+    pub fn join_incremental_nested<F, I2, Z>(
         &self,
         other: &Stream<Circuit<P>, I2>,
         join_func: F,
     ) -> Stream<Circuit<P>, Z>
     where
-        K: KeyProperties,
-        V1: KeyProperties,
-        V2: KeyProperties,
-        W: ZRingValue,
-        I1: NumEntries + IndexedZSet<K, V1, W> + SharedRef<Target = I1> + std::fmt::Debug,
-        for<'a> &'a I1: IntoIterator<Item = (&'a K, &'a I1::ZSet)>,
-        for<'a> &'a I1::ZSet: IntoIterator<Item = (&'a V1, &'a W)>,
-        I2: NumEntries + IndexedZSet<K, V2, W> + SharedRef<Target = I2> + std::fmt::Debug,
-        for<'a> &'a I2: IntoIterator<Item = (&'a K, &'a I2::ZSet)>,
-        for<'a> &'a I2::ZSet: IntoIterator<Item = (&'a V2, &'a W)>,
-        F: Clone + Fn(&K, &V1, &V2) -> V + 'static,
-        V: KeyProperties + 'static,
-        Z: ZSet<V, W>,
+        I1: IndexedZSet,
+        I2: IndexedZSet<IndexKey = I1::IndexKey, Weight = I1::Weight>,
+        F: Clone + Fn(&I1::IndexKey, &I1::Value, &I2::Value) -> Z::Data + 'static,
+        Z: ZSet<Weight = I1::Weight>,
     {
         let join1: Stream<_, Z> = self
             .integrate_nested()
@@ -165,38 +136,28 @@ where
 ///
 /// # Type arguments
 ///
-/// * `K` - key type.
-/// * `V1` - value type in the first input stream.
-/// * `V2` - value type in the second input stream.
 /// * `V` - value type in the output Z-set.
-/// * `W` - weight type used by both inputs.
 /// * `F` - join function type: maps key and a pair of values from input Z-sets
 ///   to an output value.
 /// * `I1` - indexed Z-set type in the first input stream.
-/// * `I1` - indexed Z-set type in the second input stream.
+/// * `I2` - indexed Z-set type in the second input stream.
 /// * `Z` - output Z-set type.
-pub struct Join<K, V1, V2, V, W, F, I1, I2, Z> {
+pub struct Join<V, F, I1, I2, Z> {
     join_func: F,
-    _val_types: PhantomData<(K, V1, V2, V, W)>,
-    _container_types: PhantomData<(I1, I2, Z)>,
+    _types: PhantomData<(I1, I2, V, Z)>,
 }
 
-impl<K, V1, V2, V, W, F, I1, I2, Z> Join<K, V1, V2, V, W, F, I1, I2, Z> {
+impl<V, F, I1, I2, Z> Join<V, F, I1, I2, Z> {
     pub fn new(join_func: F) -> Self {
         Self {
             join_func,
-            _val_types: PhantomData,
-            _container_types: PhantomData,
+            _types: PhantomData,
         }
     }
 }
 
-impl<K, V1, V2, V, W, F, I1, I2, Z> Operator for Join<K, V1, V2, V, W, F, I1, I2, Z>
+impl<V, F, I1, I2, Z> Operator for Join<V, F, I1, I2, Z>
 where
-    K: 'static,
-    V1: 'static,
-    V2: 'static,
-    W: 'static,
     I1: 'static,
     I2: 'static,
     F: 'static,
@@ -210,64 +171,56 @@ where
     fn clock_end(&mut self, _scope: Scope) {}
 }
 
-fn join_inner<K, V1, V2, V, W, F, I1, I2, Z>(i1: &I1, i2: &I2, join_func: &F) -> Z
+impl<V, F, I1, I2, Z> BinaryOperator<I1, I2, Z> for Join<V, F, I1, I2, Z>
 where
-    K: KeyProperties,
-    V1: KeyProperties,
-    V2: KeyProperties,
-    W: ZRingValue,
-    I1: IndexedZSet<K, V1, W>,
-    for<'a> &'a I1: IntoIterator<Item = (&'a K, &'a I1::ZSet)>,
-    for<'a> &'a I1::ZSet: IntoIterator<Item = (&'a V1, &'a W)>,
-    I2: IndexedZSet<K, V2, W>,
-    for<'a> &'a I2::ZSet: IntoIterator<Item = (&'a V2, &'a W)>,
-    F: Fn(&K, &V1, &V2) -> V,
-    Z: MapBuilder<V, W> + 'static,
+    I1: IndexedZSet,
+    I2: IndexedZSet<IndexKey = I1::IndexKey, Weight = I1::Weight>,
+    F: Fn(&I1::IndexKey, &I1::Value, &I2::Value) -> V + 'static,
+    V: 'static,
+    Z: Trie<Item = (V, I1::Weight)> + 'static,
 {
-    let mut map = Z::empty();
-    for (k, vals1) in i1.into_iter() {
-        if let Some(vals2) = i2.get_in_support(k) {
-            for (v1, w1) in vals1.into_iter() {
-                for (v2, w2) in vals2.into_iter() {
-                    map.increment_owned(join_func(k, v1, v2), w1.mul_by_ref(w2));
+    fn eval(&mut self, i1: &I1, i2: &I2) -> Z {
+        let mut cursor1 = i1.cursor();
+        let mut cursor2 = i2.cursor();
+
+        // Choose capacity heuristically.
+        let mut builder = Z::TupleBuilder::with_capacity(min(i1.tuples(), i2.tuples()));
+
+        while cursor1.valid(i1) && cursor2.valid(i2) {
+            match cursor1.key(i1).cmp(cursor2.key(i2)) {
+                Ordering::Less => cursor1.seek(i1, cursor2.key(i2)),
+                Ordering::Greater => cursor2.seek(i2, cursor1.key(i1)),
+                Ordering::Equal => {
+                    let (storage1, mut values1) = cursor1.values(i1);
+
+                    while values1.valid(storage1) {
+                        let (storage2, mut values2) = cursor2.values(i2);
+                        while values2.valid(storage2) {
+                            let (v1, w1) = values1.key(storage1);
+                            let (v2, w2) = values2.key(storage2);
+                            builder.push_tuple((
+                                (self.join_func)(cursor1.key(i1), v1, v2),
+                                w1.mul_by_ref(w2),
+                            ));
+                            values2.step(storage2);
+                        }
+                        values1.step(storage1);
+                    }
+
+                    cursor1.step(i1);
+                    cursor2.step(i2);
                 }
             }
         }
-    }
-    map
-}
 
-impl<K, V1, V2, V, W, F, I1, I2, Z> BinaryOperator<I1, I2, Z>
-    for Join<K, V1, V2, V, W, F, I1, I2, Z>
-where
-    K: KeyProperties,
-    V1: KeyProperties,
-    V2: KeyProperties,
-    W: ZRingValue,
-    I1: IndexedZSet<K, V1, W>,
-    for<'a> &'a I1: IntoIterator<Item = (&'a K, &'a I1::ZSet)>,
-    for<'a> &'a I1::ZSet: IntoIterator<Item = (&'a V1, &'a W)>,
-    I2: IndexedZSet<K, V2, W>,
-    for<'a> &'a I2: IntoIterator<Item = (&'a K, &'a I2::ZSet)>,
-    for<'a> &'a I2::ZSet: IntoIterator<Item = (&'a V2, &'a W)>,
-    F: Fn(&K, &V1, &V2) -> V + 'static,
-    V: 'static,
-    Z: MapBuilder<V, W> + 'static,
-{
-    fn eval(&mut self, i1: &I1, i2: &I2) -> Z {
-        // Iterate over smaller index.
-        if i1.support_size() < i2.support_size() {
-            join_inner(i1, i2, &self.join_func)
-        } else {
-            join_inner(i2, i1, &|k, i2, i1| (self.join_func)(k, i1, i2))
-        }
+        builder.done()
     }
 }
 
 #[cfg(test)]
 mod test {
     use crate::{
-        algebra::{FiniteHashMap, HasZero},
+        algebra::{HasZero, OrdFiniteMap, OrdIndexedZSet},
         circuit::{Root, Stream},
         finite_map,
         operator::{DelayedFeedback, Generator},
@@ -278,33 +231,33 @@ mod test {
     fn join_test() {
         let root = Root::build(move |circuit| {
             let mut input1 = vec![
-                vec![
-                    ((1, "a"), 1),
-                    ((1, "b"), 2),
-                    ((2, "c"), 3),
-                    ((2, "d"), 4),
-                    ((3, "e"), 5),
-                    ((3, "f"), -2),
-                ],
-                vec![((1, "a"), 1)],
-                vec![((1, "a"), 1)],
-                vec![((4, "n"), 2)],
-                vec![((1, "a"), 0)],
+                finite_map! {
+                    (1, "a") => 1,
+                    (1, "b") => 2,
+                    (2, "c") => 3,
+                    (2, "d") => 4,
+                    (3, "e") => 5,
+                    (3, "f") => -2,
+                },
+                finite_map! {(1, "a") => 1},
+                finite_map! {(1, "a") => 1},
+                finite_map! {(4, "n") => 2},
+                finite_map! {(1, "a") => 0},
             ]
             .into_iter();
             let mut input2 = vec![
-                vec![
-                    ((2, "g"), 3),
-                    ((2, "h"), 4),
-                    ((3, "i"), 5),
-                    ((3, "j"), -2),
-                    ((4, "k"), 5),
-                    ((4, "l"), -2),
-                ],
-                vec![((1, "b"), 1)],
-                vec![((4, "m"), 1)],
-                vec![],
-                vec![],
+                finite_map! {
+                    (2, "g") => 3,
+                    (2, "h") => 4,
+                    (3, "i") => 5,
+                    (3, "j") => -2,
+                    (4, "k") => 5,
+                    (4, "l") => -2,
+                },
+                finite_map! {(1, "b") => 1},
+                finite_map! {(4, "m") => 1},
+                finite_map! {},
+                finite_map! {},
             ]
             .into_iter();
             let mut outputs = vec![
@@ -353,22 +306,20 @@ mod test {
             ]
             .into_iter();
 
-            let index1: Stream<_, FiniteHashMap<usize, FiniteHashMap<&'static str, isize>>> =
-                circuit
-                    .add_source(Generator::new(move || input1.next().unwrap()))
-                    .index();
-            let index2: Stream<_, FiniteHashMap<usize, FiniteHashMap<&'static str, isize>>> =
-                circuit
-                    .add_source(Generator::new(move || input2.next().unwrap()))
-                    .index();
+            let index1: Stream<_, OrdIndexedZSet<usize, &'static str, isize>> = circuit
+                .add_source(Generator::new(move || input1.next().unwrap()))
+                .index();
+            let index2: Stream<_, OrdIndexedZSet<usize, &'static str, isize>> = circuit
+                .add_source(Generator::new(move || input2.next().unwrap()))
+                .index();
             index1
                 .join(&index2, |&k: &usize, s1, s2| (k, format!("{} {}", s1, s2)))
-                .inspect(move |fm: &FiniteHashMap<(usize, String), _>| {
+                .inspect(move |fm: &OrdFiniteMap<(usize, String), _>| {
                     assert_eq!(fm, &outputs.next().unwrap())
                 });
             index1
                 .join_incremental(&index2, |&k: &usize, s1, s2| (k, format!("{} {}", s1, s2)))
-                .inspect(move |fm: &FiniteHashMap<(usize, String), _>| {
+                .inspect(move |fm: &OrdFiniteMap<(usize, String), _>| {
                     assert_eq!(fm, &inc_outputs.next().unwrap())
                 });
         })
@@ -384,7 +335,7 @@ mod test {
     fn join_incremental_nested_test() {
         let root = Root::build(move |circuit| {
             // Changes to the edges relation.
-            let mut edges: vec::IntoIter<FiniteHashMap<(usize, usize), isize>> = vec![
+            let mut edges: vec::IntoIter<OrdFiniteMap<(usize, usize), isize>> = vec![
                 finite_map! { (1, 2) => 1 },
                 finite_map! { (2, 3) => 1},
                 finite_map! { (1, 3) => 1},
@@ -397,7 +348,7 @@ mod test {
             .into_iter();
 
             // Expected content of the reachability relation.
-            let mut outputs: vec::IntoIter<FiniteHashMap<(usize, usize), isize>> = vec![
+            let mut outputs: vec::IntoIter<OrdFiniteMap<(usize, usize), isize>> = vec![
                 finite_map! { (1, 2) => 1 },
                 finite_map! { (1, 2) => 1, (2, 3) => 1, (1, 3) => 1 },
                 finite_map! { (1, 2) => 1, (2, 3) => 1, (1, 3) => 1 },
@@ -413,7 +364,7 @@ mod test {
             ]
             .into_iter();
 
-            let edges: Stream<_, FiniteHashMap<(usize, usize), isize>> =
+            let edges: Stream<_, OrdFiniteMap<(usize, usize), isize>> =
                 circuit
                     .add_source(Generator::new(move || edges.next().unwrap()));
 
@@ -435,14 +386,14 @@ mod test {
                 //      join_incremental_nested
                 // ```
                 let edges = edges.delta0(child);
-                let paths_delayed = <DelayedFeedback<_, FiniteHashMap<_, _>>>::new(child);
+                let paths_delayed = <DelayedFeedback<_, OrdFiniteMap<_, _>>>::new(child);
 
-                let paths_inverted: Stream<_, FiniteHashMap<(usize, usize), isize>> = paths_delayed
+                let paths_inverted: Stream<_, OrdFiniteMap<(usize, usize), isize>> = paths_delayed
                     .stream()
                     .map_keys(|&(x, y)| (y, x));
 
-                let paths_inverted_indexed: Stream<_, FiniteHashMap<usize, FiniteHashMap<usize, isize>>> = paths_inverted.index();
-                let edges_indexed: Stream<_, FiniteHashMap<usize, FiniteHashMap<usize, isize>>> = edges.index();
+                let paths_inverted_indexed: Stream<_, OrdIndexedZSet<usize, usize, isize>> = paths_inverted.index();
+                let edges_indexed: Stream<_, OrdIndexedZSet<usize, usize, isize>> = edges.index();
 
                 let paths = edges.plus(&paths_inverted_indexed.join_incremental_nested(&edges_indexed, |_via, from, to| (*from, *to)))
                     .distinct_incremental_nested();

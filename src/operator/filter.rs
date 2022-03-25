@@ -1,8 +1,11 @@
 //! Filtering operators.
 
-use crate::circuit::{
-    operator_traits::{Operator, UnaryOperator},
-    Circuit, Scope, Stream,
+use crate::{
+    circuit::{
+        operator_traits::{Operator, UnaryOperator},
+        Circuit, Scope, Stream,
+    },
+    layers::{Builder, Cursor, Trie, TupleBuilder},
 };
 use std::{borrow::Cow, marker::PhantomData};
 
@@ -16,9 +19,8 @@ where
     where
         K: Clone + 'static,
         V: Clone + 'static,
-        CI: IntoIterator<Item = (K, V)> + 'static,
-        for<'a> &'a CI: IntoIterator<Item = (&'a K, &'a V)>,
-        CO: FromIterator<(K, V)> + Clone + 'static,
+        CI: Trie<Key = (K, V)> + 'static,
+        CO: Trie<Item = (K, V)> + Clone + 'static,
         F: Fn(&K) -> bool + 'static,
     {
         self.circuit()
@@ -78,24 +80,27 @@ impl<K, V, CI, CO, F> UnaryOperator<CI, CO> for FilterKeys<K, V, CI, CO, F>
 where
     K: Clone + 'static,
     V: Clone + 'static,
-    CI: IntoIterator<Item = (K, V)> + 'static,
-    for<'a> &'a CI: IntoIterator<Item = (&'a K, &'a V)>,
-    CO: FromIterator<(K, V)> + 'static,
+    CI: Trie<Key = (K, V)> + 'static,
+    CO: Trie<Item = (K, V)> + 'static,
     F: Fn(&K) -> bool + 'static,
 {
     fn eval(&mut self, i: &CI) -> CO {
-        i.into_iter()
-            .filter_map(|(k, v)| {
-                if (self.filter)(k) {
-                    Some((k.clone(), v.clone()))
-                } else {
-                    None
-                }
-            })
-            .collect()
+        let mut cursor = i.cursor();
+        let mut builder = CO::TupleBuilder::with_capacity(i.keys());
+
+        while cursor.valid(i) {
+            let kv = cursor.key(i);
+            if (self.filter)(&kv.0) {
+                builder.push_tuple(kv.clone())
+            }
+            cursor.step(i);
+        }
+
+        builder.done()
     }
 
     fn eval_owned(&mut self, i: CI) -> CO {
-        i.into_iter().filter(|(k, _v)| (self.filter)(k)).collect()
+        // TODO: owned implementation
+        self.eval(&i)
     }
 }

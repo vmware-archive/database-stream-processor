@@ -7,8 +7,8 @@ mod checked_int;
 mod zset;
 
 pub use checked_int::CheckedInt;
-pub use finite_map::{FiniteHashMap, FiniteMap, MapBuilder, WithSupport};
-pub use zset::{IndexedZSet, IndexedZSetHashMap, ZSet, ZSetHashMap};
+pub use finite_map::{FiniteMap, OrdFiniteMap};
+pub use zset::{IndexedZSet, OrdIndexedZSet, OrdZSet, ZSet};
 
 use std::{
     num::Wrapping,
@@ -17,6 +17,7 @@ use std::{
 };
 
 /// A trait for types that have a zero value.
+///
 /// This is simlar to the standard Zero trait, but that
 /// trait depends on Add and HasZero doesn't.
 pub trait HasZero {
@@ -114,15 +115,6 @@ where
     fn one() -> Self {
         Rc::new(<T as HasOne>::one())
     }
-}
-
-/// A trait for objects with size.
-pub trait WithNumEntries {
-    /// Returns the number of entries in `self`.
-    ///
-    /// Container types have a well-defined notion of size
-    /// (the number of entries in the container).  Scalars have size 1.
-    fn num_entries(&self) -> usize;
 }
 
 /// Like the Add trait, but with arguments by reference.
@@ -249,7 +241,7 @@ pub trait ZRingValue: RingValue {
     fn le0(&self) -> bool;
 }
 
-/// Default implementation of ZRingValue for all types that have the required
+/// Default implementation of `ZRingValue` for all types that have the required
 /// traits.
 impl<T> ZRingValue for T
 where

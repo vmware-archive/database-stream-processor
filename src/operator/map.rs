@@ -5,8 +5,9 @@ use crate::{
         operator_traits::{Operator, UnaryOperator},
         Circuit, Scope, Stream,
     },
+    layers::{Builder, Cursor, Trie, TupleBuilder},
     operator::UnaryOperatorAdapter,
-    RefPair, SharedRef,
+    SharedRef,
 };
 use std::{borrow::Cow, marker::PhantomData};
 
@@ -24,10 +25,8 @@ where
         K2: Clone + 'static,
         V: Clone + 'static,
         SR: SharedRef + 'static,
-        SR::Target: IntoIterator<Item = (K1, V)> + 'static,
-        for<'a> &'a SR::Target: IntoIterator,
-        for<'a> <&'a SR::Target as IntoIterator>::Item: RefPair<'a, K1, V>,
-        CO: FromIterator<(K2, V)> + Clone + 'static,
+        SR::Target: Trie<Key = (K1, V)> + 'static,
+        CO: Trie<Item = (K2, V)> + Clone + 'static,
         F: Fn(&K1) -> K2 + Clone + 'static,
     {
         self.circuit().add_unary_operator(
@@ -45,10 +44,8 @@ where
         K2: Clone + 'static,
         V: Clone + 'static,
         SR: SharedRef + 'static,
-        SR::Target: IntoIterator<Item = (K1, V)> + 'static,
-        for<'a> &'a SR::Target: IntoIterator,
-        for<'a> <&'a SR::Target as IntoIterator>::Item: RefPair<'a, K1, V>,
-        CO: FromIterator<(K2, V)> + Clone + 'static,
+        SR::Target: Trie<Key = (K1, V)> + 'static,
+        CO: Trie<Item = (K2, V)> + Clone + 'static,
         F: Fn(K1) -> K2 + Clone + 'static,
     {
         let func_clone = map.clone();
@@ -65,10 +62,8 @@ where
         V1: Clone + 'static,
         V2: Clone + 'static,
         SR: SharedRef + 'static,
-        SR::Target: IntoIterator<Item = (K, V1)> + 'static,
-        for<'a> &'a SR::Target: IntoIterator,
-        for<'a> <&'a SR::Target as IntoIterator>::Item: RefPair<'a, K, V1>,
-        CO: FromIterator<(K, V2)> + Clone + 'static,
+        SR::Target: Trie<Key = (K, V1)> + 'static,
+        CO: Trie<Item = (K, V2)> + Clone + 'static,
         F: Fn(&K, &V1) -> V2 + 'static,
     {
         self.circuit()
@@ -94,7 +89,7 @@ where
     FO: 'static,
 {
     map_borrowed: FB,
-    map_owned: FO,
+    _map_owned: FO,
     _type: PhantomData<(K1, K2, V, CI, CO)>,
 }
 
@@ -103,10 +98,10 @@ where
     FB: 'static,
     FO: 'static,
 {
-    pub fn new(map_borrowed: FB, map_owned: FO) -> Self {
+    pub fn new(map_borrowed: FB, _map_owned: FO) -> Self {
         Self {
             map_borrowed,
-            map_owned,
+            _map_owned,
             _type: PhantomData,
         }
     }
@@ -134,26 +129,25 @@ where
     K1: Clone + 'static,
     K2: Clone + 'static,
     V: Clone + 'static,
-    CI: IntoIterator<Item = (K1, V)> + 'static,
-    for<'a> &'a CI: IntoIterator,
-    for<'a> <&'a CI as IntoIterator>::Item: RefPair<'a, K1, V>,
-    CO: FromIterator<(K2, V)> + 'static,
+    CI: Trie<Key = (K1, V)> + 'static,
+    CO: Trie<Item = (K2, V)> + 'static,
     FB: Fn(&K1) -> K2 + 'static,
     FO: Fn(K1) -> K2 + 'static,
 {
     fn eval(&mut self, i: &CI) -> CO {
-        i.into_iter()
-            .map(|pair| {
-                let (k, v) = pair.into_refs();
-                ((self.map_borrowed)(k), v.clone())
-            })
-            .collect()
+        let mut cursor = i.cursor();
+        let mut builder = <CO as Trie>::TupleBuilder::with_capacity(i.keys());
+        while cursor.valid(i) {
+            let (k, v) = cursor.key(i);
+            builder.push_tuple(((self.map_borrowed)(k), v.clone()));
+            cursor.step(i);
+        }
+        builder.done()
     }
 
     fn eval_owned(&mut self, i: CI) -> CO {
-        i.into_iter()
-            .map(|(k, v)| ((self.map_owned)(k), v))
-            .collect()
+        // TODO: owned implementation.
+        self.eval(&i)
     }
 }
 
@@ -210,35 +204,32 @@ where
     K: Clone + 'static,
     V1: Clone + 'static,
     V2: Clone + 'static,
-    CI: IntoIterator<Item = (K, V1)> + 'static,
-    for<'a> &'a CI: IntoIterator,
-    for<'a> <&'a CI as IntoIterator>::Item: RefPair<'a, K, V1>,
-    CO: FromIterator<(K, V2)> + 'static,
+    CI: Trie<Key = (K, V1)> + 'static,
+    CO: Trie<Item = (K, V2)> + 'static,
     F: Fn(&K, &V1) -> V2 + 'static,
 {
     fn eval(&mut self, i: &CI) -> CO {
-        i.into_iter()
-            .map(|pair| {
-                let (k, v) = pair.into_refs();
-                (k.clone(), (self.map)(k, v))
-            })
-            .collect()
+        let mut cursor = i.cursor();
+        let mut builder = <CO as Trie>::TupleBuilder::with_capacity(i.keys());
+
+        while cursor.valid(i) {
+            let (k, v) = cursor.key(i);
+            builder.push_tuple((k.clone(), (self.map)(k, v)));
+            cursor.step(i);
+        }
+
+        builder.done()
     }
 
     fn eval_owned(&mut self, i: CI) -> CO {
-        i.into_iter()
-            .map(|(k, v)| {
-                let output_v = (self.map)(&k, &v);
-                (k, output_v)
-            })
-            .collect()
+        self.eval(&i)
     }
 }
 
 #[cfg(test)]
 mod test {
     use crate::{
-        algebra::FiniteHashMap,
+        algebra::OrdFiniteMap,
         circuit::{Root, Stream},
         finite_map,
         operator::Generator,
@@ -248,43 +239,43 @@ mod test {
     #[test]
     fn map_keys_test() {
         let root = Root::build(move |circuit| {
-            let mut input_map: vec::IntoIter<FiniteHashMap<isize, isize>> =
+            let mut input_map: vec::IntoIter<OrdFiniteMap<isize, isize>> =
                 vec![finite_map! { 1 => 1, -1 => 1, 5 => 1 }].into_iter();
-            let mut times2_output: vec::IntoIter<FiniteHashMap<isize, isize>> =
+            let mut times2_output: vec::IntoIter<OrdFiniteMap<isize, isize>> =
                 vec![finite_map! { 2 => 1, -2 => 1, 10 => 1 }].into_iter();
-            let mut times2_pos_output: vec::IntoIter<FiniteHashMap<isize, isize>> =
+            let mut times2_pos_output: vec::IntoIter<OrdFiniteMap<isize, isize>> =
                 vec![finite_map! { 2 => 1, 10 => 1 }].into_iter();
-            let mut neg_output: vec::IntoIter<FiniteHashMap<isize, isize>> =
+            let mut neg_output: vec::IntoIter<OrdFiniteMap<isize, isize>> =
                 vec![finite_map! { -1 => 1, 1 => 1, -5 => 1}].into_iter();
-            let mut neg_pos_output: vec::IntoIter<FiniteHashMap<isize, isize>> =
+            let mut neg_pos_output: vec::IntoIter<OrdFiniteMap<isize, isize>> =
                 vec![finite_map! { -1 => 1, -5 => 1}].into_iter();
 
-            let mut input_vec: vec::IntoIter<Vec<(isize, isize)>> =
-                vec![vec![(1, 1), (-1, 1)]].into_iter();
-            let mut abs_output: vec::IntoIter<FiniteHashMap<isize, isize>> =
+            let mut input_vec: vec::IntoIter<OrdFiniteMap<isize, isize>> =
+                vec![finite_map! { 1 => 1, -1 => 1}].into_iter();
+            let mut abs_output: vec::IntoIter<OrdFiniteMap<isize, isize>> =
                 vec![finite_map! { 1 => 2 }].into_iter();
-            let mut abs_pos_output: vec::IntoIter<FiniteHashMap<isize, isize>> =
+            let mut abs_pos_output: vec::IntoIter<OrdFiniteMap<isize, isize>> =
                 vec![finite_map! { 1 => 1 }].into_iter();
-            let mut sqr_output: vec::IntoIter<FiniteHashMap<isize, isize>> =
+            let mut sqr_output: vec::IntoIter<OrdFiniteMap<isize, isize>> =
                 vec![finite_map! { 1 => 2, }].into_iter();
-            let mut sqr_pos_output: vec::IntoIter<FiniteHashMap<isize, isize>> =
+            let mut sqr_pos_output: vec::IntoIter<OrdFiniteMap<isize, isize>> =
                 vec![finite_map! { 1 => 1, }].into_iter();
 
             let input_map_stream =
                 circuit.add_source(Generator::new(move || input_map.next().unwrap()));
             let input_vec_stream =
                 circuit.add_source(Generator::new(move || input_vec.next().unwrap()));
-            let times2: Stream<_, FiniteHashMap<_, _>> = input_map_stream.map_keys(|n| n * 2);
-            let times2_pos: Stream<_, FiniteHashMap<_, _>> =
+            let times2: Stream<_, OrdFiniteMap<_, _>> = input_map_stream.map_keys(|n| n * 2);
+            let times2_pos: Stream<_, OrdFiniteMap<_, _>> =
                 input_map_stream.filter_map_keys(|n| if *n > 0 { Some(n * 2) } else { None });
-            let neg: Stream<_, FiniteHashMap<_, _>> = input_map_stream.map_keys_owned(|n| -n);
-            let neg_pos: Stream<_, FiniteHashMap<_, _>> =
+            let neg: Stream<_, OrdFiniteMap<_, _>> = input_map_stream.map_keys_owned(|n| -n);
+            let neg_pos: Stream<_, OrdFiniteMap<_, _>> =
                 input_map_stream.filter_map_keys_owned(|n| if n > 0 { Some(-n) } else { None });
-            let abs: Stream<_, FiniteHashMap<_, _>> = input_vec_stream.map_keys(|n| n.abs());
-            let abs_pos: Stream<_, FiniteHashMap<_, _>> =
+            let abs: Stream<_, OrdFiniteMap<_, _>> = input_vec_stream.map_keys(|n| n.abs());
+            let abs_pos: Stream<_, OrdFiniteMap<_, _>> =
                 input_vec_stream.filter_map_keys(|n| if *n > 0 { Some(n.abs()) } else { None });
-            let sqr: Stream<_, FiniteHashMap<_, _>> = input_vec_stream.map_keys_owned(|n| n * n);
-            let sqr_pos: Stream<_, FiniteHashMap<_, _>> =
+            let sqr: Stream<_, OrdFiniteMap<_, _>> = input_vec_stream.map_keys_owned(|n| n * n);
+            let sqr_pos: Stream<_, OrdFiniteMap<_, _>> =
                 input_vec_stream.filter_map_keys_owned(|n| if n > 0 { Some(n * n) } else { None });
             times2.inspect(move |n| {
                 assert_eq!(*n, times2_output.next().unwrap());

@@ -1,97 +1,104 @@
-#[cfg(test)]
-pub(crate) mod tests;
+#[macro_use]
+mod zset_macro;
 
-use crate::algebra::{
-    finite_map::{FiniteHashMap, FiniteMap, KeyProperties, MapBuilder},
-    AddAssignByRef, ZRingValue,
+use crate::{
+    algebra::{
+        finite_map::{FiniteMap, OrdFiniteMap},
+        AddAssignByRef, AddByRef, ZRingValue,
+    },
+    layers::{Builder, Cursor, OrderedLayer, OrderedLeaf, Trie, TupleBuilder},
+    NumEntries, SharedRef,
 };
+use std::ops::Add;
 
 /// The Z-set trait.
 ///
 /// A Z-set is a set where each element has a weight.
 /// Weights belong to some ring.
 ///
-/// `Data` - Type of values stored in Z-set
+/// `Data` - Type of values stored in Z-set.
 /// `Weight` - Type of weights.  Must be a value from a Ring.
-pub trait ZSet<Data, Weight>: FiniteMap<Data, Weight>
-where
-    Data: KeyProperties,
-    Weight: ZRingValue,
-{
-    // type KeyIterator: Iterator<Ite m= Data>;
+pub trait ZSet: FiniteMap<MapKey = Self::Data, Value = Self::Weight> {
+    type Data: Eq + Ord + Clone;
+    type Weight: ZRingValue;
 
-    /// Returns a Z-set that contains all elements with positive weights from `self` with weights
-    /// set to 1.
+    /// Returns a Z-set that contains all elements with positive weights from
+    /// `self` with weights set to 1.
     fn distinct(&self) -> Self;
 
     /// Like `distinct` but optimized to operate on an owned value.
     fn distinct_owned(self) -> Self;
 }
 
-/// An implementation of ZSets using [`FiniteHashMap`]s
-pub type ZSetHashMap<Data, Weight> = FiniteHashMap<Data, Weight>;
+/// An implementation of Z-sets backed by [`OrdFiniteMap`].
+pub type OrdZSet<Data, Weight> = OrdFiniteMap<Data, Weight>;
 
-/// Build a Z-set from an iterator, giving each item a weight of 1.
-impl<Data, Weight> FromIterator<Data> for ZSetHashMap<Data, Weight>
+impl<Data, Weight> ZSet for OrdZSet<Data, Weight>
 where
-    Data: KeyProperties,
+    Data: Ord + Clone + 'static,
     Weight: ZRingValue,
 {
-    fn from_iter<T>(iter: T) -> Self
-    where
-        T: IntoIterator<Item = Data>,
-    {
-        Self::from_iter(iter.into_iter().map(|d| (d, Weight::one())))
-    }
-}
+    type Data = Data;
+    type Weight = Weight;
 
-impl<Data, Weight> ZSet<Data, Weight> for ZSetHashMap<Data, Weight>
-where
-    Data: KeyProperties,
-    Weight: ZRingValue,
-{
     fn distinct(&self) -> Self {
-        let mut result = Self::new();
+        let mut builder = Self::TupleBuilder::with_capacity(self.keys());
+        let mut cursor = self.cursor();
 
-        for (key, value) in &self.value {
+        while cursor.valid(self) {
+            let (key, value) = cursor.key(self);
             if value.ge0() {
-                result.increment(key, Weight::one());
+                builder.push_tuple((key.clone(), Weight::one()));
             }
+            cursor.step(self);
         }
 
-        result
+        builder.done()
     }
 
+    // TODO: optimized implementation for owned values
     fn distinct_owned(self) -> Self {
-        let mut result = Self::new();
-
-        for (key, value) in self.value.into_iter() {
-            if value.ge0() {
-                result.increment_owned(key, Weight::one());
-            }
-        }
-
-        result
+        self.distinct()
     }
 }
 
 /// An indexed Z-set maps arbitrary keys to Z-set values.
-pub trait IndexedZSet<Key, Value, Weight>: FiniteMap<Key, Self::ZSet>
-where
-    Key: KeyProperties,
-    Value: KeyProperties,
-    Weight: ZRingValue,
+pub trait IndexedZSet:
+    Trie<
+        Key = Self::IndexKey,
+        ChildKey = (Self::Value, Self::Weight),
+        Item = (Self::IndexKey, (Self::Value, Self::Weight)),
+    > + Add<Output = Self>
+    + AddByRef
+    + AddAssignByRef
+    + Clone
+    + NumEntries
+    + SharedRef<Target = Self>
+    + 'static
 {
-    type ZSet: ZSet<Value, Weight>;
+    type IndexKey: Clone + Ord;
+    type Value: Clone + Ord;
+    type Weight: ZRingValue;
 }
 
-pub type IndexedZSetHashMap<Key, Value, Weight> = FiniteHashMap<Key, ZSetHashMap<Value, Weight>>;
-
-impl<Key, Value, Weight> IndexedZSet<Key, Value, Weight> for IndexedZSetHashMap<Key, Value, Weight>
+impl<T, Key, Value, Weight> IndexedZSet for T
 where
-    Key: KeyProperties,
-    Value: KeyProperties,
+    T: Trie<Key = Key, ChildKey = (Value, Weight), Item = (Key, (Value, Weight))>
+        + Add<Output = T>
+        + AddByRef
+        + AddAssignByRef
+        + Clone
+        + NumEntries
+        + SharedRef<Target = Self>
+        + 'static,
+    Value: Clone + Ord,
     Weight: ZRingValue,
+    Key: Clone + Ord,
 {
-    type ZSet = ZSetHashMap<Value, Weight>;
+    type IndexKey = Key;
+    type Value = Value;
+    type Weight = Weight;
 }
+
+/// An implementation of indexes Z-sets backed by [`OrderedLayer`].
+pub type OrdIndexedZSet<Key, Value, Weight> = OrderedLayer<Key, OrderedLeaf<Value, Weight>>;

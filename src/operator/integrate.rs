@@ -153,8 +153,10 @@ where
 #[cfg(test)]
 mod test {
     use crate::{
-        algebra::{FiniteMap, MapBuilder, ZSetHashMap},
+        algebra::OrdZSet,
         circuit::Root,
+        finite_map,
+        layers::{Builder, Trie, TupleBuilder},
         monitor::TraceMonitor,
         operator::{DelayedFeedback, Generator},
     };
@@ -180,10 +182,10 @@ mod test {
     fn zset_integrate() {
         let root = Root::build(move |circuit| {
             let mut counter1 = 0;
-            let mut s = ZSetHashMap::new();
+            let mut s = <OrdZSet<_, _> as Trie>::TupleBuilder::new().done();
             let source = circuit.add_source(Generator::new(move || {
                 let res = s.clone();
-                s.increment(&counter1, 1);
+                s = s.merge(&finite_map! { counter1 => 1});
                 counter1 += 1;
                 res
             }));
@@ -191,19 +193,21 @@ mod test {
             let integral = source.integrate();
             let mut counter2 = 0;
             integral.inspect(move |s| {
+                let mut builder = <OrdZSet<_, _> as Trie>::TupleBuilder::with_capacity(counter2);
                 for i in 0..counter2 {
-                    assert_eq!(s.lookup(&i), (counter2 - i) as isize);
+                    builder.push_tuple((i, (counter2 - i) as isize));
                 }
+                assert_eq!(s, &builder.done());
                 counter2 += 1;
-                assert_eq!(s.lookup(&counter2), 0);
             });
             let mut counter3 = 0;
             integral.delay().inspect(move |s| {
+                let mut builder = <OrdZSet<_, _> as Trie>::TupleBuilder::with_capacity(counter2);
                 for i in 1..counter3 {
-                    assert_eq!(s.lookup(&(i - 1)), (counter3 - i) as isize);
+                    builder.push_tuple(((i - 1), (counter3 - i) as isize));
                 }
+                assert_eq!(s, &builder.done());
                 counter3 += 1;
-                assert_eq!(s.lookup(&(counter3 - 1)), 0);
             });
         })
         .unwrap();

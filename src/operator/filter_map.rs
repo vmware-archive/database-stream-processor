@@ -5,7 +5,7 @@ use crate::{
         operator_traits::{Operator, UnaryOperator},
         Circuit, Scope, Stream,
     },
-    RefPair,
+    layers::{Builder, Cursor, Trie, TupleBuilder},
 };
 use std::{borrow::Cow, marker::PhantomData};
 
@@ -22,10 +22,8 @@ where
         K1: Clone + 'static,
         K2: Clone + 'static,
         V: Clone + 'static,
-        CI: IntoIterator<Item = (K1, V)> + 'static,
-        for<'a> &'a CI: IntoIterator,
-        for<'a> <&'a CI as IntoIterator>::Item: RefPair<'a, K1, V>,
-        CO: FromIterator<(K2, V)> + Clone + 'static,
+        CI: Trie<Key = (K1, V)> + 'static,
+        CO: Trie<Item = (K2, V)> + Clone + 'static,
         F: Fn(&K1) -> Option<K2> + Clone + 'static,
     {
         self.circuit()
@@ -40,10 +38,8 @@ where
         K1: Clone + 'static,
         K2: Clone + 'static,
         V: Clone + 'static,
-        CI: IntoIterator<Item = (K1, V)> + 'static,
-        for<'a> &'a CI: IntoIterator,
-        for<'a> <&'a CI as IntoIterator>::Item: RefPair<'a, K1, V>,
-        CO: FromIterator<(K2, V)> + Clone + 'static,
+        CI: Trie<Key = (K1, V)> + 'static,
+        CO: Trie<Item = (K2, V)> + Clone + 'static,
         F: Fn(K1) -> Option<K2> + Clone + 'static,
     {
         let func_clone = func.clone();
@@ -72,7 +68,7 @@ where
     FO: 'static,
 {
     map_borrowed: FB,
-    map_owned: FO,
+    _map_owned: FO,
     _type: PhantomData<(K1, K2, V, CI, CO)>,
 }
 
@@ -81,10 +77,10 @@ where
     FB: 'static,
     FO: 'static,
 {
-    pub fn new(map_borrowed: FB, map_owned: FO) -> Self {
+    pub fn new(map_borrowed: FB, _map_owned: FO) -> Self {
         Self {
             map_borrowed,
-            map_owned,
+            _map_owned,
             _type: PhantomData,
         }
     }
@@ -112,25 +108,29 @@ where
     K1: Clone + 'static,
     K2: Clone + 'static,
     V: Clone + 'static,
-    CI: IntoIterator<Item = (K1, V)> + 'static,
-    for<'a> &'a CI: IntoIterator,
-    for<'a> <&'a CI as IntoIterator>::Item: RefPair<'a, K1, V>,
-    CO: FromIterator<(K2, V)> + 'static,
+    CI: Trie<Key = (K1, V)> + 'static,
+    CO: Trie<Item = (K2, V)> + 'static,
     FB: Fn(&K1) -> Option<K2> + 'static,
     FO: Fn(K1) -> Option<K2> + 'static,
 {
     fn eval(&mut self, i: &CI) -> CO {
-        i.into_iter()
-            .filter_map(|pair| {
-                let (k, v) = pair.into_refs();
-                (self.map_borrowed)(k).map(|k| (k, v.clone()))
-            })
-            .collect()
+        let mut cursor = i.cursor();
+        let mut builder = CO::TupleBuilder::with_capacity(i.keys());
+        while cursor.valid(i) {
+            let (k, v) = cursor.key(i);
+
+            if let Some(k2) = (self.map_borrowed)(k) {
+                builder.push_tuple((k2, v.clone()));
+            }
+
+            cursor.step(i);
+        }
+
+        builder.done()
     }
 
     fn eval_owned(&mut self, i: CI) -> CO {
-        i.into_iter()
-            .filter_map(|(k, v)| (self.map_owned)(k).map(|k| (k, v)))
-            .collect()
+        // TODO: owned implementation.
+        self.eval(&i)
     }
 }

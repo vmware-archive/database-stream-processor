@@ -1,21 +1,22 @@
 #![cfg(test)]
 
 use crate::{
-    algebra::{AddByRef, MapBuilder, ZSetHashMap},
+    algebra::{AddByRef, OrdZSet},
     circuit::{operator_traits::SourceOperator, Root},
     finite_map,
+    layers::{Builder, Trie, TupleBuilder},
     operator::Generator,
 };
 use std::{cell::RefCell, ops::Deref, rc::Rc};
 
-fn make_generator() -> impl SourceOperator<ZSetHashMap<i64, i64>> {
-    let mut z = ZSetHashMap::new();
+fn make_generator() -> impl SourceOperator<OrdZSet<i64, i64>> {
+    let mut z = <OrdZSet<i64, i64> as Trie>::TupleBuilder::new().done();
     let mut count = 0i64;
 
     Generator::new(move || {
         count += 1;
         let result = z.clone();
-        z.increment(&count, 1i64);
+        z = z.merge(&finite_map! { count => 1i64 });
         result
     })
 }
@@ -26,8 +27,9 @@ fn map() {
     let actual_data = Rc::new(RefCell::new(Vec::new()));
     let actual_data_clone = actual_data.clone();
     let root = Root::build(|circuit| {
-        circuit
-            .add_source(make_generator())
+        let source = circuit.add_source(make_generator());
+        source.inspect(|x| println!("{:?}", x));
+        source
             .apply(|map| map.add_by_ref(map))
             .inspect(move |map| actual_data.borrow_mut().push(map.clone()));
     })
@@ -45,14 +47,14 @@ fn map() {
     assert_eq!(&expected, actual_data_clone.borrow().deref());
 }
 
-fn make_tuple_generator() -> impl SourceOperator<ZSetHashMap<(i64, i64), i64>> {
-    let mut z = ZSetHashMap::new();
+fn make_tuple_generator() -> impl SourceOperator<OrdZSet<(i64, i64), i64>> {
+    let mut z = <OrdZSet<(i64, i64), i64> as Trie>::TupleBuilder::new().done();
     let mut count = 0;
 
     Generator::new(move || {
         count += 1;
         let result = z.clone();
-        z.increment(&(count, count + 1), 1i64);
+        z = z.clone().merge(&finite_map! { (count, count + 1) => 1i64 });
         result
     })
 }
@@ -93,7 +95,7 @@ fn tuple_filter_test() {
     let root = Root::build(|circuit| {
         circuit
             .add_source(make_tuple_generator())
-            .filter_keys::<_, _, ZSetHashMap<_, _>, _>(|(left, _)| left % 2 == 0)
+            .filter_keys::<_, _, OrdZSet<_, _>, _>(|(left, _)| left % 2 == 0)
             .inspect(move |map| actual_data.borrow_mut().push(map.clone()));
     })
     .unwrap();

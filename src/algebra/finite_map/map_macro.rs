@@ -1,20 +1,21 @@
-/// Allows easily creating [`FiniteHashMap`](crate::algebra::FiniteHashMap)s
+/// Allows easily creating [`OrdFiniteMap`](crate::algebra::OrdFiniteMap)s
 #[macro_export]
 macro_rules! finite_map {
     // Create an empty map
     () => {
-        $crate::algebra::FiniteHashMap::new()
+        $crate::layers::Builder::done(<<$crate::algebra::OrdFiniteMap<_, _> as $crate::layers::Trie>::TupleBuilder as $crate::layers::TupleBuilder>::new())
     };
 
     // Create a map from elements
     ($($key:expr => $value:expr),+ $(,)?) => {{
-        let mut map = $crate::algebra::FiniteHashMap::with_capacity(
+
+        let mut builder = <<$crate::algebra::OrdFiniteMap<_, _> as $crate::layers::Trie>::TupleBuilder as $crate::layers::TupleBuilder>::with_capacity(
             $crate::count_elements!($($key),+),
         );
 
-        $( <$crate::algebra::FiniteHashMap<_,_> as $crate::algebra::MapBuilder<_,_>>::increment(&mut map, &$key, $value); )+
+        $( $crate::layers::TupleBuilder::push_tuple(&mut builder, ($key, $value)); )+
 
-        map
+        $crate::layers::Builder::done(builder)
     }};
 }
 

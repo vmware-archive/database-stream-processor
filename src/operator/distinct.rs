@@ -1,14 +1,15 @@
 //! Distinct operator.
 
-use std::{borrow::Cow, marker::PhantomData};
+use std::{borrow::Cow, marker::PhantomData, ops::Neg};
 
 use crate::{
-    algebra::{finite_map::KeyProperties, ZRingValue, ZSet},
+    algebra::{HasOne, HasZero, ZRingValue, ZSet},
     circuit::{
         operator_traits::{BinaryOperator, Operator, UnaryOperator},
         Circuit, NodeId, Scope, Stream,
     },
     circuit_cache_key,
+    layers::{Builder, Cursor, TupleBuilder},
     operator::{BinaryOperatorAdapter, UnaryOperatorAdapter},
     NumEntries, SharedRef,
 };
@@ -21,12 +22,10 @@ where
     P: Clone + 'static,
 {
     /// Apply [`Distinct`] operator to `self`.
-    pub fn distinct<V, W>(&self) -> Stream<Circuit<P>, <Z as SharedRef>::Target>
+    pub fn distinct(&self) -> Stream<Circuit<P>, <Z as SharedRef>::Target>
     where
-        V: KeyProperties,
-        W: ZRingValue,
         Z: SharedRef + 'static,
-        <Z as SharedRef>::Target: ZSet<V, W>,
+        <Z as SharedRef>::Target: ZSet,
     {
         self.circuit()
             .cache_get_or_insert_with(DistinctId::new(self.local_node_id()), || {
@@ -40,13 +39,10 @@ where
     ///
     /// This is equivalent to `self.integrate().distinct().differentiate()`, but
     /// is more efficient.
-    pub fn distinct_incremental<V, W>(&self) -> Stream<Circuit<P>, <Z as SharedRef>::Target>
+    pub fn distinct_incremental(&self) -> Stream<Circuit<P>, <Z as SharedRef>::Target>
     where
-        V: KeyProperties,
-        W: ZRingValue,
         Z: SharedRef + 'static,
-        <Z as SharedRef>::Target: NumEntries + ZSet<V, W> + SharedRef<Target = Z::Target>,
-        for<'a> &'a <Z as SharedRef>::Target: IntoIterator<Item = (&'a V, &'a W)>,
+        <Z as SharedRef>::Target: NumEntries + ZSet + SharedRef<Target = Z::Target>,
     {
         self.circuit()
             .cache_get_or_insert_with(DistinctIncrementalId::new(self.local_node_id()), || {
@@ -60,13 +56,10 @@ where
     }
 
     /// Incremental nested version of the [`Distinct`] operator.
-    pub fn distinct_incremental_nested<V, W>(&self) -> Stream<Circuit<P>, <Z as SharedRef>::Target>
+    pub fn distinct_incremental_nested(&self) -> Stream<Circuit<P>, <Z as SharedRef>::Target>
     where
-        V: KeyProperties,
-        W: ZRingValue,
         Z: SharedRef + 'static,
-        <Z as SharedRef>::Target: NumEntries + ZSet<V, W> + SharedRef<Target = Z::Target>,
-        for<'a> &'a <Z as SharedRef>::Target: IntoIterator<Item = (&'a V, &'a W)>,
+        <Z as SharedRef>::Target: NumEntries + ZSet + SharedRef<Target = Z::Target>,
     {
         self.integrate_nested()
             .distinct_incremental()
@@ -74,27 +67,25 @@ where
     }
 }
 
-/// Distinct operator changes all weights in the support of a Z-set to 1.
-pub struct Distinct<V, W, Z> {
-    _type: PhantomData<(V, W, Z)>,
+/// `Distinct` operator changes all weights in the support of a Z-set to 1.
+pub struct Distinct<Z> {
+    _type: PhantomData<Z>,
 }
 
-impl<V, W, Z> Distinct<V, W, Z> {
+impl<Z> Distinct<Z> {
     pub fn new() -> Self {
         Self { _type: PhantomData }
     }
 }
 
-impl<V, W, Z> Default for Distinct<V, W, Z> {
+impl<Z> Default for Distinct<Z> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<V, W, Z> Operator for Distinct<V, W, Z>
+impl<Z> Operator for Distinct<Z>
 where
-    V: 'static,
-    W: 'static,
     Z: 'static,
 {
     fn name(&self) -> Cow<'static, str> {
@@ -104,11 +95,9 @@ where
     fn clock_end(&mut self, _scope: Scope) {}
 }
 
-impl<V, W, Z> UnaryOperator<Z, Z> for Distinct<V, W, Z>
+impl<Z> UnaryOperator<Z, Z> for Distinct<Z>
 where
-    V: KeyProperties,
-    W: ZRingValue,
-    Z: ZSet<V, W> + 'static,
+    Z: ZSet,
 {
     fn eval(&mut self, i: &Z) -> Z {
         i.distinct()
@@ -125,26 +114,24 @@ where
 /// value of `A`: `z^-1(A) = a.integrate().delay()` and computes
 /// `distinct(A) - distinct(z^-1(A))` incrementally, by only considering
 /// values in the support of `a`.
-struct DistinctIncremental<V, W, Z> {
-    _type: PhantomData<(V, W, Z)>,
+struct DistinctIncremental<Z> {
+    _type: PhantomData<Z>,
 }
 
-impl<V, W, Z> DistinctIncremental<V, W, Z> {
+impl<Z> DistinctIncremental<Z> {
     pub fn new() -> Self {
         Self { _type: PhantomData }
     }
 }
 
-impl<V, W, Z> Default for DistinctIncremental<V, W, Z> {
+impl<Z> Default for DistinctIncremental<Z> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<V, W, Z> Operator for DistinctIncremental<V, W, Z>
+impl<Z> Operator for DistinctIncremental<Z>
 where
-    V: 'static,
-    W: 'static,
     Z: 'static,
 {
     fn name(&self) -> Cow<'static, str> {
@@ -154,53 +141,47 @@ where
     fn clock_end(&mut self, _scope: Scope) {}
 }
 
-impl<V, W, Z> BinaryOperator<Z, Z, Z> for DistinctIncremental<V, W, Z>
+impl<Z> BinaryOperator<Z, Z, Z> for DistinctIncremental<Z>
 where
-    V: KeyProperties,
-    W: ZRingValue,
-    for<'a> &'a Z: IntoIterator<Item = (&'a V, &'a W)>,
-    Z: ZSet<V, W> + 'static,
+    Z: ZSet,
 {
     fn eval(&mut self, delta: &Z, delayed_integral: &Z) -> Z {
-        let mut result = Z::empty();
+        let mut builder = Z::TupleBuilder::with_capacity(delta.keys());
+        let mut delta_cursor = delta.cursor();
+        let mut integral_cursor = delayed_integral.cursor();
 
-        for (v, w) in delta.into_iter() {
-            let old_weight = delayed_integral.lookup(v);
+        while delta_cursor.valid(delta) {
+            let vw = delta_cursor.key(delta);
+            let (v, w) = vw;
+            integral_cursor.seek(delayed_integral, vw);
+            let old_weight = if integral_cursor.valid(delayed_integral)
+                && integral_cursor.key(delayed_integral).0 == *v
+            {
+                integral_cursor.key(delayed_integral).1.clone()
+            } else {
+                Z::Value::zero()
+            };
+
             let new_weight = old_weight.clone() + w.clone();
 
             if old_weight.le0() {
                 // Weight changes from non-positive to positive.
                 if new_weight.ge0() && !new_weight.is_zero() {
-                    result.increment(v, W::one());
+                    builder.push_tuple((v.clone(), Z::Value::one()));
                 }
             } else if new_weight.le0() {
                 // Weight changes from positive to non-positive.
-                result.increment(v, W::one().neg());
+                builder.push_tuple((v.clone(), Z::Value::one().neg()));
             }
+            delta_cursor.step(delta);
         }
 
-        result
+        builder.done()
     }
 
+    // TODO: owned implementation.
     fn eval_owned_and_ref(&mut self, delta: Z, delayed_integral: &Z) -> Z {
-        let mut result = Z::empty();
-
-        for (v, w) in delta.into_iter() {
-            let old_weight = delayed_integral.lookup(&v);
-            let new_weight = old_weight.clone() + w;
-
-            if old_weight.le0() {
-                // Weight changes from non-positive to positive.
-                if new_weight.ge0() && !new_weight.is_zero() {
-                    result.increment_owned(v, W::one());
-                }
-            } else if new_weight.le0() {
-                // Weight changes from positive to non-positive.
-                result.increment_owned(v, W::one().neg());
-            }
-        }
-
-        result
+        self.eval(&delta, delayed_integral)
     }
 
     fn eval_owned(&mut self, delta: Z, delayed_integral: Z) -> Z {
@@ -213,7 +194,7 @@ mod test {
     use std::{cell::RefCell, rc::Rc};
 
     use crate::{
-        algebra::FiniteHashMap,
+        algebra::OrdFiniteMap,
         circuit::Root,
         finite_map,
         operator::{Apply2, GeneratorNested},
@@ -262,8 +243,8 @@ mod test {
                     child
                         .add_binary_operator(
                             Apply2::new(
-                                |d1: &FiniteHashMap<usize, isize>,
-                                 d2: &FiniteHashMap<usize, isize>| {
+                                |d1: &OrdFiniteMap<usize, isize>,
+                                 d2: &OrdFiniteMap<usize, isize>| {
                                     (d1.clone(), d2.clone())
                                 },
                             ),

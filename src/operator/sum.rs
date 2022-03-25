@@ -1,11 +1,12 @@
 //! N-ary plus operator.
 
 use crate::{
-    algebra::{AddAssignByRef, AddByRef, HasZero, WithNumEntries},
+    algebra::{AddAssignByRef, AddByRef, HasZero},
     circuit::{
         operator_traits::{NaryOperator, Operator},
         Circuit, OwnershipPreference, Scope, Stream,
     },
+    NumEntries,
 };
 use std::{
     borrow::Cow,
@@ -18,7 +19,7 @@ use std::{
 impl<P, D> Stream<Circuit<P>, D>
 where
     P: Clone + 'static,
-    D: Add<Output = D> + AddByRef + AddAssignByRef + Clone + HasZero + WithNumEntries + 'static,
+    D: Add<Output = D> + AddByRef + AddAssignByRef + Clone + HasZero + NumEntries + 'static,
 {
     /// Apply the [`Sum`] operator to `self` and all streams in `streams`.
     pub fn sum<'a, I>(&'a self, streams: I) -> Stream<Circuit<P>, D>
@@ -73,7 +74,7 @@ where
 
 impl<D> NaryOperator<D, D> for Sum<D>
 where
-    D: Add<Output = D> + AddAssignByRef + Clone + HasZero + WithNumEntries + 'static,
+    D: Add<Output = D> + AddAssignByRef + Clone + HasZero + NumEntries + 'static,
 {
     fn eval<'a, Iter>(&mut self, inputs: Iter) -> D
     where
@@ -91,7 +92,7 @@ where
             input_vec.push(input);
         }
 
-        input_vec.sort_by_key(|x| Reverse(x.num_entries()));
+        input_vec.sort_by_key(|x| Reverse(x.num_entries_shallow()));
 
         let mut res = D::zero();
         for input in input_vec.drain(..) {
@@ -126,38 +127,39 @@ where
 #[cfg(test)]
 mod test {
     use crate::{
-        algebra::{MapBuilder, ZSetHashMap},
+        algebra::OrdZSet,
         circuit::{Circuit, OwnershipPreference, Root},
+        finite_map,
+        layers::{Builder, Trie, TupleBuilder},
         operator::{Generator, Inspect},
     };
 
     #[test]
     fn zset_sum() {
         let build_circuit = |circuit: &Circuit<()>| {
-            let mut s = ZSetHashMap::new();
+            let mut s = <OrdZSet<_, _> as Trie>::TupleBuilder::new().done();
             let source1 = circuit.add_source(Generator::new(move || {
                 let res = s.clone();
-                s.increment(&5, 1);
-                s.increment(&6, 2);
+                s = s.merge(&finite_map! { 5 => 1, 6 => 2 });
                 res
             }));
-            let mut s = ZSetHashMap::new();
+            let mut s = <OrdZSet<_, _> as Trie>::TupleBuilder::new().done();
             let source2 = circuit.add_source(Generator::new(move || {
                 let res = s.clone();
-                s.increment(&5, -1);
+                s = s.merge(&finite_map! { 5 => -1 });
                 res
             }));
-            let mut s = ZSetHashMap::new();
+            let mut s = <OrdZSet<_, _> as Trie>::TupleBuilder::new().done();
             let source3 = circuit.add_source(Generator::new(move || {
                 let res = s.clone();
-                s.increment(&6, -1);
+                s = s.merge(&finite_map! { 6 => -1 });
                 res
             }));
 
             // Supply `source3` twice to test the handling of aliases.
             source3
                 .sum(&[source2.clone(), source1.clone(), source3.clone()])
-                .inspect(|s| assert_eq!(s, &ZSetHashMap::new()));
+                .inspect(|s| assert_eq!(s, &<OrdZSet<_, _> as Trie>::TupleBuilder::new().done()));
             (source1, source2, source3)
         };
 

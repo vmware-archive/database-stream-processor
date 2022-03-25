@@ -1,12 +1,14 @@
 //! Index operator.
 
 use crate::{
-    algebra::{finite_map::KeyProperties, IndexedZSet, MapBuilder, ZRingValue},
+    algebra::{IndexedZSet, ZRingValue},
     circuit::{
         operator_traits::{Operator, UnaryOperator},
         Circuit, NodeId, Scope, Stream,
     },
-    circuit_cache_key, RefPair, SharedRef,
+    circuit_cache_key,
+    layers::{Builder, Cursor, OrderedLeaf, Trie, TupleBuilder},
+    SharedRef,
 };
 use std::{borrow::Cow, marker::PhantomData};
 
@@ -18,15 +20,10 @@ where
     P: Clone + 'static,
 {
     /// Apply [`Index`] operator to `self`.
-    pub fn index<K, V, W, CO>(&self) -> Stream<Circuit<P>, CO>
+    pub fn index<CO>(&self) -> Stream<Circuit<P>, CO>
     where
-        K: KeyProperties,
-        V: KeyProperties,
-        W: ZRingValue,
-        CI: IntoIterator<Item = ((K, V), W)> + 'static,
-        for<'a> &'a CI: IntoIterator,
-        for<'a> <&'a CI as IntoIterator>::Item: RefPair<'a, (K, V), W>,
-        CO: IndexedZSet<K, V, W>,
+        CO: IndexedZSet + Clone,
+        CI: Trie<Key = ((CO::IndexKey, CO::Value), CO::Weight)> + 'static,
     {
         self.circuit()
             .cache_get_or_insert_with(IndexId::new(self.local_node_id()), || {
@@ -35,20 +32,17 @@ where
             .clone()
     }
 
-    pub fn index_with<V1, K, V2, W, CO, F>(&self, f: F) -> Stream<Circuit<P>, CO>
+    pub fn index_with<V1, W, CO, F>(&self, f: F) -> Stream<Circuit<P>, CO>
     where
-        V1: KeyProperties,
-        K: KeyProperties,
-        V2: KeyProperties,
+        V1: Clone + 'static,
         W: ZRingValue,
         CI: SharedRef + 'static,
-        CI::Target: IntoIterator<Item = (V1, W)>,
-        for<'a> &'a CI::Target: IntoIterator,
-        for<'a> <&'a CI::Target as IntoIterator>::Item: RefPair<'a, V1, W>,
-        F: Fn(&V1) -> (K, V2) + Clone + 'static,
-        CO: IndexedZSet<K, V2, W>,
+        CI::Target: Trie<Key = (V1, W)> + 'static,
+        CO: IndexedZSet<Weight = W> + Clone,
+        F: Fn(&V1) -> (CO::IndexKey, CO::Value) + Clone + 'static,
     {
-        self.map_keys::<_, _, _, Vec<_>, _>(f).index()
+        // TODO: implement UnorderedLeaf trie backed by an unsorted vector.
+        self.map_keys::<_, _, _, OrderedLeaf<_, _>, _>(f).index()
     }
 }
 
@@ -64,33 +58,27 @@ where
 ///
 /// # Type arguments
 ///
-/// * `K` - key type.
-/// * `V` - value type.
-/// * `W` - weight type.
 /// * `CI` - input collection type.
 /// * `CO` - output collection type, a finite map from keys to a Z-set of
 ///   values.
-pub struct Index<K, V, W, CI, CO> {
-    _type: PhantomData<(K, V, W, CI, CO)>,
+pub struct Index<CI, CO> {
+    _type: PhantomData<(CI, CO)>,
 }
 
-impl<K, V, W, CI, CO> Index<K, V, W, CI, CO> {
+impl<CI, CO> Index<CI, CO> {
     pub fn new() -> Self {
         Self { _type: PhantomData }
     }
 }
 
-impl<K, V, W, CI, CO> Default for Index<K, V, W, CI, CO> {
+impl<CI, CO> Default for Index<CI, CO> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<K, V, W, CI, CO> Operator for Index<K, V, W, CI, CO>
+impl<CI, CO> Operator for Index<CI, CO>
 where
-    K: 'static,
-    V: 'static,
-    W: 'static,
     CI: 'static,
     CO: 'static,
 {
@@ -101,63 +89,60 @@ where
     fn clock_end(&mut self, _scope: Scope) {}
 }
 
-impl<K, V, W, CI, CO> UnaryOperator<CI, CO> for Index<K, V, W, CI, CO>
+impl<CI, CO> UnaryOperator<CI, CO> for Index<CI, CO>
 where
-    K: KeyProperties,
-    V: KeyProperties,
-    W: ZRingValue,
-    CI: IntoIterator<Item = ((K, V), W)> + 'static,
-    for<'a> &'a CI: IntoIterator,
-    for<'a> <&'a CI as IntoIterator>::Item: RefPair<'a, (K, V), W>,
-    CO: IndexedZSet<K, V, W>,
+    CO: IndexedZSet,
+    CI: Trie<Key = ((CO::IndexKey, CO::Value), CO::Weight)> + 'static,
 {
     fn eval(&mut self, i: &CI) -> CO {
-        let mut res = CO::empty();
-        for pair in i.into_iter() {
-            let ((k, v), w) = pair.into_refs();
-            res.update(k, |val| val.increment(v, w.clone()));
+        let mut cursor = i.cursor();
+        let mut builder = <CO as Trie>::TupleBuilder::with_capacity(i.keys());
+        while cursor.valid(i) {
+            let ((k, v), w) = cursor.key(i);
+            // TODO: pass key (and value?) by reference
+            builder.push_tuple((k.clone(), (v.clone(), w.clone())));
+            cursor.step(i);
         }
-        res
+        builder.done()
     }
 
     fn eval_owned(&mut self, i: CI) -> CO {
-        let mut res = CO::empty();
-        for ((k, v), w) in i.into_iter() {
-            res.update_owned(k, |val| val.increment_owned(v, w.clone()));
-        }
-        res
+        // TODO: owned implementation.
+        self.eval(&i)
     }
 }
 
 #[cfg(test)]
 mod test {
-    use crate::{algebra::FiniteHashMap, circuit::Root, finite_map, operator::Generator};
+    use crate::{
+        algebra::OrdIndexedZSet, circuit::Root, finite_map, indexed_zset, operator::Generator,
+    };
 
     #[test]
     fn index_sequence() {
         let root = Root::build(move |circuit| {
             let mut inputs = vec![
-                vec![ ((1, "a"), 1)
-                    , ((1, "b"), 1)
-                    , ((2, "a"), 1)
-                    , ((2, "c"), 1)
-                    , ((1, "a"), 2)
-                    , ((1, "b"), -1)
-                ],
-                vec![ ((1, "d"), 1)
-                    , ((1, "e"), 1)
-                    , ((2, "a"), -1)
-                    , ((3, "a"), 2)
-                ],
+                finite_map!{ (1, "a") => 1
+                           , (1, "a") => 2
+                           , (1, "b") => 1
+                           , (1, "b") => -1
+                           , (2, "a") => 1
+                           , (2, "c") => 1
+                },
+                finite_map!{ (1, "d") => 1
+                           , (1, "e") => 1
+                           , (2, "a") => -1
+                           , (3, "a") => 2
+                },
             ].into_iter();
             let mut outputs = vec![
-                finite_map!{ 1 => finite_map!{"a" => 3}, 2 => finite_map!{"a" => 1, "c" => 1}},
-                finite_map!{ 1 => finite_map!{"a" => 3, "d" => 1, "e" => 1}, 2 => finite_map!{"c" => 1}, 3 => finite_map!{"a" => 2}},
+                indexed_zset!{ 1 => {"a" => 3}, 2 => {"a" => 1, "c" => 1}},
+                indexed_zset!{ 1 => {"a" => 3, "d" => 1, "e" => 1}, 2 => {"c" => 1}, 3 => {"a" => 2}},
             ].into_iter();
             circuit.add_source(Generator::new(move || inputs.next().unwrap() ))
-                   .index::<_, _, _, FiniteHashMap<_, _>>()
+                   .index::<OrdIndexedZSet<_, _, _>>()
                    .integrate()
-                   .inspect(move |fm: &FiniteHashMap<_, _>| assert_eq!(fm, &outputs.next().unwrap()));
+                   .inspect(move |fm: &OrdIndexedZSet<_, _, _>| assert_eq!(fm, &outputs.next().unwrap()));
         })
         .unwrap();
 
@@ -186,13 +171,13 @@ mod test {
                 },
             ].into_iter();
             let mut outputs = vec![
-                finite_map!{ 1 => finite_map!{"a" => 3}, 2 => finite_map!{"a" => 1, "c" => 1}},
-                finite_map!{ 1 => finite_map!{"a" => 3, "d" => 1, "e" => 1}, 2 => finite_map!{"c" => 1}, 3 => finite_map!{"a" => 2}},
+                indexed_zset!{ 1 => {"a" => 3}, 2 => {"a" => 1, "c" => 1}},
+                indexed_zset!{ 1 => {"a" => 3, "d" => 1, "e" => 1}, 2 => {"c" => 1}, 3 => {"a" => 2}},
             ].into_iter();
             circuit.add_source(Generator::new(move || inputs.next().unwrap() ))
-                   .index::<_, _, _, FiniteHashMap<_, _>>()
+                   .index::<OrdIndexedZSet<_, _, _>>()
                    .integrate()
-                   .inspect(move |fm: &FiniteHashMap<_, _>| assert_eq!(fm, &outputs.next().unwrap()));
+                   .inspect(move |fm: &OrdIndexedZSet<_, _, _>| assert_eq!(fm, &outputs.next().unwrap()));
         })
         .unwrap();
 

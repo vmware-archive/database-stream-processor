@@ -131,12 +131,13 @@ impl<C> Condition<C> {
 #[cfg(test)]
 mod test {
     use crate::{
-        algebra::{FiniteHashMap, FiniteMap, ZSetHashMap},
+        algebra::{OrdIndexedZSet, OrdZSet},
         circuit::{
             schedule::{DynamicScheduler, Scheduler, StaticScheduler},
             Circuit, Root, Stream,
         },
         finite_map,
+        layers::Trie,
         monitor::TraceMonitor,
         operator::{DelayedFeedback, Generator},
     };
@@ -185,7 +186,7 @@ mod test {
                     let init1 = init1.delta0(child).integrate();
                     let init2 = init2.delta0(child).integrate();
 
-                    let edges_indexed: Stream<_, FiniteHashMap<usize, ZSetHashMap<usize, isize>>> =
+                    let edges_indexed: Stream<_, OrdIndexedZSet<usize, usize, isize>> =
                         edges.index();
 
                     // Builds a subcircuit that computes nodes reachable from `init`:
@@ -204,24 +205,19 @@ mod test {
                     //
                     // where suc computes the set of successor nodes.
                     let reachable_circuit =
-                        |init: Stream<Circuit<Circuit<()>>, ZSetHashMap<usize, isize>>| {
-                            let feedback =
-                                <DelayedFeedback<_, ZSetHashMap<usize, isize>>>::new(child);
+                        |init: Stream<Circuit<Circuit<()>>, OrdZSet<usize, isize>>| {
+                            let feedback = <DelayedFeedback<_, OrdZSet<usize, isize>>>::new(child);
 
-                            let feedback_pairs: Stream<_, ZSetHashMap<(usize, ()), isize>> =
+                            let feedback_pairs: Stream<_, OrdZSet<(usize, ()), isize>> =
                                 feedback.stream().map_keys(|&node| (node, ()));
-                            let feedback_indexed: Stream<
-                                _,
-                                FiniteHashMap<usize, ZSetHashMap<(), isize>>,
-                            > = feedback_pairs.index();
+                            let feedback_indexed: Stream<_, OrdIndexedZSet<usize, (), isize>> =
+                                feedback_pairs.index();
 
                             let suc = feedback_indexed.join(&edges_indexed, |_node, &(), &to| to);
 
                             let reachable = init.plus(&suc).distinct();
                             feedback.connect(&reachable);
-                            let condition = reachable
-                                .differentiate()
-                                .condition(|z| z.support_size() == 0);
+                            let condition = reachable.differentiate().condition(|z| z.keys() == 0);
                             (condition, reachable.export())
                         };
 

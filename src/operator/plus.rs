@@ -179,8 +179,10 @@ where
 #[cfg(test)]
 mod test {
     use crate::{
-        algebra::{MapBuilder, ZSetHashMap},
+        algebra::OrdZSet,
         circuit::{Circuit, OwnershipPreference, Root},
+        finite_map,
+        layers::{Builder, Trie, TupleBuilder},
         operator::{Generator, Inspect},
     };
 
@@ -211,40 +213,40 @@ mod test {
     #[test]
     fn zset_plus() {
         let build_plus_circuit = |circuit: &Circuit<()>| {
-            let mut s = ZSetHashMap::new();
+            let mut s = <OrdZSet<_, _> as Trie>::TupleBuilder::new().done();
+            let delta = finite_map! { 5 => 1};
             let source1 = circuit.add_source(Generator::new(move || {
-                let res = s.clone();
-                s.increment(&5, 1);
-                res
+                s = s.merge(&delta);
+                s.clone()
             }));
-            let mut s = ZSetHashMap::new();
+            let mut s = <OrdZSet<_, _> as Trie>::TupleBuilder::new().done();
+            let delta = finite_map! { 5 => -1};
             let source2 = circuit.add_source(Generator::new(move || {
-                let res = s.clone();
-                s.increment(&5, -1);
-                res
+                s = s.merge(&delta);
+                s.clone()
             }));
             source1
                 .plus(&source2)
-                .inspect(|s| assert_eq!(s, &ZSetHashMap::new()));
+                .inspect(|s| assert_eq!(s, &<OrdZSet<_, _> as Trie>::TupleBuilder::new().done()));
             (source1, source2)
         };
 
         let build_minus_circuit = |circuit: &Circuit<()>| {
-            let mut s = ZSetHashMap::new();
+            let mut s = <OrdZSet<_, _> as Trie>::TupleBuilder::new().done();
+            let delta = finite_map! { 5 => 1};
             let source1 = circuit.add_source(Generator::new(move || {
-                let res = s.clone();
-                s.increment(&5, 1);
-                res
+                s = s.merge(&delta);
+                s.clone()
             }));
-            let mut s = ZSetHashMap::new();
+            let mut s = <OrdZSet<_, _> as Trie>::TupleBuilder::new().done();
+            let delta = finite_map! { 5 => 1};
             let source2 = circuit.add_source(Generator::new(move || {
-                let res = s.clone();
-                s.increment(&5, 1);
-                res
+                s = s.merge(&delta);
+                s.clone()
             }));
             source1
                 .minus(&source2)
-                .inspect(|s| assert_eq!(s, &ZSetHashMap::new()));
+                .inspect(|s| assert_eq!(s, &<OrdZSet<_, _> as Trie>::TupleBuilder::new().done()));
             (source1, source2)
         };
         // Allow `Plus` to consume both streams by value.

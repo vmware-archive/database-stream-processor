@@ -3,13 +3,12 @@
 use std::{borrow::Cow, marker::PhantomData};
 
 use crate::{
-    algebra::{
-        finite_map::KeyProperties, FiniteHashMap, FiniteMap, GroupValue, MapBuilder, ZRingValue,
-    },
+    algebra::{GroupValue, IndexedZSet, ZRingValue},
     circuit::{
         operator_traits::{BinaryOperator, Operator, UnaryOperator},
         Circuit, Scope, Stream,
     },
+    layers::{Builder, Cursor, MergeBuilder, Trie, TupleBuilder},
     operator::{BinaryOperatorAdapter, UnaryOperatorAdapter},
     NumEntries, SharedRef,
 };
@@ -17,19 +16,18 @@ use crate::{
 impl<P, SR> Stream<Circuit<P>, SR>
 where
     P: Clone + 'static,
+    SR: SharedRef + 'static,
 {
     /// Apply [`Aggregate`] operator to `self`.
-    pub fn aggregate<K, VI, VO, W, F, O>(&self, f: F) -> Stream<Circuit<P>, O>
+    pub fn aggregate<VO, W, F, O>(&self, f: F) -> Stream<Circuit<P>, O>
     where
-        K: KeyProperties,
-        VI: 'static,
-        SR: SharedRef + 'static,
-        <SR as SharedRef>::Target: FiniteMap<K, VI>,
-        for<'a> &'a <SR as SharedRef>::Target: IntoIterator<Item = (&'a K, &'a VI)>,
-        F: Fn(&K, &VI) -> VO + 'static,
+        <SR as SharedRef>::Target: Trie,
+        F: Fn(&<<SR as SharedRef>::Target as Trie>::Key,
+              &<<<SR as SharedRef>::Target as Trie>::Cursor as Cursor>::ValueStorage,
+              <<<<SR as SharedRef>::Target as Trie>::Cursor as Cursor>::ValueStorage as Trie>::Cursor) -> VO + 'static,
         VO: 'static,
         W: ZRingValue,
-        O: Clone + MapBuilder<VO, W> + 'static,
+        O: Clone + Trie<Item = (VO, W)> + 'static,
     {
         self.circuit()
             .add_unary_operator(<UnaryOperatorAdapter<O, _>>::new(Aggregate::new(f)), self)
@@ -39,18 +37,15 @@ where
     ///
     /// This is equivalent to `self.integrate().aggregate(f).differentiate()`,
     /// but is more efficient.
-    pub fn aggregate_incremental<K, VI, VO, W, F, O>(&self, f: F) -> Stream<Circuit<P>, O>
+    pub fn aggregate_incremental<VO, W, F, O>(&self, f: F) -> Stream<Circuit<P>, O>
     where
-        K: KeyProperties,
-        VI: GroupValue,
-        SR: SharedRef + 'static,
-        <SR as SharedRef>::Target: FiniteMap<K, VI>,
-        <SR as SharedRef>::Target: NumEntries + SharedRef<Target = SR::Target>,
-        for<'a> &'a <SR as SharedRef>::Target: IntoIterator<Item = (&'a K, &'a VI)>,
-        F: Fn(&K, &VI) -> VO + 'static,
+        <SR as SharedRef>::Target: IndexedZSet,
+        F: Fn(&<<SR as SharedRef>::Target as Trie>::Key,
+              &<<<SR as SharedRef>::Target as Trie>::Cursor as Cursor>::ValueStorage,
+              <<<<SR as SharedRef>::Target as Trie>::Cursor as Cursor>::ValueStorage as Trie>::Cursor) -> VO + 'static,
         VO: 'static,
         W: ZRingValue,
-        O: Clone + MapBuilder<VO, W> + 'static,
+        O: Clone + Trie<Item = (VO, W)> + 'static,
     {
         self.circuit().add_binary_operator(
             BinaryOperatorAdapter::new(AggregateIncremental::new(f)),
@@ -59,6 +54,7 @@ where
         )
     }
 
+    /*
     /// A version of [`Self::aggregate_incremental`] optimized for linear
     /// aggregation functions.
     ///
@@ -87,33 +83,32 @@ where
         W: ZRingValue,
         O: Clone + MapBuilder<(K, VO), W> + 'static,
     {
-        let agg_delta: Stream<_, FiniteHashMap<K, VO>> = self.map_values(f);
+        let agg_delta: Stream<_, OrdFiniteMap<K, VO>> = self.map_values(f);
         agg_delta.aggregate_incremental(|key, agg_val| (key.clone(), agg_val.clone()))
     }
+    */
 
     /// Incremental nested version of the [`Aggregate`] operator.
     ///
     /// This is equivalent to
     /// `self.integrate().integrate_nested().aggregate(f).differentiate_nested.
     /// differentiate()`, but is more efficient.
-    pub fn aggregate_incremental_nested<K, VI, VO, W, F, O>(&self, f: F) -> Stream<Circuit<P>, O>
+    pub fn aggregate_incremental_nested<VO, W, F, O>(&self, f: F) -> Stream<Circuit<P>, O>
     where
-        K: KeyProperties,
-        VI: GroupValue,
-        SR: SharedRef + 'static,
-        <SR as SharedRef>::Target: FiniteMap<K, VI>,
-        <SR as SharedRef>::Target: NumEntries + SharedRef<Target = SR::Target>,
-        for<'a> &'a <SR as SharedRef>::Target: IntoIterator<Item = (&'a K, &'a VI)>,
-        F: Fn(&K, &VI) -> VO + 'static,
+        <SR as SharedRef>::Target: IndexedZSet,
+        F: Fn(&<<SR as SharedRef>::Target as Trie>::Key,
+              &<<<SR as SharedRef>::Target as Trie>::Cursor as Cursor>::ValueStorage,
+              <<<<SR as SharedRef>::Target as Trie>::Cursor as Cursor>::ValueStorage as Trie>::Cursor) -> VO + 'static,
         VO: 'static,
         W: ZRingValue,
-        O: NumEntries + MapBuilder<VO, W> + GroupValue,
+        O: Clone + Trie<Item = (VO, W)> + NumEntries + GroupValue + 'static,
     {
         self.integrate_nested()
             .aggregate_incremental(f)
             .differentiate_nested()
     }
 
+    /*
     /// A version of [`Self::aggregate_incremental_nested`] optimized for linear
     /// aggregation functions.
     ///
@@ -140,6 +135,7 @@ where
             .aggregate_linear_incremental(f)
             .differentiate_nested()
     }
+    */
 }
 
 /// Aggregate each indexed Z-set in the input stream.
@@ -152,19 +148,17 @@ where
 ///
 /// # Type arguments
 ///
-/// * `K` - key type in the input map.
-/// * `VI` - value type in the input map.  This is typically a Z-set.
 /// * `I` - input map type.
 /// * `VO` - output type of the aggregation function; value type in the output
 ///   Z-set.
 /// * `W` - weight type in the output Z-set.
 /// * `O` - output Z-set type.
-pub struct Aggregate<K, VI, I, VO, W, F, O> {
+pub struct Aggregate<I, VO, W, F, O> {
     agg_func: F,
-    _type: PhantomData<(K, VI, I, VO, W, O)>,
+    _type: PhantomData<(I, VO, W, O)>,
 }
 
-impl<K, VI, I, VO, W, F, O> Aggregate<K, VI, I, VO, W, F, O> {
+impl<I, VO, W, F, O> Aggregate<I, VO, W, F, O> {
     pub fn new(agg_func: F) -> Self {
         Self {
             agg_func,
@@ -173,10 +167,8 @@ impl<K, VI, I, VO, W, F, O> Aggregate<K, VI, I, VO, W, F, O> {
     }
 }
 
-impl<K, VI, I, VO, W, F, O> Operator for Aggregate<K, VI, I, VO, W, F, O>
+impl<I, VO, W, F, O> Operator for Aggregate<I, VO, W, F, O>
 where
-    K: 'static,
-    VI: 'static,
     I: 'static,
     VO: 'static,
     W: 'static,
@@ -190,25 +182,31 @@ where
     fn clock_end(&mut self, _scope: Scope) {}
 }
 
-impl<K, VI, I, VO, W, F, O> UnaryOperator<I, O> for Aggregate<K, VI, I, VO, W, F, O>
+impl<I, VO, W, F, O> UnaryOperator<I, O> for Aggregate<I, VO, W, F, O>
 where
-    K: KeyProperties,
-    VI: 'static,
-    I: FiniteMap<K, VI>,
-    for<'a> &'a I: IntoIterator<Item = (&'a K, &'a VI)>,
-    F: Fn(&K, &VI) -> VO + 'static,
+    I: Trie + 'static,
+    F: Fn(
+            &I::Key,
+            &<I::Cursor as Cursor>::ValueStorage,
+            <<I::Cursor as Cursor>::ValueStorage as Trie>::Cursor,
+        ) -> VO
+        + 'static,
     VO: 'static,
     W: ZRingValue,
-    O: Clone + MapBuilder<VO, W> + 'static,
+    O: Clone + Trie<Item = (VO, W)> + 'static,
 {
     fn eval(&mut self, i: &I) -> O {
-        let mut result = O::with_capacity(i.support_size());
+        let mut builder = O::TupleBuilder::with_capacity(i.keys());
+        let mut cursor = i.cursor();
 
-        for (k, v) in i.into_iter() {
-            result.increment_owned((self.agg_func)(k, v), W::one());
+        while cursor.valid(i) {
+            let key = cursor.key(i);
+            let (val_storage, val_cursor) = cursor.values(i);
+            builder.push_tuple(((self.agg_func)(key, val_storage, val_cursor), W::one()));
+            cursor.step(i);
         }
 
-        result
+        builder.done()
     }
 }
 
@@ -218,12 +216,12 @@ where
 /// value of `A`: `z^-1(A) = a.integrate().delay()` and computes
 /// `integrate(A) - integrate(z^-1(A))` incrementally, by only considering
 /// values in the support of `a`.
-pub struct AggregateIncremental<K, VI, I, VO, W, F, O> {
+pub struct AggregateIncremental<I, VO, W, F, O> {
     agg_func: F,
-    _type: PhantomData<(K, VI, I, VO, W, O)>,
+    _type: PhantomData<(I, VO, W, O)>,
 }
 
-impl<K, VI, I, VO, W, F, O> AggregateIncremental<K, VI, I, VO, W, F, O> {
+impl<I, VO, W, F, O> AggregateIncremental<I, VO, W, F, O> {
     pub fn new(agg_func: F) -> Self {
         Self {
             agg_func,
@@ -232,10 +230,8 @@ impl<K, VI, I, VO, W, F, O> AggregateIncremental<K, VI, I, VO, W, F, O> {
     }
 }
 
-impl<K, VI, I, VO, W, F, O> Operator for AggregateIncremental<K, VI, I, VO, W, F, O>
+impl<I, VO, W, F, O> Operator for AggregateIncremental<I, VO, W, F, O>
 where
-    K: 'static,
-    VI: 'static,
     I: 'static,
     VO: 'static,
     W: 'static,
@@ -249,36 +245,65 @@ where
     fn clock_end(&mut self, _scope: Scope) {}
 }
 
-impl<K, VI, I, VO, W, F, O> BinaryOperator<I, I, O> for AggregateIncremental<K, VI, I, VO, W, F, O>
+impl<I, VO, W, F, O> BinaryOperator<I, I, O> for AggregateIncremental<I, VO, W, F, O>
 where
-    K: KeyProperties,
-    VI: GroupValue,
-    I: FiniteMap<K, VI>,
-    for<'a> &'a I: IntoIterator<Item = (&'a K, &'a VI)>,
-    F: Fn(&K, &VI) -> VO + 'static,
+    I: Trie + 'static,
+    F: Fn(
+            &I::Key,
+            &<I::Cursor as Cursor>::ValueStorage,
+            <<I::Cursor as Cursor>::ValueStorage as Trie>::Cursor,
+        ) -> VO
+        + 'static,
     VO: 'static,
     W: ZRingValue,
-    O: Clone + MapBuilder<VO, W> + 'static,
+    O: Clone + Trie<Item = (VO, W)> + 'static,
 {
     fn eval(&mut self, delta: &I, delayed_integral: &I) -> O {
-        let mut result = O::with_capacity(delta.support_size());
+        let mut result_builder = O::TupleBuilder::with_capacity(delta.keys());
 
-        for (k, v) in delta.into_iter() {
-            if let Some(old_val) = delayed_integral.get_in_support(k) {
+        let mut delta_cursor = delta.cursor();
+        let mut delayed_integral_cursor = delayed_integral.cursor();
+
+        while delta_cursor.valid(delta) {
+            let key = delta_cursor.key(delta);
+            let (val_storage, val_cursor) = delta_cursor.values(delta);
+
+            delayed_integral_cursor.seek(delayed_integral, key);
+
+            if delayed_integral_cursor.valid(delayed_integral)
+                && delayed_integral_cursor.key(delayed_integral) == key
+            {
                 // Retract the old value of the aggregate.
-                result.increment_owned((self.agg_func)(k, old_val), W::one().neg());
+                let (old_storage, old_cursor) = delayed_integral_cursor.values(delayed_integral);
+                result_builder.push_tuple((
+                    (self.agg_func)(key, old_storage, old_cursor),
+                    W::one().neg(),
+                ));
 
+                let (old_storage, old_cursor) = delayed_integral_cursor.values(delayed_integral);
+                let mut builder =
+                    <<I::Cursor as Cursor>::ValueStorage as Trie>::MergeBuilder::with_capacity(
+                        val_cursor.keys() + old_cursor.keys(),
+                        0,
+                    );
+                builder.push_merge((val_storage, val_cursor), (old_storage, old_cursor));
+                let new_storage = builder.done();
                 // Insert updated aggregate.
-                let new_val = old_val.add_by_ref(v);
-                if !new_val.is_zero() {
-                    result.increment_owned((self.agg_func)(k, &old_val.add_by_ref(v)), W::one())
+                if new_storage.keys() > 0 {
+                    result_builder.push_tuple((
+                        (self.agg_func)(key, &new_storage, new_storage.cursor()),
+                        W::one(),
+                    ))
                 }
             } else {
-                result.increment_owned((self.agg_func)(k, v), W::one())
+                result_builder
+                    .push_tuple(((self.agg_func)(key, val_storage, val_cursor), W::one()));
             }
+
+            delta_cursor.step(delta);
         }
 
-        result
+        result_builder.done()
     }
 }
 
@@ -287,9 +312,13 @@ mod test {
     use std::{cell::RefCell, rc::Rc};
 
     use crate::{
-        algebra::{FiniteHashMap, ZSetHashMap},
+        algebra::{OrdFiniteMap, OrdIndexedZSet},
         circuit::{Root, Stream},
         finite_map,
+        layers::{
+            ordered_leaf::{OrderedLeaf, OrderedLeafCursor},
+            Cursor,
+        },
         operator::{Apply2, GeneratorNested},
     };
 
@@ -314,7 +343,7 @@ mod test {
                     let counter = Rc::new(RefCell::new(0));
                     let counter_clone = counter.clone();
 
-                    let input: Stream<_, FiniteHashMap<usize, ZSetHashMap<usize, isize>>> = child
+                    let input: Stream<_, OrdIndexedZSet<usize, usize, isize>> = child
                         .add_source(GeneratorNested::new(Box::new(move || {
                             *counter_clone.borrow_mut() = 0;
                             let mut deltas = inputs.next().unwrap_or_else(Vec::new).into_iter();
@@ -322,11 +351,15 @@ mod test {
                         })))
                         .index();
 
+                    /*
                     // Weighted sum aggregate.  Returns `(key, weighted_sum)`.
-                    let sum = |&key: &usize, zset: &ZSetHashMap<usize, isize>| -> (usize, isize) {
+                    let sum = |&key: &usize, storage: &OrderedLeaf<usize, isize>, mut cursor: OrderedLeafCursor<usize, isize>| -> (usize, isize) {
                         let mut result: isize = 0;
-                        for (&v, &w) in zset.into_iter() {
+
+                        while cursor.valid(storage) {
+                            let &(v, w) = cursor.key(storage);
                             result += (v as isize) * w;
+                            cursor.step(storage);
                         }
 
                         (key, result)
@@ -334,17 +367,17 @@ mod test {
 
                     // Weighted sum aggregate that returns only the weighted sum
                     // value and is therefore linear.
-                    let sum_linear = |_key: &usize, zset: &ZSetHashMap<usize, isize>| -> isize {
+                    /*let sum_linear = |_key: &usize, zset: &OrdZSet<usize, isize>| -> isize {
                         let mut result: isize = 0;
                         for (v, w) in zset.into_iter() {
                             result += (*v as isize) * w;
                         }
 
                         result
-                    };
+                    };*/
 
                     let sum_inc = input.aggregate_incremental_nested(sum);
-                    let sum_inc_linear = input.aggregate_linear_incremental_nested(sum_linear);
+                    //let sum_inc_linear = input.aggregate_linear_incremental_nested(sum_linear);
                     let sum_noninc = input
                         .integrate_nested()
                         .integrate()
@@ -356,8 +389,8 @@ mod test {
                     child
                         .add_binary_operator(
                             Apply2::new(
-                                |d1: &FiniteHashMap<(usize, isize), isize>,
-                                 d2: &FiniteHashMap<(usize, isize), isize>| {
+                                |d1: &OrdFiniteMap<(usize, isize), isize>,
+                                 d2: &OrdFiniteMap<(usize, isize), isize>| {
                                     (d1.clone(), d2.clone())
                                 },
                             ),
@@ -369,29 +402,36 @@ mod test {
                             //println!("non-incremental: {:?}", d2);
                             assert_eq!(d1, d2);
                         });
+                    */
 
-                    child
-                        .add_binary_operator(
-                            Apply2::new(
-                                |d1: &FiniteHashMap<(usize, isize), isize>,
-                                 d2: &FiniteHashMap<(usize, isize), isize>| {
-                                    (d1.clone(), d2.clone())
-                                },
-                            ),
-                            &sum_inc,
-                            &sum_inc_linear,
-                        )
-                        .inspect(|(d1, d2)| {
-                            assert_eq!(d1, d2);
-                        });
+                    /*child
+                    .add_binary_operator(
+                        Apply2::new(
+                            |d1: &OrdFiniteMap<(usize, isize), isize>,
+                             d2: &OrdFiniteMap<(usize, isize), isize>| {
+                                (d1.clone(), d2.clone())
+                            },
+                        ),
+                        &sum_inc,
+                        &sum_inc_linear,
+                    )
+                    .inspect(|(d1, d2)| {
+                        assert_eq!(d1, d2);
+                    });*/
 
                     // Min aggregate (non-linear).
-                    let min = |&key: &usize, zset: &ZSetHashMap<usize, isize>| -> (usize, usize) {
-                        let mut result: usize = *zset.into_iter().next().unwrap().0;
-                        for (&v, _) in zset.into_iter() {
+                    let min = |&key: &usize,
+                               storage: &OrderedLeaf<usize, isize>,
+                               mut cursor: OrderedLeafCursor<usize, isize>|
+                     -> (usize, usize) {
+                        let mut result = usize::MAX;
+
+                        while cursor.valid(storage) {
+                            let &(v, _) = cursor.key(storage);
                             if v < result {
                                 result = v;
                             }
+                            cursor.step(storage);
                         }
 
                         (key, result)
@@ -408,8 +448,8 @@ mod test {
                     child
                         .add_binary_operator(
                             Apply2::new(
-                                |d1: &FiniteHashMap<(usize, usize), isize>,
-                                 d2: &FiniteHashMap<(usize, usize), isize>| {
+                                |d1: &OrdFiniteMap<(usize, usize), isize>,
+                                 d2: &OrdFiniteMap<(usize, usize), isize>| {
                                     (d1.clone(), d2.clone())
                                 },
                             ),
