@@ -1,0 +1,123 @@
+\section{Related work}\label{sec:related}
+
+\subsection{Incremental View Maintenance}
+
+\dbsp using non-nested streams is a simplified instance of a Kahn 
+network~\cite{kahn-ifip74}.  Johnson~\cite{johnson-phd83}
+studies a very similar computational model without nested streams and its 
+expressiveness. The implementation of such streaming models of computation and their
+relationship to dataflow machines has been studied by Lee~\cite{lee-ieee95}.
+Lee~\cite{lee-ifip93} also introduced streams of streams and the $\lift{\zm}$ operator.
+
+In \secref{sec:extensions} we discuss the connections with window and stream database 
+queries~\cite{arasu-tr02,aurora}.
+
+Incremental view maintenance (e.g.~\cite{gupta-idb93}) is
+surveyed in~\cite{gupta-idb95}; a large bibliography is present in~\cite{motik-ai19}. 
+Its most formal aspect is propagating ``deltas'' through algebraic expressions:
+$Q(R+\Delta R)=Q(R)+\Delta Q(R,\Delta R)$. This work eventually crystallized in~\cite{koch-pods16}. DBSP 
+incrementalization is both more modular and more fine-grain since it deals with streams of updates. 
+Both~\cite{koch-pods10} and~\cite{green-tcs11} use \zrs to uniformly model insertions/deletions.
+
+Picallo et al.~\cite{picallo-scop19} provide a general solution to IVM for
+rich languages.  \dbsp requires a group structure on the values operated on; 
+this assumption has two major practical benefits: it simplifies the mathematics considerably
+(e.g., Picallo uses monoid actions to model changes), and it provides a general, simple
+algorithm (\ref{algorithm-inc}) for incrementalizing arbitrary programs.  The downside of 
+\dbsp is that one has to find a suitable group structure (e.g., \zrs for sets) to ``embed'' 
+the computation.  Picallo's notion of ``derivative'' is not unique: they need creativity to choose
+the right derivative definition, we need creativity to find the right group structure.
+
+\begin{comment}
+The main problem that change structures address is that the types used in programs are not
+closed under subtraction (e.g., the delta between two sets is not a set). 
+Although a relational \dbsp circuit computes
+only on positive \zr values, its incremental version may compute on negative 
+values, but the equivalence of the two programs guarantees correctness even though the
+type system of \zrs does not.  \val{Safe to delete this para}
+\end{comment}
+
+Many heuristic algorithms were published for Datalog-like languages, e.g., 
+counting based approaches~\cite{Dewan-iis92,motik-aaai15} that maintain the number of derivations,
+DRed~\cite{gupta-sigmod93} and its variants~\cite{Ceri-VLDB91,Wolfson-sigmod91,%
+Staudt-vldb96,Kotowski-rr11,Lu-sigmod95,Apt-sigmod87}, the backward-forward algorithm and variants~\cite{motik-aaai15,
+Harrison-wdd92,motik-ai19}.  \dbsp is more general than these approaches.  
+Interestingly, the \zrs multiplicities in our relational implementation 
+are related to the counting-number-of-derivation approaches.
+
+\dbsp is tightly related to Differential Dataflow (DD)~\cite{mcsherry-cidr13, murray-sosp13}
+and its theoretical foundations~\cite{abadi-fossacs15} (and recently~\cite{mchserry-vldb20,chothia-vldb16}).
+All \dbsp operators are based on DD operators.  DD's computational model is more powerful than
+\dbsp, since it allows past values in a stream to be "updated".
+In contrast, our model assumes that the inputs of a computation arrive in the time order while allowing 
+for nested time domains via the modular lifting transformer.  However, \dbsp can express both
+incremental and non-incremental computations; in essence \dbsp is ``deconstructing'' DD into 
+simple component building blocks; the core Proposition~\ref{prop-inc-properties} and
+the Algorithm based on it~\ref{algorithm-inc} are new contributions.
+
+\subsection{Stream computation models}
+
+\cite{gammie-acs13} surveys the connection between synchronous digital circuits and functional programs.
+Our circuits are nothing but higher order functions computing on streams (functions themselves).
+The paper's main focus are circuits processing numeric data, whereas, taking advantage of our circuits'
+ability to compute on arbitrary groups, we use circuits to implement incremental view maintenance for
+relational databases.
+
+DB Toaster~\cite{ahmad-vldb09} and its associated theory~\cite{koch-pods10, koch-pods16}
+provide a formal treatment of incremental view maintenance in relational query languages.
+
+Reconcilable differences~\cite{green-tcs11}
+
+Provenance semi-rings~\cite{green-pods07}
+
+Mamouras~\cite{mamouras-esop20}  
+
+\subsection{Connection to synchronous circuits}
+
+There is a vast literature on \defined{synchronous circuits}, which are well-defined
+models for hardware circuits e.g.~\cite{gammie-acs13}.  These circuits also compute over infinite streams of values,
+usually of Booleans $\stream{\B}$.  In a \defined{combinational circuit} the output
+values depend only on the current input values.  These are pure lifted streaming
+computations.  A \defined{sequential circuit} can have outputs that depend on past
+input values.  These are always causal circuits.  Sequential synchronous circuits use
+latches or flip-flops to store state; the latches are controlled by a global clock signal.
+These correspond to the $\zm$ operator.  In a well-formed sequential circuit all back-edges
+must go through some latch --- this corresponds to our circuit construction rule that
+requires a delay element on each back-edge.
+
+Languages such as Verilog or VHDL can be used to specify such circuits.  (However, both Verilog
+and VHDL are strictly more powerful, and can express richer classes of circuits than just
+synchronous sequential circuits.)
+
+There is a rich literature on synchronous circuits, and some of these results are
+directly applicable to the circuits we discuss.  Here are a few examples.
+
+Retiming~\cite{leiserson-algorithmica91}
+is an optimization that ``moves'' around delay elements while preserving the circuit
+semantics.  Retiming is used traditionally to reduce the clock cycle by minimizing
+the signal propagation delay between any pair of latches.  In our case it could be
+used for minimizing the amount of internal circuit state.
+
+In a synchronous circuit the \emph{state} is entirely stored in the latches.  
+Saving and restoring the contents of the latches enables such circuits to take
+a snapshot of their state and resume computation.\footnote{In Boolean
+synchronous circuits this is achieved by connecting all latches into a \emph{scan 
+chain} which can be read and written sequentially after stopping the circuit clock.}
+
+Fault tolerance of synchronous
+circuits is provided by replicating the state elements, to prevent accidental
+state changes caused by e.g., cosmic rays.  We can borrow this idea for building
+redundant distributed computations.
+
+Pipelining digital circuits is an effective technique for increasing throughput
+through parallelization, by inserting additional latches and allowing different
+pipeline stages to compute concurrently on distinct stream values, at the expense 
+of increased latency between the inputs and the corresponding outputs.
+
+Digital circuit latches depend on a special ``reset'' signal to initialize their
+state to a pre-established value; this corresponds to the special 0 value in our 
+value domain. 
+
+Our nested streams  
+are related to the notion of delta-cycles in the definition of VHDL~\cite{baker-date96}.
+

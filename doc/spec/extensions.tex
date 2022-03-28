@@ -1,0 +1,237 @@
+\section{Additional query languages}\label{sec:extensions}
+
+In this section we describe several query models that go behind stratified Datalog
+and show how they can be implemented in \dbsp.
+
+\subsection{Nested relations}
+
+\subsubsection{Indexed partitions}
+
+Let $A[K]$ be the set of functions with finite support from $K$ to $A$.
+Consider a group $A$, an arbitrary set of \defined{key values} $K$, and a 
+\emph{partitioning function} $k: A \to A[K]$ with the property that 
+$\forall a \in A . a = \sum k(a)$.  We call elements of $A[K]$ \emph{indexed}
+values of $A$ --- indexed by a key value.
+
+Notice that $A[K]$ also has a group structure, and $k$ itself 
+is a linear function (homomorphism).  As an example,
+if $A = \Z[B_0 \times B_1]$, we can use for $k$ the first projection
+$k: A \to \Z[A][B_0]$, where $k(a)[b] = \sum_{t \in a, t|0 = b} a[t] \cdot t$.
+In other words, $k$ projects the elements in $\Z[B_0 \times B_1]$ on 
+their first component.  This enables \emph{incremental computations
+on nested relations}.  This is how operators such as group-by are
+implemented: the result of group-by is an indexed \zr, where each 
+element is indexed by the key of the group it belongs to.  Since
+indexing is linear, its incremental version is very efficient.
+Notice that the structure $\Z[A][K]$ represents a form of \emph{nested relation}.
+
+\subsubsection{Grouping}
+
+We model the SQL \texttt{GROUP BY} operator in \dbsp.  Consider a partitioning function
+$p: A \to K$, where $K$ is an arbitrary set of ``key values''.  We define the grouping function
+$G_p: \Z[A] \to (K \to \Z[A])$ as $G_p(a)(k) \defn \sum_{x \in a.p(x)=k}a[x] \cdot x$;
+when applied to a \zr $a$ this function returns a collection of groupings\footnote{We use
+``group'' for the algebraic structure and ``grouping'' for the result of \code{GROUP BY}.}: for each key $k$ a 
+grouping is a \zr containing all elements of $a$ that map to $k$ (as in SQL, groupings are multisets).
+The structure $K \to \Z[A] = \Z[A][K]$ is also an abelian group, and the function $G_p$ is linear; 
+thus, it is efficiently incrementalizable.
+
+\subsubsection{Aggregation}
+
+Grouping in SQL is followed by aggregation: given a function $f: \Z[A] \to B$, 
+the aggregation operator ${Agg}_f: \Z[A][K] \to \Z[B]$ applies $f$ to the contents of 
+each grouping and adds the results, producing another multiset: 
+${Agg_f}(g) \defn \sum_{k \in K. g(k) \neq 0} 1 \cdot f(g(k))$.  
+If $f$ is linear (like \code{SUM} and \code{COUNT}), 
+${Agg}_f$ is also linear, and hence $\inc{\lift{({Agg}_f})}$ can be 
+efficiently incrementalized.
+
+\subsubsection{Flatmap}
+
+Formally, given a function from scalars to \zrs, $f : A \rightarrow \Z[B]$, 
+we define the following operator between \zrs:
+$\mbox{flatmap}(f): \Z[A] \rightarrow \Z[B]$ as 
+$\mbox{flatmap}(f)(i) \defn \sum_{x \in i} i[x] \cdot f(x)$.
+
+\begin{proposition}
+The $\mbox{flatmap}(f)$ operator is linear for any function $f$: 
+\end{proposition}
+
+\begin{proof}
+$$
+\begin{aligned}
+\mbox{flatmap}(f)(a + b) &= \sum_{x \in a+b} (a+b)[x] \cdot f(x) & \mbox{definition of flatmap} \\
+ &= \sum_{x \in a+b} (a[x] + b[x]) \cdot f(x) &\mbox{commutativity of plus} \\
+ &= \sum_{x \in a+b} a[x] \cdot f(x) + \sum_{x \in a+b} b[x] \cdot f(x) & \mbox{commutativity} \\
+ &= \sum_{x \in a} a[x] \cdot f(x) + \sum_{x \in b} b[x] \cdot f(x) & \mbox{ignoring 0 terms} \\
+ &= \mbox{flatmap}(f)(a) + \mbox{flatmap}(f)(b) & \mbox{definition of flatmap}
+\end{aligned}
+$$
+\end{proof}
+
+It immediately follows that $\lift{\mbox{flatmap}}(f)$ is time-invariant for any function $f$,
+since any linear operator has the zero-preservation property.
+\mihai{continue this}
+
+\subsection{Streaming joins}
+
+Consider a binary query $T(s, t) = \I(s)~~\lift{\bowtie}~~t$.  This is the
+\emph{relation-to-stream join} operator supported by streaming databases like ksqlDB~\cite{jafarpour-edbt19}.
+Stream $s$ carries changes to a relation, while $t$ carries arbitrary data, e.g., logs
+or telemetry data points. $T$ discards values from $t$ after matching them against the accumulated contents of the relation.
+
+\subsection{Explicit delay}
+
+So far the $\zm$ operator was confined to its implicit use in integration or
+differentiation.  However, it can be exposed as a primitive operation that
+can be applied to streams or collections.  This enables programs that can
+perform time-based window computations over streams, and convolution-like
+operators.  
+
+
+\subsection{Multisets/bags}
+
+Internally DDlog computes using $\Z$-relations, but the semantics provided
+is of a classic Datalog computing on sets.  We can expand the definition
+of some DDlog operators to compute on bags/multisets as well (this can be 
+done naturally for all operators except recursion).
+
+
+\subsection{Window aggregates}
+
+Streaming databases often organize the contents of streams into windows, 
+which store a subset of data points with a predefined range of timestamps.
+The circuit below (a convolution filter in DSP) computes a \emph{fixed-size sliding-window aggregate}
+over the last four timestamps defined by the $T_i$ functions.
+
+\begin{center}
+\begin{tikzpicture}[>=latex]
+    \node[] (input) {$s$};
+    \node[block, right of=input, node distance=1.5cm] (f0) {$T_0$};
+    \node[below of=input, node distance=1cm] (fake) {};
+    \node[block, right of=fake, node distance=1cm] (z0) {$\zm$};
+    \node[right of=input, node distance=.35cm] (tap) {};
+    \node[block, right of=f0, node distance=1.5cm] (f1) {$T_1$};
+    \node[block, right of=z0, node distance=1.2cm] (z1) {$\zm$};
+    \node[block, right of=f1, node distance=1.5cm] (f2) {$T_2$};
+    \node[block, right of=z1, node distance=1.5cm] (z2) {$\zm$};
+    \draw[->] (input) -- (f0);
+    \draw[->] (tap.center) |- (z0);
+    \draw[->] (z0) -| (f0);
+    \draw[->] (f0) -- (f1);
+    \draw[->] (z0) -- (z1);
+    \draw[->] (z1) -| (f1);
+    \draw[->] (f1) -- (f2);
+    \draw[->] (z1) -- (z2);
+    \draw[->] (z2) -| (f2);
+    \node[right of=f2] (output) {$o$};
+    \draw[->] (f2) -- (output);
+\end{tikzpicture}
+\end{center}
+
+In practice, windowing is usually based on physical timestamps attached to
+stream values rather than logical time.  For instance, the CQL~\cite{arasu-tr02} query
+``\texttt{SELECT * FROM events [RANGE 1 hour]}'' returns all events received
+within the last hour.  The corresponding circuit (on the left) takes input stream $s \in \stream{\Z[A]}$ and an additional
+input $\theta \in \stream{\mathbb{R}}$ that carries the value of the current
+time.
+
+\begin{tabular}{m{3cm}m{0.5cm}m{3cm}}
+\begin{tikzpicture}[>=latex]
+    \node[] (input) {$s$};
+    \node[above of=input, node distance=.5cm] (t) {$\theta$};
+    \node[block, right of=input] (i) {$I$};
+    \node[block, right of=i] (w) {$W$};
+    \node[right of=w] (output) {$o$};
+    \draw[->] (input) -- (i);
+    \draw[->] (i) -- (w);
+    \draw[->] (w) -- (output);
+    \draw[->] (t) -| (w);
+\end{tikzpicture}
+&
+$\cong$
+&
+\begin{tikzpicture}[>=latex]
+    \node[] (input) {$s$};
+    \node[above of=input, node distance=.5cm] (t) {$\theta$};
+    \node[block, shape=circle, right of=input, inner sep=0pt] (plus) {$+$};
+    \node[block, right of=plus] (w) {$W$};
+    \node[right of=w] (output) {$o$};
+    \node[block, below of=plus, node distance=.6cm] (z) {$\zm$};
+    \draw[->] (input) -- (plus);
+    \draw[->] (plus) -- (w);
+    \draw[->] (t) -| (w);
+    \draw[->] (w) -- node (mid) {} (output);
+    \draw[->] (mid.center) |-  (z);
+    \draw[->] (z) -- (plus);
+\end{tikzpicture} \\
+\end{tabular}
+
+\noindent{}where the \emph{window operator} $W$ prunes input \zrs, only keeping values
+with timestamps less than an hour behind $\theta[t]$.  Assuming $ts: A \to \mathbb{R}$ returns
+the physical timestamp of a value, $W$ is defined as $W(v, \theta)[t] \defn \{x \in v[t] . 
+ts(x) \geq \theta[t] - 1hr\}$.  Assuming $\theta$ increases monotonically, $W$
+can be moved inside integration, resulting in the circuit on the right, which uses
+bounded memory to compute a window of an unbounded stream.
+This circuit is a building block of a large family of window queries, including
+window joins and aggregation.  We conjecture that \dbsp can express 
+any CQL query.
+
+\subsection{Relational while queries}
+(See also non-monotonic semantics for Datalog$^\neg$ and Datalog$^{\neg\neg}$\cite{Abiteboul-book95}.)
+To illustrate the power of \dbsp we implement the following
+``while'' program, where $Q$ is an arbitrary relational algebra query:
+{\small
+\begin{lstlisting}[language=Pascal]
+x := i;
+while (x changes)
+    x := Q(x);
+\end{lstlisting}}
+The \dbsp implementation of this program is:
+
+%$$\lambda i. \int[\D[\fix{\xi}{Q(\delta_0(i)+\zm(\xi))}]]$$
+\begin{center}
+\begin{tikzpicture}[>=latex]
+  \node[] (input) {$i$};
+  \node[block, right of=input] (delta) {$\delta_0$};
+  \node[block, circle, right of=delta, inner sep=0cm] (p) {$+$};
+  \node[block, right of=p] (Q) {$\lift Q$};
+  \node[block, right of=Q] (D) {$\D$};
+  \node[block, right of=D] (S) {$\int$};
+  \node[right of=S] (output)  {$x$};
+  \node[block, below of=p, node distance=.7cm] (z) {$\zm$};
+  \draw[->] (input) -- (delta);
+  \draw[->] (delta) -- (p);
+  \draw[->] (p) -- (Q);
+  \draw[->] (Q) -- node (mid) {} (D);
+  \draw[->] (D) -- (S);
+  \draw[->] (mid.center) |- (z);
+  \draw[->] (S) -- (output);
+  \draw[->] (z) -- (p);
+\end{tikzpicture}
+\end{center}
+
+This circuit can be converted to a streaming circuit that computes a stream of values $i$ 
+by lifting it; it can be incrementalized using Algorithm~\ref{algorithm-inc} to compute on changes of $i$:
+
+\begin{center}
+\begin{tikzpicture}[>=latex]
+  \node[] (input) {$\Delta i$};
+  \node[block, right of=input] (delta) {$\lift{\delta_0}$};
+  \node[block, circle, right of=delta, inner sep=0cm] (p) {$+$};
+  \node[block, right of=p] (Q) {$\inc{(\lift{\lift{Q}})}$};
+  \node[block, right of=Q, node distance=1.5cm] (D) {$\lift{\D}$};
+  \node[block, right of=D, node distance=1.1cm] (S) {$\lift{\int}$};
+  \node[right of=S, node distance=1.2cm] (output)  {$\Delta x$};
+  \node[block, below of=p, node distance=.9cm] (z) {$\lift{\zm}$};
+  \draw[->] (input) -- (delta);
+  \draw[->] (delta) -- (p);
+  \draw[->] (p) -- (Q);
+  \draw[->] (Q) -- node (mid) {} (D);
+  \draw[->] (D) -- (S);
+  \draw[->] (mid.center) |- (z);
+  \draw[->] (S) -- (output);
+  \draw[->] (z) -- (p);
+\end{tikzpicture}
+\end{center}
+
