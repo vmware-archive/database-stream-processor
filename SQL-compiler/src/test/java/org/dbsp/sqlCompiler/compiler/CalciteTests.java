@@ -54,6 +54,13 @@ public class CalciteTests {
     }
 
     @Test
+    public void whereExpressionTest() throws SqlParseException {
+        CalciteCompiler calcite = this.compileDef();
+        String query = "CREATE VIEW V AS SELECT * FROM T WHERE COL2 < 0";
+        this.compileQuery(calcite, query);
+    }
+
+    @Test
     public void exceptTest() throws SqlParseException {
         CalciteCompiler calcite = this.compileDef();
         String query = "CREATE VIEW V AS SELECT * FROM T EXCEPT (SELECT * FROM T WHERE COL3)";
