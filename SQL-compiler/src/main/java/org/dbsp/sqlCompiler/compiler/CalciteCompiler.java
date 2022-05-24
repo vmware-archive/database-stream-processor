@@ -1,4 +1,4 @@
-package org.dbsp.sqlCompiler;
+package org.dbsp.sqlCompiler.compiler;
 
 import org.apache.calcite.avatica.util.Casing;
 import org.apache.calcite.config.CalciteConnectionConfig;
@@ -13,20 +13,19 @@ import org.apache.calcite.prepare.Prepare;
 import org.apache.calcite.rel.RelRoot;
 import org.apache.calcite.rel.type.RelDataTypeFactory;
 import org.apache.calcite.rex.RexBuilder;
-import org.apache.calcite.sql.SqlKind;
-import org.apache.calcite.sql.SqlNode;
-import org.apache.calcite.sql.SqlOperatorTable;
+import org.apache.calcite.sql.*;
 import org.apache.calcite.sql.fun.SqlStdOperatorTable;
 import org.apache.calcite.sql.parser.SqlParseException;
 import org.apache.calcite.sql.parser.SqlParser;
-import org.apache.calcite.sql.parser.babel.SqlBabelParserImpl;
+import org.apache.calcite.sql.parser.ddl.SqlDdlParserImpl;
 import org.apache.calcite.sql.util.SqlOperatorTables;
 import org.apache.calcite.sql.validate.SqlValidator;
 import org.apache.calcite.sql.validate.SqlValidatorUtil;
 import org.apache.calcite.sql2rel.SqlToRelConverter;
 import org.apache.calcite.sql2rel.StandardConvertletTable;
+import org.dbsp.util.Unimplemented;
+import org.dbsp.util.UnsupportedException;
 
-import javax.annotation.Nullable;
 import java.util.Collections;
 import java.util.Properties;
 
@@ -40,6 +39,11 @@ public class CalciteCompiler {
     private final SqlParser.Config parserConfig;
     private final SqlValidator validator;
     private final SqlToRelConverter converter;
+    private final Catalog simple;
+    private final DDLSimulator simulator;
+    public final RelOptCluster cluster;
+
+    private final CalciteProgram program = new CalciteProgram();
 
     // Adapted from https://www.querifylabs.com/blog/assembling-a-query-optimizer-with-apache-calcite
     public CalciteCompiler() {
@@ -48,13 +52,13 @@ public class CalciteCompiler {
         connConfigProp.put(CalciteConnectionProperty.UNQUOTED_CASING.camelName(), Casing.UNCHANGED.toString());
         connConfigProp.put(CalciteConnectionProperty.QUOTED_CASING.camelName(), Casing.UNCHANGED.toString());
         CalciteConnectionConfig connectionConfig = new CalciteConnectionConfigImpl(connConfigProp);
-
-        this.parserConfig = SqlParser.config().withParserFactory(SqlBabelParserImpl.FACTORY);
-
+        // Add support for DDL language
+        this.parserConfig = SqlParser.config().withParserFactory(SqlDdlParserImpl.FACTORY);
         RelDataTypeFactory typeFactory = new JavaTypeFactoryImpl();
-        SimpleSchema simple = new SimpleSchema("schema");
+        this.simple = new Catalog("schema");
+        this.simulator = new DDLSimulator(this.simple);
         CalciteSchema rootSchema = CalciteSchema.createRootSchema(false, false);
-        rootSchema.add(simple.schemaName, simple);
+        rootSchema.add(simple.schemaName, this.simple);
         Prepare.CatalogReader catalogReader = new CalciteCatalogReader(
                 rootSchema, Collections.singletonList(simple.schemaName), typeFactory, connectionConfig);
 
@@ -79,7 +83,7 @@ public class CalciteCompiler {
                 Contexts.of(connectionConfig)
         );
         planner.addRelTraitDef(ConventionTraitDef.INSTANCE);
-        RelOptCluster cluster = RelOptCluster.create(
+        this.cluster = RelOptCluster.create(
                 planner,
                 new RexBuilder(typeFactory)
         );
@@ -88,10 +92,10 @@ public class CalciteCompiler {
                 .withTrimUnusedFields(true)
                 .withExpand(false);
         this.converter = new SqlToRelConverter(
-                null,
+                (type, query, schema, path) -> null,
                 this.validator,
                 catalogReader,
-                cluster,
+                this.cluster,
                 StandardConvertletTable.INSTANCE,
                 converterConfig
         );
@@ -110,10 +114,10 @@ public class CalciteCompiler {
 
     /**
      * Simulate the execution of a DDL statement.
+     * @return A data structure summarizing the result of the simulation.
      */
-    private void simulate(SqlNode node) {
-        DDLSimulator simulator = new DDLSimulator();
-        simulator.execute(node);
+    private SimulatorResult simulate(SqlNode node) {
+        return this.simulator.execute(node);
     }
 
     /**
@@ -122,14 +126,36 @@ public class CalciteCompiler {
      * the "state" of the database, and returns null.
      * @param sqlStatement  SQL statement to compile.
      */
-    @Nullable
-    public RelRoot compile(String sqlStatement) throws SqlParseException {
+    public void compile(String sqlStatement) throws SqlParseException {
         SqlNode node = this.parse(sqlStatement);
         if (SqlKind.DDL.contains(node.getKind())) {
-            this.simulate(node);
-            return null;
+            SimulatorResult result = this.simulate(node);
+            TableDDL table = result.as(TableDDL.class);
+            if (table != null) {
+                this.program.addInput(table);
+                return;
+            }
+            ViewDDL view = result.as(ViewDDL.class);
+            if (view != null) {
+                RelRoot relRoot = this.converter.convertQuery(view.query, true, true);
+                // Dump plan
+                System.out.println(
+                    RelOptUtil.dumpPlan("[Logical plan]", relRoot.rel,
+                        SqlExplainFormat.TEXT,
+                        SqlExplainLevel.NON_COST_ATTRIBUTES));
+                view.setCompiledQuery(relRoot);
+                if (!relRoot.collation.getKeys().isEmpty()) {
+                    throw new UnsupportedException("ORDER BY", relRoot);
+                }
+                this.program.addView(view);
+                return;
+            }
         }
-        SqlNode validated = this.validator.validate(node);
-        return this.converter.convertQuery(validated, false, true);
+
+        throw new Unimplemented(node);
+    }
+
+    public CalciteProgram getProgram() {
+        return this.program;
     }
 }

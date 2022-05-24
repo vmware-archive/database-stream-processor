@@ -20,6 +20,7 @@ hashbrown = "0.12.0"
 csv = { version = "1.1", optional = true }
 serde = { version = "1.0", optional = true }
 impl-trait-for-tuples = "0.2"
+ordered-float = { version = "2.0.0", features = ["serde"] }
 
 [[bench]]
 name = "galen"
