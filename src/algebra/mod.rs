@@ -1,9 +1,7 @@
 //! This module contains declarations of abstract algebraic concepts:
 //! monoids, groups, rings, etc.
 
-use std::{
-    ops::{Add, AddAssign, Mul, Neg},
-};
+use std::ops::{Add, AddAssign, Mul, Neg};
 
 #[macro_use]
 mod checked_int;
@@ -207,6 +205,7 @@ where
 #[cfg(test)]
 mod integer_ring_tests {
     use super::*;
+    use num::bigint::BigInt;
 
     #[test]
     fn fixed_integer_tests() {
@@ -216,6 +215,17 @@ mod integer_ring_tests {
         assert_eq!(2, two);
         assert_eq!(-2, two.neg_by_ref());
         assert_eq!(-4, two.mul_by_ref(&two.neg_by_ref()));
+    }
+
+    #[test]
+    fn fixed_big_integer_tests() {
+        let two = BigInt::one().add_by_ref(&BigInt::one());
+        assert_eq!(BigInt::one() + BigInt::one(), two);
+        assert_eq!((BigInt::one() + BigInt::one()).neg(), two.neg_by_ref());
+        assert_eq!(
+            (BigInt::one() + BigInt::one()).neg() * 2,
+            two.mul_by_ref(&two.neg_by_ref())
+        );
     }
 
     #[test]
