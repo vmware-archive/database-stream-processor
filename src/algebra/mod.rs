@@ -2,9 +2,7 @@
 //! monoids, groups, rings, etc.
 
 use std::{
-    num::Wrapping,
     ops::{Add, AddAssign, Mul, Neg},
-    rc::Rc,
 };
 
 #[macro_use]
@@ -16,7 +14,7 @@ pub use zset::{IndexedZSet, ZSet};
 
 /// A trait for types that have a zero value.
 ///
-/// This is simlar to the standard Zero trait, but that
+/// This is similar to the standard Zero trait, but that
 /// trait depends on Add and HasZero doesn't.
 pub trait HasZero {
     fn is_zero(&self) -> bool;
@@ -24,54 +22,15 @@ pub trait HasZero {
 }
 
 /// Implement `HasZero` for types that already implement `Zero`.
-macro_rules! impl_has_zero {
-    ($type:ty) => {
-        impl $crate::algebra::HasZero for $type {
-            fn is_zero(&self) -> bool {
-                <Self as num::traits::Zero>::is_zero(self)
-            }
-            fn zero() -> Self {
-                <Self as num::traits::Zero>::zero()
-            }
-        }
-    };
-}
-
-impl_has_zero!(u8);
-impl_has_zero!(u16);
-impl_has_zero!(u32);
-impl_has_zero!(u64);
-impl_has_zero!(u128);
-impl_has_zero!(usize);
-
-impl_has_zero!(i8);
-impl_has_zero!(i16);
-impl_has_zero!(i32);
-impl_has_zero!(i64);
-impl_has_zero!(isize);
-
-// TODO: Implement for `std::num::Saturating` once stable
-impl<T> HasZero for Wrapping<T>
+impl<T> HasZero for T
 where
-    T: HasZero,
+    T: num::traits::Zero,
 {
     fn is_zero(&self) -> bool {
-        self.0.is_zero()
+        <Self as num::traits::Zero>::is_zero(self)
     }
     fn zero() -> Self {
-        Self(T::zero())
-    }
-}
-
-impl<T> HasZero for Rc<T>
-where
-    T: HasZero,
-{
-    fn is_zero(&self) -> bool {
-        T::is_zero(self.as_ref())
-    }
-    fn zero() -> Self {
-        Rc::new(T::zero())
+        <Self as num::traits::Zero>::zero()
     }
 }
 
@@ -83,35 +42,12 @@ pub trait HasOne {
 }
 
 /// Implement `HasOne` for types that already implement `One`.
-macro_rules! impl_has_one {
-    ($type:ty) => {
-        impl $crate::algebra::HasOne for $type {
-            fn one() -> Self {
-                <Self as num::traits::One>::one()
-            }
-        }
-    };
-}
-
-impl_has_one!(u8);
-impl_has_one!(u16);
-impl_has_one!(u32);
-impl_has_one!(u64);
-impl_has_one!(u128);
-impl_has_one!(usize);
-
-impl_has_one!(i8);
-impl_has_one!(i16);
-impl_has_one!(i32);
-impl_has_one!(i64);
-impl_has_one!(isize);
-
-impl<T> HasOne for Rc<T>
+impl<T> HasOne for T
 where
-    T: HasOne,
+    T: num::traits::One,
 {
     fn one() -> Self {
-        Rc::new(<T as HasOne>::one())
+        <Self as num::traits::One>::one()
     }
 }
 
@@ -145,12 +81,12 @@ where
     }
 }
 
-/// Like the AddAsssign trait, but with arguments by reference
+/// Like the AddAssign trait, but with arguments by reference
 pub trait AddAssignByRef {
     fn add_assign_by_ref(&mut self, other: &Self);
 }
 
-/// Implemenation of AddAssignByRef for types that already have `AddAssign<&T>`.
+/// Implementation of AddAssignByRef for types that already have `AddAssign<&T>`.
 impl<T> AddAssignByRef for T
 where
     for<'a> T: AddAssign<&'a T>,
