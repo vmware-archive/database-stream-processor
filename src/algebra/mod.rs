@@ -84,7 +84,8 @@ pub trait AddAssignByRef {
     fn add_assign_by_ref(&mut self, other: &Self);
 }
 
-/// Implementation of AddAssignByRef for types that already have `AddAssign<&T>`.
+/// Implementation of AddAssignByRef for types that already have
+/// `AddAssign<&T>`.
 impl<T> AddAssignByRef for T
 where
     for<'a> T: AddAssign<&'a T>,
