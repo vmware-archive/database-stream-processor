@@ -1,12 +1,8 @@
-// Copyright 2022 the DBSP contributors.
-// SPDX-License-Identifier: MIT
-
 //! Generates people for the Nexmark streaming data.
 //!
 //! API based on the equivalent [Nexmark Flink PersonGenerator API](https://github.com/nexmark/nexmark/blob/v0.2.0/nexmark-flink/src/main/java/com/github/nexmark/flink/generator/model/PersonGenerator.java).
 
 use rand::{seq::SliceRandom, Rng};
-
 use super::strings_generator::next_string;
 use crate::model::{DateTime, Id, Person};
 

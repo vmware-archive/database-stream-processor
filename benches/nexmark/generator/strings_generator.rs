@@ -1,6 +1,3 @@
-// Copyright 2022 the DBSP contributors.
-// SPDX-License-Identifier: MIT
-
 //! Generates strings which are used for different field in other model objects.
 //!
 //! API based on the equivalent [Nexmark Flink StringsGenerator API](https://github.com/nexmark/nexmark/blob/v0.2.0/nexmark-flink/src/main/java/com/github/nexmark/flink/generator/model/StringsGenerator.java).
