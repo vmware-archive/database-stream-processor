@@ -47,9 +47,6 @@ pub fn next_person<R: Rng + ?Sized>(next_event_id: Id, rng: &mut R, timestamp: u
     //     8 + name.length() + email.length() + creditCard.length() + city.length() + state.length();
     // String extra = nextExtra(random, currentSize, config.getAvgPersonByteSize());
 
-    // Convert timestamp milliseconds into second and nano-seconds
-    let secs = timestamp / 1000;
-    let nsecs = (timestamp % 1000) * 1000;
     Person {
         id: last_base0_person_id(next_event_id) + FIRST_PERSON_ID,
         name: next_person_name(rng),
@@ -57,7 +54,7 @@ pub fn next_person<R: Rng + ?Sized>(next_event_id: Id, rng: &mut R, timestamp: u
         credit_card: next_credit_card(rng),
         city: next_us_city(rng),
         state: next_us_state(rng),
-        date_time: DateTime::from_timestamp(secs.try_into().unwrap(), nsecs.try_into().unwrap()),
+        date_time: DateTime::UNIX_EPOCH + std::time::Duration::from_millis(timestamp),
         extra: String::new(),
     }
 }
@@ -134,7 +131,6 @@ fn next_credit_card<R: Rng + ?Sized>(rng: &mut R) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::NaiveDate;
     use rand::rngs::mock::StepRng;
 
     #[test]
@@ -152,7 +148,7 @@ mod tests {
                 credit_card: "0000 0000 0000 0000".into(),
                 city: "Phoenix".into(),
                 state: "AZ".into(),
-                date_time: NaiveDate::from_ymd(2001, 9, 9).and_hms(1, 46, 40),
+                date_time: DateTime::UNIX_EPOCH + std::time::Duration::from_millis(1_000_000_000_000),
                 extra: String::new(),
             }
         );
