@@ -135,12 +135,19 @@ fn next_credit_card<R: Rng + ?Sized>(rng: &mut R) -> String {
 mod tests {
     use super::*;
     use crate::config::Config;
-    use clap::Parser;
     use rand::rngs::mock::StepRng;
+
+    fn make_default_config() -> Config {
+        Config {
+            person_proportion: 1,
+            auction_proportion: 3,
+            bid_proportion: 46,
+        }
+    }
 
     #[test]
     fn test_next_person() {
-        let conf = Config::parse();
+        let conf = make_default_config();
 
         let mut rng = StepRng::new(0, 5);
 
@@ -164,7 +171,7 @@ mod tests {
 
     #[test]
     fn test_next_base0_person_id() {
-        let conf = Config::parse();
+        let conf = make_default_config();
         let mut rng = StepRng::new(0, 5);
 
         // When one more than the last person id is less than the configured
@@ -194,7 +201,7 @@ mod tests {
 
     #[test]
     fn test_last_base0_person_id_default() {
-        let conf = Config::parse();
+        let conf = make_default_config();
         // With the default config, the first 50 events will only include one
         // person
         assert_eq!(last_base0_person_id(&conf, 25), 0);
@@ -212,7 +219,7 @@ mod tests {
         // Set the configured bid proportion to 21,
         // which together with the other defaults for person and auction
         // proportion, makes the total 25.
-        let mut conf = Config::parse();
+        let mut conf = make_default_config();
         conf.bid_proportion = 21;
 
         // With the total proportion at 25, there will be a new person
