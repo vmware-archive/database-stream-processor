@@ -16,5 +16,6 @@
 
 extern crate test;
 
+mod config;
 mod generator;
 mod model;

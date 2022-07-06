@@ -1,10 +1,11 @@
-//! Generates people for the Nexmark streaming data.
+//! Generates people for the Nexmark streaming data source.
 //!
 //! API based on the equivalent [Nexmark Flink PersonGenerator API](https://github.com/nexmark/nexmark/blob/v0.2.0/nexmark-flink/src/main/java/com/github/nexmark/flink/generator/model/PersonGenerator.java).
 
-use rand::{seq::SliceRandom, Rng};
 use super::strings::next_string;
+use crate::config;
 use crate::model::{DateTime, Id, Person};
+use rand::{seq::SliceRandom, Rng};
 
 // Keep the number of states small so that the example queries will find
 // results even with a small batch of events.
@@ -31,15 +32,13 @@ const LAST_NAMES: &[&str] = &[
     "Shultz", "Abrams", "Spencer", "White", "Bartels", "Walton", "Smith", "Jones", "Noris",
 ];
 
-// TODO(absoludity): add GeneratorConfig rather than hard-coding.
-const PERSON_PROPORTION: usize = 3;
-const TOTAL_PROPORTION: usize = 10;
-const NUM_ACTIVE_PEOPLE: usize = 2;
-const FIRST_PERSON_ID: usize = 0;
-
 // Generate and return a random person with next available id.
-// TODO(absoludity): Update to take GeneratorConfig.
-pub fn next_person<R: Rng + ?Sized>(next_event_id: Id, rng: &mut R, timestamp: u64) -> Person {
+pub fn next_person<R: Rng + ?Sized>(
+    conf: &config::Config,
+    next_event_id: Id,
+    rng: &mut R,
+    timestamp: u64,
+) -> Person {
     // TODO(absoludity): Figure out the purpose of the extra field - appears to be
     // aiming to adjust the number of bytes for the record to be an average, which will
     // need slightly different handling in Rust.
@@ -48,7 +47,7 @@ pub fn next_person<R: Rng + ?Sized>(next_event_id: Id, rng: &mut R, timestamp: u
     // String extra = nextExtra(random, currentSize, config.getAvgPersonByteSize());
 
     Person {
-        id: last_base0_person_id(next_event_id) + FIRST_PERSON_ID,
+        id: last_base0_person_id(conf, next_event_id) + config::FIRST_PERSON_ID,
         name: next_person_name(rng),
         email_address: next_email(rng),
         credit_card: next_credit_card(rng),
@@ -60,37 +59,41 @@ pub fn next_person<R: Rng + ?Sized>(next_event_id: Id, rng: &mut R, timestamp: u
 }
 
 /// Return a random person id (base 0).
-// TODO(absoludity): Update to take GeneratorConfig.
-pub fn next_base0_person_id<R: Rng + ?Sized>(event_id: Id, rng: &mut R) -> Id {
-    // Choose a random person from any of the 'active' people, plus a few 'leads'.
-    // By limiting to 'active' we ensure the density of bids or auctions per person
-    // does not decrease over time for long running jobs.
-    // TODO(absoludity): Understand why this code appears to shift the active
-    // people ids to always be the most recent people, rather than what the
-    // comment above claims.
+///
+/// Choose a random person from any of the 'active' people, plus a few 'leads'.
+/// By limiting to 'active' we ensure the density of bids or auctions per person
+/// does not decrease over time for long running jobs.  By choosing a person id
+/// ahead of the last valid person id we will make newPerson and newAuction
+/// events appear to have been swapped in time.
+///
+/// NOTE: The above is the original comment from the Java implementation. The
+/// "base 0" is referring to the fact that the returned Id is not including the
+/// FIRST_PERSON_ID offset, and should really be "offset 0".
 
-    // By choosing a person id ahead of the last valid person id we will make
-    // newPerson and newAuction events appear to have been swapped in time.
-    let num_people = last_base0_person_id(event_id) + 1;
-    let active_people = std::cmp::min(num_people, NUM_ACTIVE_PEOPLE);
-    let n = rng.gen_range(0..active_people);
+pub fn next_base0_person_id<R: Rng + ?Sized>(
+    conf: &config::Config,
+    event_id: Id,
+    rng: &mut R,
+) -> Id {
+    let num_people = last_base0_person_id(conf, event_id) + 1;
+    let active_people = std::cmp::min(num_people, config::NUM_ACTIVE_PEOPLE);
+    let n = rng.gen_range(0..(active_people + config::PERSON_ID_LEAD));
     num_people - active_people + n
 }
 
 /// Return the last valid person id (ignoring FIRST_PERSON_ID). Will be the
 /// current person id if due to generate a person.
-// TODO(absoludity): Update to take GeneratorConfig.
-pub fn last_base0_person_id(event_id: Id) -> Id {
-    let epoch = event_id / TOTAL_PROPORTION;
-    let mut offset = event_id % TOTAL_PROPORTION;
+pub fn last_base0_person_id(conf: &config::Config, event_id: Id) -> Id {
+    let epoch = event_id / conf.total_proportion();
+    let mut offset = event_id % conf.total_proportion();
 
-    if offset >= PERSON_PROPORTION {
+    if offset >= conf.person_proportion {
         // About to generate an auction or bid.
         // Go back to the last person generated in this epoch.
-        offset = PERSON_PROPORTION - 1;
+        offset = conf.person_proportion - 1;
     }
     // About to generate a person.
-    epoch * PERSON_PROPORTION + offset
+    epoch * conf.person_proportion + offset
 }
 
 // Return a random US state.
@@ -131,64 +134,98 @@ fn next_credit_card<R: Rng + ?Sized>(rng: &mut R) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::Config;
+    use clap::Parser;
     use rand::rngs::mock::StepRng;
+    use serial_test::serial;
 
     #[test]
+    #[serial]
     fn test_next_person() {
+        let conf = Config::parse();
+
         let mut rng = StepRng::new(0, 5);
 
-        let p = next_person(5, &mut rng, 1_000_000_000_000);
+        let p = next_person(&conf, 105, &mut rng, 1_000_000_000_000);
 
         assert_eq!(
             p,
             Person {
-                id: 2,
+                id: 1002,
                 name: "Peter Shultz".into(),
                 email_address: "AAA@AAA.com".into(),
                 credit_card: "0000 0000 0000 0000".into(),
                 city: "Phoenix".into(),
                 state: "AZ".into(),
-                date_time: DateTime::UNIX_EPOCH + std::time::Duration::from_millis(1_000_000_000_000),
+                date_time: DateTime::UNIX_EPOCH
+                    + std::time::Duration::from_millis(1_000_000_000_000),
                 extra: String::new(),
             }
         );
     }
 
     #[test]
+    #[serial]
     fn test_next_base0_person_id() {
+        let conf = Config::parse();
         let mut rng = StepRng::new(0, 5);
 
         // When one more than the last person id is less than the configured
-        // active people, the id returned is one of the active people.
-        // Note: the mock rng is always returning zero for n.
-        assert_eq!(next_base0_person_id(0, &mut rng), 0);
+        // active people (1000), the id returned is a random id from one of
+        // the currently active people plus the 'lead' people.
+        // Note: the mock rng is always returning zero for the random addition
+        // in the range (0..active_people).
+        assert_eq!(next_base0_person_id(&conf, 50 * 998, &mut rng), 0);
 
-        // When one more than the last person id is equal to the configured
-        // active people, the id returned is one of the active people.
-        assert_eq!(next_base0_person_id(1, &mut rng), 0);
+        // Even when one more than the last person id is equal to the configured
+        // active people, the id returned is a random id from one of the
+        // active people plus the 'lead' people.
+        assert_eq!(next_base0_person_id(&conf, 50 * 999, &mut rng), 0);
 
         // When one more than the last person id is one greater than the
-        // configured active people, we return a number from a range one
-        // greater than the active people.
-        assert_eq!(next_base0_person_id(2, &mut rng), 1);
-        assert_eq!(next_base0_person_id(5, &mut rng), 1);
+        // configured active people, we consider the most recent
+        // NUM_ACTIVE_PEOPLE to be the active ones, and return a random id from
+        // those plus the 'lead'people.
+        assert_eq!(next_base0_person_id(&conf, 50 * 1000, &mut rng), 1);
 
-        // When one more than the last person id is four greater than the
-        // configured active people, we return a number from a the range four
-        // greater than the active people.
-        // TODO(absoludity): Understand why this code appears to shift the active
-        // people ids to always be the most recent people, rather than what the
-        // comment in the code claims.
-        assert_eq!(next_base0_person_id(12, &mut rng), 4);
+        // When one more than the last person id is 501 greater than the
+        // configured active people, we consider the most recent
+        // NUM_ACTIVE_PEOPLE to be the active ones, and return a random id from
+        // those plus the 'lead' people.
+        assert_eq!(next_base0_person_id(&conf, 50 * 1500, &mut rng), 501);
     }
 
     #[test]
-    fn test_last_base0_person_id() {
-        assert_eq!(last_base0_person_id(2), 2);
+    #[serial]
+    fn test_last_base0_person_id_default() {
+        let conf = Config::parse();
+        // With the default config, the first 50 events will only include one
+        // person
+        assert_eq!(last_base0_person_id(&conf, 25), 0);
 
-        assert_eq!(last_base0_person_id(5), 2);
+        // The 50th event will correspond to the next...
+        assert_eq!(last_base0_person_id(&conf, 50), 1);
+        assert_eq!(last_base0_person_id(&conf, 75), 1);
 
-        assert_eq!(last_base0_person_id(12), 1 * PERSON_PROPORTION + 2);
+        // And so on...
+        assert_eq!(last_base0_person_id(&conf, 100), 2);
+    }
+
+    #[test]
+    #[serial]
+    fn test_last_base0_person_id_custom() {
+        // Temporarily set the env var so that the bid proportion is 21,
+        // which together with the other defaults for person and auction
+        // proportion, makes the total 25.
+        temp_env::with_vars(vec![("NEXMARK_BID_PROPORTION", Some("21"))], || {
+            let conf = Config::parse();
+            // With the total proportion at 25, there will be a new person
+            // at every 25th event.
+            assert_eq!(last_base0_person_id(&conf, 25), 1);
+            assert_eq!(last_base0_person_id(&conf, 50), 2);
+            assert_eq!(last_base0_person_id(&conf, 75), 3);
+            assert_eq!(last_base0_person_id(&conf, 100), 4);
+        });
     }
 
     #[test]
