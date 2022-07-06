@@ -32,8 +32,6 @@ zip = "0.6.2"
 anyhow = "1.0.57"
 rand = "0.8"
 clap = { version = "3.2", features = ["derive", "env"] }
-temp-env = "0.2"
-serial_test = "0.8"
 
 [[bench]]
 name = "galen"
