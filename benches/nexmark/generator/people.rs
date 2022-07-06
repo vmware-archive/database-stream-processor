@@ -3,7 +3,7 @@
 //! API based on the equivalent [Nexmark Flink PersonGenerator API](https://github.com/nexmark/nexmark/blob/v0.2.0/nexmark-flink/src/main/java/com/github/nexmark/flink/generator/model/PersonGenerator.java).
 
 use rand::{seq::SliceRandom, Rng};
-use super::strings_generator::next_string;
+use super::strings::next_string;
 use crate::model::{DateTime, Id, Person};
 
 // Keep the number of states small so that the example queries will find
