@@ -1,6 +1,3 @@
-// Copyright 2022 the DBSP contributors.
-// SPDX-License-Identifier: MIT
-
 //! Nexmark provides a configurable Nexmark data source.
 //!
 //! Based on the API defined by the [Java Flink NEXMmark implementation](https://github.com/nexmark/nexmark)

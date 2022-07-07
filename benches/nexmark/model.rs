@@ -1,6 +1,3 @@
-// Copyright 2022 the DBSP contributors.
-// SPDX-License-Identifier: MIT
-
 //! Model structs for the Nexmark benchmark suite.
 //!
 //! Based on the equivalent [Nexmark Flink Java model classes](https://github.com/nexmark/nexmark/blob/v0.2.0/nexmark-flink/src/main/java/com/github/nexmark/flink/model).

@@ -69,7 +69,6 @@ pub fn next_person<R: Rng + ?Sized>(
 /// NOTE: The above is the original comment from the Java implementation. The
 /// "base 0" is referring to the fact that the returned Id is not including the
 /// FIRST_PERSON_ID offset, and should really be "offset 0".
-
 pub fn next_base0_person_id<R: Rng + ?Sized>(
     conf: &config::Config,
     event_id: Id,
