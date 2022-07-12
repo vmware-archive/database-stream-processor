@@ -39,7 +39,8 @@ impl Config {
         }
     }
 
-    // Return the next event number for a generator which has so far emitted `num_events`.
+    // Return the next event number for a generator which has so far emitted
+    // `num_events`.
     pub fn next_event_number(&self, num_events: Id) -> Id {
         self.first_event_number + num_events
     }

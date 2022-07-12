@@ -31,11 +31,13 @@ pub struct Config {
     #[clap(long, default_value = "1", env = "NEXMARK_OUT_OF_ORDER_GROUP_SIZE")]
     pub out_of_order_group_size: usize,
 
-    /// Average number of auctions which should be inflight at any time, per generator.
+    /// Average number of auctions which should be inflight at any time, per
+    /// generator.
     #[clap(long, default_value = "100", env = "NEXMARK_NUM_IN_FLIGHT_AUCTIONS")]
     pub num_in_flight_auctions: usize,
 
-    /// Maximum number of people to consider as active for placing auctions or bids.
+    /// Maximum number of people to consider as active for placing auctions or
+    /// bids.
     #[clap(long, default_value = "1000", env = "NEXMARK_NUM_ACTIVE_PEOPLE")]
     pub num_active_people: usize,
 
@@ -43,7 +45,8 @@ pub struct Config {
     #[clap(long, default_value = "10000", env = "NEXMARK_FIRST_EVENT_RATE")]
     pub first_event_rate: usize,
 
-    /// Number of event generators to use. Each generates events in its own timeline.
+    /// Number of event generators to use. Each generates events in its own
+    /// timeline.
     #[clap(long, default_value = "1", env = "NEXMARK_NUM_EVENT_GENERATORS")]
     pub num_event_generators: usize,
 }

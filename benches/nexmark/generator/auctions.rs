@@ -19,7 +19,8 @@ impl<R: Rng> NexmarkGenerator<R> {
         // What's our current event number?
         let current_event_number = self.config.next_adjusted_event_number(event_count_so_far);
         // How many events until we've generated num_in_flight_actions?
-        // E.g. with defaults, this is 100 * 50 / 3 = 1666 total events (bids, people, auctions)
+        // E.g. with defaults, this is 100 * 50 / 3 = 1666 total events (bids, people,
+        // auctions)
         let num_events_for_auctions = (self.config.nexmark_config.num_in_flight_auctions
             * self.config.nexmark_config.total_proportion())
             / self.config.nexmark_config.auction_proportion;
