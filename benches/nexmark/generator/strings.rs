@@ -20,9 +20,8 @@ impl<R: Rng> NexmarkGenerator<R> {
 
 #[cfg(test)]
 mod tests {
-    //TODO
-    use super::super::config::tests::make_default_config;
     use super::*;
+    use crate::generator::config::tests::make_default_config;
     use rand::rngs::mock::StepRng;
 
     #[test]

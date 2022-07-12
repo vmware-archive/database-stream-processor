@@ -4,7 +4,6 @@
 
 use std::time::SystemTime;
 
-// TODO: update to u64.
 pub type Id = usize;
 
 /// The Nexmark Person model based on the [Nexmark Java Person class](https://github.com/nexmark/nexmark/blob/v0.2.0/nexmark-flink/src/main/java/com/github/nexmark/flink/model/Person.java).
