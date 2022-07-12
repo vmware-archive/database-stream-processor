@@ -62,19 +62,20 @@ impl Config {
     }
 }
 
+impl Default for Config {
+    fn default() -> Self {
+        Config::new(NexmarkConfig::default(), 0, 1)
+    }
+}
 #[cfg(test)]
 pub mod tests {
     use super::*;
-    use crate::config::tests::make_default_nexmark_config;
+    use crate::config::Config as NexmarkConfig;
     use rstest::rstest;
-
-    pub fn make_default_config() -> Config {
-        Config::new(make_default_nexmark_config(), 0, 1)
-    }
 
     #[test]
     fn test_next_event_number() {
-        assert_eq!(make_default_config().next_event_number(4), 5);
+        assert_eq!(Config::default().next_event_number(4), 5);
     }
 
     #[rstest]
@@ -84,7 +85,7 @@ pub mod tests {
     #[case(199, 200)]
     fn test_next_adjusted_event_number_default(#[case] num_events: Id, #[case] expected: Id) {
         assert_eq!(
-            make_default_config().next_adjusted_event_number(num_events),
+            Config::default().next_adjusted_event_number(num_events),
             expected
         );
     }
@@ -106,9 +107,9 @@ pub mod tests {
         let config = Config {
             nexmark_config: NexmarkConfig {
                 out_of_order_group_size: 3,
-                ..make_default_nexmark_config()
+                ..NexmarkConfig::default()
             },
-            ..make_default_config()
+            ..Config::default()
         };
         assert_eq!(config.next_adjusted_event_number(num_events), expected);
     }
@@ -122,7 +123,7 @@ pub mod tests {
     #[case(5, SystemTime::UNIX_EPOCH + Duration::from_micros(100*5))]
     fn test_timestamp_for_event(#[case] event_number: u64, #[case] expected: SystemTime) {
         assert_eq!(
-            make_default_config().timestamp_for_event(event_number),
+            Config::default().timestamp_for_event(event_number),
             expected,
         );
     }

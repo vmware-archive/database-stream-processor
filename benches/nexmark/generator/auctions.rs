@@ -5,8 +5,10 @@
 use super::NexmarkGenerator;
 use anyhow::Result;
 use rand::Rng;
-use std::cmp;
-use std::time::{Duration, SystemTime};
+use std::{
+    cmp,
+    time::{Duration, SystemTime},
+};
 
 impl<R: Rng> NexmarkGenerator<R> {
     fn next_auction_length_ms(
@@ -40,14 +42,14 @@ impl<R: Rng> NexmarkGenerator<R> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::generator::config::tests::make_default_config;
+    use crate::generator::config::Config;
     use rand::rngs::mock::StepRng;
 
     #[test]
     fn test_next_auction_length_ms() {
         let mut ng = NexmarkGenerator {
             rng: StepRng::new(0, 5),
-            config: make_default_config(),
+            config: Config::default(),
         };
 
         let len_ms = ng

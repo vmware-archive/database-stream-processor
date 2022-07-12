@@ -131,15 +131,15 @@ impl<R: Rng> NexmarkGenerator<R> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{tests::make_default_nexmark_config, Config as NexmarkConfig};
-    use config::{tests::make_default_config, Config};
+    use crate::config::Config as NexmarkConfig;
+    use config::Config;
     use rand::rngs::mock::StepRng;
 
     #[test]
     fn test_next_person() {
         let mut ng = NexmarkGenerator {
             rng: StepRng::new(0, 5),
-            config: make_default_config(),
+            config: Config::default(),
         };
 
         let p = ng.next_person(105, 1_000_000_000_000);
@@ -163,7 +163,7 @@ mod tests {
     fn test_next_base0_person_id() {
         let mut ng = NexmarkGenerator {
             rng: StepRng::new(0, 5),
-            config: make_default_config(),
+            config: Config::default(),
         };
 
         // When one more than the last person id is less than the configured
@@ -195,7 +195,7 @@ mod tests {
     fn test_last_base0_person_id_default() {
         let ng = NexmarkGenerator {
             rng: StepRng::new(0, 5),
-            config: make_default_config(),
+            config: Config::default(),
         };
 
         // With the default config, the first 50 events will only include one
@@ -220,9 +220,9 @@ mod tests {
             config: Config {
                 nexmark_config: NexmarkConfig {
                     bid_proportion: 21,
-                    ..make_default_nexmark_config()
+                    ..NexmarkConfig::default()
                 },
-                ..make_default_config()
+                ..Config::default()
             },
         };
 
@@ -238,7 +238,7 @@ mod tests {
     fn test_next_us_state() {
         let mut ng = NexmarkGenerator {
             rng: StepRng::new(0, 5),
-            config: make_default_config(),
+            config: Config::default(),
         };
 
         let s = ng.next_us_state();
@@ -250,7 +250,7 @@ mod tests {
     fn test_next_us_city() {
         let mut ng = NexmarkGenerator {
             rng: StepRng::new(0, 5),
-            config: make_default_config(),
+            config: Config::default(),
         };
 
         let c = ng.next_us_city();
@@ -262,7 +262,7 @@ mod tests {
     fn test_next_person_name() {
         let mut ng = NexmarkGenerator {
             rng: StepRng::new(0, 5),
-            config: make_default_config(),
+            config: Config::default(),
         };
 
         let n = ng.next_person_name();
@@ -274,7 +274,7 @@ mod tests {
     fn test_next_email() {
         let mut ng = NexmarkGenerator {
             rng: StepRng::new(0, 5),
-            config: make_default_config(),
+            config: Config::default(),
         };
 
         let e = ng.next_email();
@@ -286,7 +286,7 @@ mod tests {
     fn test_next_credit_card() {
         let mut ng = NexmarkGenerator {
             rng: StepRng::new(0, 5),
-            config: make_default_config(),
+            config: Config::default(),
         };
 
         let e = ng.next_credit_card();
