@@ -6,6 +6,7 @@ use self::config::Config;
 use rand::Rng;
 
 mod auctions;
+mod bids;
 mod config;
 mod people;
 mod price;

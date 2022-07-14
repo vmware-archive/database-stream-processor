@@ -1,4 +1,4 @@
-//! Generates people for the Nexmark streaming data source.
+//! Generates auctions for the Nexmark streaming data source.
 //!
 //! API based on the equivalent [Nexmark Flink PersonGenerator API](https://github.com/nexmark/nexmark/blob/v0.2.0/nexmark-flink/src/main/java/com/github/nexmark/flink/generator/model/AuctionGenerator.java).
 
