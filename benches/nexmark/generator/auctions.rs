@@ -16,27 +16,26 @@ impl<R: Rng> NexmarkGenerator<R> {
     fn last_base0_auction_id(&self, event_id: u64) -> u64 {
         let mut epoch = event_id / self.config.nexmark_config.total_proportion() as u64;
         let mut offset = event_id % self.config.nexmark_config.total_proportion() as u64;
+        let person_proportion = self.config.nexmark_config.person_proportion as u64;
+        let auction_proportion = self.config.nexmark_config.auction_proportion as u64;
 
-        if offset < self.config.nexmark_config.person_proportion as u64 {
+        if offset < person_proportion {
             // About to generate a person.
             // Go back to the last auction in the last epoch.
             epoch = match epoch.checked_sub(1) {
                 Some(e) => e,
                 None => return 0,
             };
-            offset = self.config.nexmark_config.auction_proportion as u64 - 1;
-        } else if offset
-            >= (self.config.nexmark_config.person_proportion
-                + self.config.nexmark_config.auction_proportion) as u64
-        {
+            offset = auction_proportion - 1;
+        } else if offset >= (person_proportion + auction_proportion) {
             // About to generate a bid.
             // Go back to the last auction generated in this epoch.
-            offset = self.config.nexmark_config.auction_proportion as u64 - 1;
+            offset = auction_proportion - 1;
         } else {
             // About to generate an auction.
-            offset -= self.config.nexmark_config.person_proportion as u64;
+            offset -= person_proportion;
         }
-        epoch * self.config.nexmark_config.auction_proportion as u64 + offset
+        epoch * auction_proportion + offset
     }
 
     /// Return a random auction id (base 0).
@@ -45,16 +44,9 @@ impl<R: Rng> NexmarkGenerator<R> {
         // flight, plus a few 'leads'.
         // Note that ideally we'd track non-expired auctions exactly, but that state
         // is difficult to split.
-        let min_auction = cmp::max(
-            match self
-                .last_base0_auction_id(next_event_id)
-                .checked_sub(self.config.nexmark_config.num_in_flight_auctions as u64)
-            {
-                Some(e) => e,
-                None => 0,
-            },
-            0,
-        );
+        let min_auction = self
+            .last_base0_auction_id(next_event_id)
+            .saturating_sub(self.config.nexmark_config.num_in_flight_auctions as u64);
         let max_auction = self.last_base0_auction_id(next_event_id);
         min_auction + self.rng.gen_range(0..(max_auction - min_auction + 1))
     }
