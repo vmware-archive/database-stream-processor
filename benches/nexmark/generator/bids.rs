@@ -45,7 +45,6 @@ pub mod tests {
     use super::*;
     use crate::generator::tests::make_test_generator;
     use rand::rngs::mock::StepRng;
-    use regex::Regex;
 
     #[test]
     fn test_get_base_url() {
@@ -57,48 +56,27 @@ pub mod tests {
     }
 
     #[test]
-    fn test_get_new_channel_instance_cached() {
+    fn test_get_new_channel_instance() {
         let mut ng = make_test_generator();
 
-        let channel = ng.get_new_channel_instance(1234);
-        let re = Regex::new(
-            r"^https://www.nexmark.com/(\w+)/item.htm\?query=1(&channel_id=5413326752099336192)?$",
-        )
-        .unwrap();
+        let (channel_name, channel_url) = ng.get_new_channel_instance(1234);
 
-        assert_eq!(channel.0, "channel-1234");
-
-        assert!(
-            re.is_match(&channel.1),
-            "{} did not match {}",
-            channel.1,
-            re
-        );
-
-        // Ensure the length of the captured base path is correct.
-        let caps = re.captures(&channel.1).unwrap();
-
-        // Three captures - first is the complete string, second is the random channel
-        // URL path and the third is the optional channel id query param.
-        // The random URL path which should be between 3 and 5 characters.
-        assert_eq!(caps.len(), 3);
-        let url_path = caps.get(1).unwrap().as_str();
-        assert!(
-            match url_path.len() {
-                3..=5 => true,
-                _ => false,
-            },
-            "got: {}, want: 3..=5",
-            url_path.len()
-        );
-
-        // Finally, since the function is using a memory cache, the same result
-        // should be returned on subsequent calls for the same channel number.
-        let channel_cached = ng.get_new_channel_instance(1234);
+        assert_eq!(channel_name, "channel-1234");
         assert_eq!(
-            channel.1, channel_cached.1,
-            "got: {}, want: {}",
-            channel_cached.1, channel.1
+            channel_url,
+            "https://www.nexmark.com/AAA/item.htm?query=1&channel_id=5413326752099336192"
         );
+    }
+
+    #[test]
+    fn test_get_new_channel_instance_cached() {
+        let mut ng = make_test_generator();
+        ng.bid_channel_cache
+            .cache_set(1234, ("Google".into(), "https://google.example.com".into()));
+
+        let (channel_name, channel_url) = ng.get_new_channel_instance(1234);
+
+        assert_eq!(channel_name, "Google");
+        assert_eq!(channel_url, "https://google.example.com");
     }
 }
