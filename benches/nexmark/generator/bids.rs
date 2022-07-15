@@ -105,7 +105,7 @@ impl<R: Rng> NexmarkGenerator<R> {
             channel,
             url,
             date_time: SystemTime::UNIX_EPOCH + Duration::from_millis(timestamp),
-            extra: "".into(),
+            extra: String::new(),
         }
     }
 }
@@ -138,7 +138,7 @@ pub mod tests {
                 channel: "Google".into(),
                 url: "https://www.nexmark.com/googl/item.htm?query=1".into(),
                 date_time: SystemTime::UNIX_EPOCH + Duration::from_millis(1_000_000_000_000),
-                extra: "".into(),
+                extra: String::new(),
             },
             bid
         );
