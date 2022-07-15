@@ -2,33 +2,35 @@
 //!
 //! API based on the equivalent [Nexmark Flink PersonGenerator API](https://github.com/nexmark/nexmark/blob/v0.2.0/nexmark-flink/src/main/java/com/github/nexmark/flink/generator/model/BidGenerator.java).
 use super::strings::next_string;
-use cached::{proc_macro::cached, SizedCache};
-use rand::{thread_rng, Rng};
+use super::NexmarkGenerator;
+use cached::Cached;
+use rand::Rng;
 
-const CHANNELS_NUMBER: usize = 10_000;
+pub const CHANNELS_NUMBER: usize = 10_000;
 
 const BASE_URL_PATH_LENGTH: usize = 5;
 
-// Similar to the Java implementation, the cached version of
-// `get_new_channel_instance` needs to create its own Rng, as it's not currently
-// possible to pass a generic Rng in while using the cached macro.
-#[cached(
-    type = "SizedCache<usize, (String, String)>",
-    create = "{ SizedCache::with_size(CHANNELS_NUMBER) }"
-)]
-fn get_new_channel_instance(channel_number: usize) -> (String, String) {
-    let mut rng = thread_rng();
-    let mut url = get_base_url(&mut rng);
-    // Just following the Java implementation: 1 in 10 chance that
-    // the URL is returned as is, otherwise a channel_id query param is added to the
-    // URL. Also following the Java implementation which uses `Integer.reverse` to
-    // get a deterministic channel id.
-    url = match rng.gen_range(0..10) {
-        9 => url,
-        _ => format!("{}&channel_id={}", url, channel_number.reverse_bits()),
-    };
+impl<R: Rng> NexmarkGenerator<R> {
+    fn get_new_channel_instance(&mut self, channel_number: usize) -> (String, String) {
+        // Manually check the cache. Note: using a manual SizedCache because the
+        // `cached` library doesn't allow using the proc_macro `cached` with
+        // `self`.
+        self.bid_channel_cache
+            .cache_get_or_set_with(channel_number, || {
+                let mut url = get_base_url(&mut self.rng);
+                // Just following the Java implementation: 1 in 10 chance that
+                // the URL is returned as is, otherwise a channel_id query param is
+                // added to the URL. Also following the Java implementation
+                // which uses `Integer.reverse` to get a deterministic channel_id.
+                url = match self.rng.gen_range(0..10) {
+                    9 => url,
+                    _ => format!("{}&channel_id={}", url, channel_number.reverse_bits()),
+                };
 
-    (format!("channel-{}", channel_number), url)
+                (format!("channel-{}", channel_number), url)
+            })
+            .clone()
+    }
 }
 
 fn get_base_url<R: Rng>(rng: &mut R) -> String {
@@ -41,6 +43,7 @@ fn get_base_url<R: Rng>(rng: &mut R) -> String {
 #[cfg(test)]
 pub mod tests {
     use super::*;
+    use crate::generator::tests::make_test_generator;
     use rand::rngs::mock::StepRng;
     use regex::Regex;
 
@@ -55,7 +58,9 @@ pub mod tests {
 
     #[test]
     fn test_get_new_channel_instance_cached() {
-        let channel = get_new_channel_instance(1234);
+        let mut ng = make_test_generator();
+
+        let channel = ng.get_new_channel_instance(1234);
         let re = Regex::new(
             r"^https://www.nexmark.com/(\w+)/item.htm\?query=1(&channel_id=5413326752099336192)?$",
         )
@@ -89,7 +94,7 @@ pub mod tests {
 
         // Finally, since the function is using a memory cache, the same result
         // should be returned on subsequent calls for the same channel number.
-        let channel_cached = get_new_channel_instance(1234);
+        let channel_cached = ng.get_new_channel_instance(1234);
         assert_eq!(
             channel.1, channel_cached.1,
             "got: {}, want: {}",

@@ -3,17 +3,14 @@
 //! API based on the equivalent [Nexmark Flink StringsGenerator API](https://github.com/nexmark/nexmark/blob/v0.2.0/nexmark-flink/src/main/java/com/github/nexmark/flink/generator/model/StringsGenerator.java).
 
 use super::NexmarkGenerator;
-use rand::{distributions::Alphanumeric, Rng};
+use rand::{distributions::Alphanumeric, distributions::DistString, Rng};
 
 const MIN_STRING_LENGTH: usize = 3;
 
 /// Return a random string of up to `max_length`.
 pub(super) fn next_string<R: Rng>(rng: &mut R, max_length: usize) -> String {
     let len = rng.gen_range(MIN_STRING_LENGTH..=max_length);
-    rng.sample_iter(&Alphanumeric)
-        .take(len)
-        .map(char::from)
-        .collect()
+    Alphanumeric.sample_string(rng, len)
 }
 
 impl<R: Rng> NexmarkGenerator<R> {
@@ -30,16 +27,11 @@ impl<R: Rng> NexmarkGenerator<R> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::generator::config::Config;
-    use rand::rngs::mock::StepRng;
+    use crate::generator::tests::make_test_generator;
 
     #[test]
     fn next_string_length() {
-        let mut ng = NexmarkGenerator {
-            rng: StepRng::new(0, 5),
-            config: Config::default(),
-        };
+        let mut ng = make_test_generator();
 
         let s = ng.next_string(5);
 
