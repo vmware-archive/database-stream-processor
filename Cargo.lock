@@ -398,7 +398,6 @@ dependencies = [
  "petgraph",
  "priority-queue",
  "rand",
- "regex",
  "rstest",
  "serde",
  "textwrap",
