@@ -114,7 +114,7 @@ impl Default for Config {
         // event id is 2 so the first event is *not* the first person, but
         // rather an auction with id 1001, that refers to a seller, a person,
         // with the id 1000, that was never generated. I need to triple-check
-        // the Java output bere creating an issue against their repo, but for
+        // the Java output before creating an issue against their repo, but for
         // now I'm using defaults of 0 for both, which results in the expected
         // events (first event is a person with id 1000, etc.).
         Config::new(NexmarkConfig::default(), 0, 0, 0, 0)
