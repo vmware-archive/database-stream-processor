@@ -136,7 +136,7 @@ pub struct NextEvent {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rand::rngs::mock::StepRng;
+    use rand::{rngs::mock::StepRng, thread_rng};
 
     pub fn make_test_generator() -> NexmarkGenerator<StepRng> {
         NexmarkGenerator::new(Config::default(), StepRng::new(0, 1))
@@ -155,7 +155,7 @@ mod tests {
 
     #[test]
     fn test_next_event() {
-        let mut ng = make_test_generator();
+        let mut ng = NexmarkGenerator::new(Config::default(), thread_rng());
 
         // The first event with the default config is the person
         let next_event = ng.next_event().unwrap();
