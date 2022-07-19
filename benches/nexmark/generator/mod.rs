@@ -179,9 +179,9 @@ pub mod tests {
         assert_eq!(ng.get_next_event_id(), 2);
     }
 
-    #[test]
     // Tests the first five expected events without relying on any test
     // helper for the data.
+    #[test]
     fn test_next_event() {
         let mut ng = NexmarkGenerator::new(Config::default(), thread_rng());
 
@@ -230,12 +230,12 @@ pub mod tests {
         );
     }
 
-    #[test]
     // Verifies that the `generate_expected_next_events()` test helper does
     // indeed output predictable results matching the order verified manually in
     // the above `test_next_events` (at least for the first 5 events).  Together
     // with the manual test above of next_events, this ensures the order is
     // correct for external call-sites.
+    #[test]
     fn test_generate_expected_next_events() {
         let mut ng = make_test_generator();
         ng.set_wallclock_base_time(1_000_000);
