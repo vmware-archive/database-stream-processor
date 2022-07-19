@@ -49,16 +49,15 @@ impl Config {
         // but including to ensure similar behavior.
         let max_events = match max_events_or_zero {
             0 => {
-                u64::MAX
-                    / (nexmark_config.total_proportion() as u64
-                        * [
-                            nexmark_config.avg_person_byte_size as u64,
-                            nexmark_config.avg_auction_byte_size as u64,
-                            nexmark_config.avg_bid_byte_size as u64,
-                        ]
-                        .iter()
-                        .max()
-                        .unwrap())
+                let max_average = *[
+                    nexmark_config.avg_person_byte_size,
+                    nexmark_config.avg_auction_byte_size,
+                    nexmark_config.avg_bid_byte_size,
+                ]
+                .iter()
+                .max()
+                .unwrap();
+                u64::MAX / (nexmark_config.total_proportion() as u64 * max_average as u64)
             }
             _ => max_events_or_zero,
         };
