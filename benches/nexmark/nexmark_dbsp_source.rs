@@ -105,6 +105,10 @@ where
             next_event = self.generator.next_event().unwrap();
         }
 
+        // Ensure we remember the last event that was generated but not emitted for the
+        // next call.
+        self.next_event = next_event;
+
         C::from_tuples(
             (),
             next_events
