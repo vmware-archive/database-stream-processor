@@ -143,19 +143,28 @@ mod test {
         source
     }
 
+    fn generate_expected_zset_tuples(
+        wallclock_base_time: u64,
+        num_events: usize,
+    ) -> Vec<((Event, ()), isize)> {
+        let expected_events = generate_expected_next_events(wallclock_base_time, num_events);
+
+        expected_events
+            .into_iter()
+            .filter(|event| event.is_some())
+            .map(|event| ((event.unwrap().event, ()), 1))
+            .collect()
+    }
+
     // Generates a zset manually using the default test NexmarkGenerator
     fn generate_expected_zset(
         wallclock_base_time: u64,
         num_events: usize,
     ) -> OrdZSet<Event, isize> {
-        let expected_events = generate_expected_next_events(wallclock_base_time, num_events);
-        let expected_zset_tuples = expected_events
-            .into_iter()
-            .filter(|event| event.is_some())
-            .map(|event| ((event.unwrap().event, ()), 1))
-            .collect();
-
-        OrdZSet::<Event, isize>::from_tuples((), expected_zset_tuples)
+        OrdZSet::<Event, isize>::from_tuples(
+            (),
+            generate_expected_zset_tuples(wallclock_base_time, num_events),
+        )
     }
 
     #[test]
@@ -211,7 +220,37 @@ mod test {
         root.step().unwrap();
     }
 
-    // TODO: Figure out best way to test when not all events are in the past,
-    // given that the code uses `now()` - perhaps pass in implementation so
-    // tests can use a canned `now()`?
+    // When keeping up with the input, there is no buffering and results
+    // are returned one at a time.
+    #[test]
+    fn test_eval_current_time() {
+        let wallclock_time = wallclock_time().unwrap();
+        let mut source = make_test_source(wallclock_time, 5);
+        let expected_zset_tuples = generate_expected_zset_tuples(wallclock_time, 10);
+
+        assert_eq!(
+            source.eval(),
+            OrdZSet::from_tuples((), Vec::from(&expected_zset_tuples[0..1]))
+        );
+
+        assert_eq!(
+            source.eval(),
+            OrdZSet::from_tuples((), Vec::from(&expected_zset_tuples[1..2]))
+        );
+
+        assert_eq!(
+            source.eval(),
+            OrdZSet::from_tuples((), Vec::from(&expected_zset_tuples[2..3]))
+        );
+
+        assert_eq!(
+            source.eval(),
+            OrdZSet::from_tuples((), Vec::from(&expected_zset_tuples[3..4]))
+        );
+
+        assert_eq!(
+            source.eval(),
+            OrdZSet::from_tuples((), Vec::from(&expected_zset_tuples[4..5]))
+        );
+    }
 }
