@@ -139,7 +139,7 @@ mod test {
     use crate::{circuit::Root, trace::ord::OrdZSet, trace::Batch};
     use rand::rngs::mock::StepRng;
 
-    fn make_test_source(
+    pub fn make_test_source(
         wallclock_base_time: u64,
         max_events: u64,
     ) -> NexmarkSource<StepRng, isize, OrdZSet<Event, isize>> {
@@ -156,7 +156,7 @@ mod test {
         source
     }
 
-    fn generate_expected_zset_tuples(
+    pub fn generate_expected_zset_tuples(
         wallclock_base_time: u64,
         num_events: usize,
     ) -> Vec<((Event, ()), isize)> {
