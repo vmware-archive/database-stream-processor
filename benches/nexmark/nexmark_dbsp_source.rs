@@ -70,8 +70,7 @@ where
             (),
             (0..self.batch_size)
                 .map(|_| self.generator.next_event().unwrap())
-                .filter(|event| event.is_some())
-                .map(|event| ((event.unwrap().event, ()), W::one()))
+                .filter_map(|event| event.map(|event| ((event.event, ()), W::one())))
                 .collect(),
         )
     }
