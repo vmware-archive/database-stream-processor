@@ -35,12 +35,11 @@ pub struct NexmarkGenerator<R: Rng> {
     wallclock_base_time: Option<u64>,
 }
 
-pub fn wallclock_time() -> Result<u64> {
-    let millis: u64 = SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)?
-        .as_millis()
-        .try_into()?;
-    Ok(millis)
+pub fn wallclock_time() -> u64 {
+    SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64
 }
 
 impl<R: Rng> NexmarkGenerator<R> {
@@ -90,7 +89,7 @@ impl<R: Rng> NexmarkGenerator<R> {
             return Ok(None);
         }
         if self.wallclock_base_time == None {
-            self.wallclock_base_time = Some(wallclock_time()?);
+            self.wallclock_base_time = Some(wallclock_time());
         }
 
         // When, in event time, we should generate the event. Monotonic.

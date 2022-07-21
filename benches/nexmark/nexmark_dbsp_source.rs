@@ -87,7 +87,7 @@ where
         // Otherwise we want to emit at least one event, so if the next event
         // is still in the future, we sleep until we can emit it.
         let next_event = next_event.unwrap();
-        let wallclock_time_now = wallclock_time().unwrap();
+        let wallclock_time_now = wallclock_time();
         if next_event.wallclock_timestamp > wallclock_time_now {
             sleep(Duration::from_millis(
                 next_event.wallclock_timestamp - wallclock_time_now,
@@ -97,7 +97,7 @@ where
         // Collect as many next events as are ready.
         let mut next_events = vec![next_event];
         let mut next_event = self.generator.next_event().unwrap();
-        let wallclock_time_now = wallclock_time().unwrap();
+        let wallclock_time_now = wallclock_time();
         while next_event
             .is_some_and(|next_event| next_event.wallclock_timestamp.clone() < wallclock_time_now)
         {
@@ -224,7 +224,7 @@ mod test {
     // are returned one at a time.
     #[test]
     fn test_eval_current_time() {
-        let wallclock_time = wallclock_time().unwrap();
+        let wallclock_time = wallclock_time();
         let mut source = make_test_source(wallclock_time, 5);
         let expected_zset_tuples = generate_expected_zset_tuples(wallclock_time, 10);
 
