@@ -74,10 +74,10 @@ where
         // Grab a next event, either the last event from the previous call that
         // was saved because it couldn't yet be emitted, or the next generated
         // event.
-        let next_event = match self.next_event.clone() {
-            Some(e) => Some(e),
-            None => self.generator.next_event().unwrap(),
-        };
+        let next_event = self
+            .next_event
+            .clone()
+            .or_else(|| self.generator.next_event().unwrap());
 
         // If there are no more events, we return an empty set.
         if next_event.is_none() {
