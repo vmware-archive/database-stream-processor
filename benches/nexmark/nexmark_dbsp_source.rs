@@ -87,11 +87,11 @@ where
         // Otherwise we want to emit at least one event, so if the next event
         // is still in the future, we sleep until we can emit it.
         let next_event = next_event.unwrap();
-        let wallclock_time_now = self.generator.wallclock_time();
+        let mut wallclock_time_now = self.generator.wallclock_time();
         if next_event.wallclock_timestamp > wallclock_time_now {
-            sleep(Duration::from_millis(
-                next_event.wallclock_timestamp - wallclock_time_now,
-            ));
+            let millis_to_sleep = next_event.wallclock_timestamp - wallclock_time_now;
+            sleep(Duration::from_millis(millis_to_sleep));
+            wallclock_time_now += millis_to_sleep;
         }
 
         // Collect as many next events as are ready.
