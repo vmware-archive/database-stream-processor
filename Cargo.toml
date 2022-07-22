@@ -9,6 +9,7 @@ with-serde = ["serde"]
 with-csv = ["csv"]
 
 [dependencies]
+anyhow = "1.0.57"
 num = "0.4.0"
 petgraph = "0.6.0"
 typedmap = { version = "0.3.0", features = ["dashmap"] }
@@ -22,6 +23,9 @@ impl-trait-for-tuples = "0.2"
 deepsize = "0.2.0"
 deepsize_derive = "0.1.2"
 textwrap = "0.15.0"
+rand = "0.8"
+clap = { version = "3.2", features = ["derive", "env"] }
+cached = "0.36"
 
 # TODO: eliminate dependency on timely-dataflow by cloning relevant
 # parts.
@@ -29,11 +33,7 @@ timely = "0.12.0"
 
 [dev-dependencies]
 zip = "0.6.2"
-anyhow = "1.0.57"
-rand = "0.8"
-clap = { version = "3.2", features = ["derive", "env"] }
 rstest = "0.15"
-cached = "0.36"
 
 [[bench]]
 name = "galen"
