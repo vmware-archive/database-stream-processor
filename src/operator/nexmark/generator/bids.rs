@@ -1,10 +1,12 @@
 //! Generates bids for the Nexmark streaming data source.
 //!
 //! API based on the equivalent [Nexmark Flink PersonGenerator API](https://github.com/nexmark/nexmark/blob/v0.2.0/nexmark-flink/src/main/java/com/github/nexmark/flink/generator/model/BidGenerator.java).
-use super::config::{FIRST_AUCTION_ID, FIRST_PERSON_ID};
-use super::strings::next_string;
 use super::NexmarkGenerator;
-use crate::model::Bid;
+use super::{
+    super::model::Bid,
+    config::{FIRST_AUCTION_ID, FIRST_PERSON_ID},
+    strings::next_string,
+};
 use cached::Cached;
 use rand::Rng;
 
@@ -109,8 +111,8 @@ fn get_base_url<R: Rng>(rng: &mut R) -> String {
 
 #[cfg(test)]
 pub mod tests {
+    use super::super::tests::make_test_generator;
     use super::*;
-    use crate::generator::tests::make_test_generator;
     use rand::rngs::mock::StepRng;
     use rstest::rstest;
 

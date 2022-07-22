@@ -1,4 +1,5 @@
 #![feature(generic_associated_types)]
+#![feature(is_some_with)]
 
 mod num_entries;
 mod ref_pair;
