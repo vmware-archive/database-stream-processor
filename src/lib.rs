@@ -15,6 +15,9 @@ pub mod profile;
 pub mod time;
 pub mod trace;
 
+#[cfg(feature = "with-nexmark")]
+pub mod nexmark;
+
 pub use num_entries::NumEntries;
 pub use ref_pair::RefPair;
 pub use shared_ref::SharedRef;

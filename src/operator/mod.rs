@@ -64,7 +64,5 @@ pub use neg::UnaryMinus;
 
 pub mod recursive;
 
-pub mod nexmark;
-
 #[cfg(feature = "with-csv")]
 pub use self::csv::CsvSource;
