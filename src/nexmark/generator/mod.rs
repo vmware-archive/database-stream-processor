@@ -158,10 +158,6 @@ impl<R: Rng> NexmarkGenerator<R> {
             watermark,
         }))
     }
-
-    pub fn get_events_count(&self) -> u64 {
-        self.events_count_so_far
-    }
 }
 
 /// The next event and its various timestamps. Ordered by increasing wallclock

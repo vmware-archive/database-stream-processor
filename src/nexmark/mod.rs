@@ -148,10 +148,6 @@ where
     pub fn set_wallclock_time_iterator(&mut self, i: Range<u64>) {
         self.generator.set_wallclock_time_iterator(i)
     }
-
-    pub fn get_events_count(&self) -> u64 {
-        self.generator.get_events_count()
-    }
 }
 
 #[cfg(test)]

@@ -1,6 +1,6 @@
 //! Nexmark benchmarks for DBSP
 //!
-//! Based on the queries defined at
+//! CLI for running Nexmark benchmarks with DBSP.
 #![feature(is_some_with)]
 use anyhow::Result;
 use clap::Parser;
@@ -20,7 +20,6 @@ fn main() -> Result<()> {
     let nexmark_config = NexmarkConfig::parse();
     let generator_config = GeneratorConfig::new(nexmark_config, 0, 0, 0, 0);
 
-    let cpu_profiler = CPUProfiler::new();
     let root = Root::build(|circuit| {
         // TODO(absoludity): CPUProfiler is not currently used in any of the
         // other benchmarks, only commented out. Not yet sure whether it will be
@@ -33,7 +32,6 @@ fn main() -> Result<()> {
         // now, just grab simple timestamp to do a duration for 100_000_000 events with
         // a source generating 1M events/sec as per the Nexmark results.
         let start_time = std::time::SystemTime::now();
-        cpu_profiler.attach(&circuit, "cpu profiler");
 
         let source =
             NexmarkSource::<ThreadRng, isize, OrdZSet<Event, isize>>::new(generator_config);
