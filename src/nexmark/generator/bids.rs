@@ -16,7 +16,7 @@ const HOT_AUCTON_RATIO: usize = 100;
 const HOT_BIDDER_RATIO: usize = 100;
 const HOT_CHANNELS_RATIO: usize = 100;
 
-pub const CHANNELS_NUMBER: usize = 10_000;
+pub const CHANNELS_NUMBER: u32 = 10_000;
 
 const HOT_CHANNELS: [&str; 4] = ["Google", "Facebook", "Baidu", "Apple"];
 const HOT_URLS: [&str; 4] = [
@@ -28,7 +28,7 @@ const HOT_URLS: [&str; 4] = [
 const BASE_URL_PATH_LENGTH: usize = 5;
 
 impl<R: Rng> NexmarkGenerator<R> {
-    fn get_new_channel_instance(&mut self, channel_number: usize) -> (String, String) {
+    fn get_new_channel_instance(&mut self, channel_number: u32) -> (String, String) {
         // Manually check the cache. Note: using a manual SizedCache because the
         // `cached` library doesn't allow using the proc_macro `cached` with
         // `self`.
@@ -161,7 +161,7 @@ pub mod tests {
         assert_eq!(channel_name, "channel-1234");
         assert_eq!(
             channel_url,
-            "https://www.nexmark.com/AAA/item.htm?query=1&channel_id=5413326752099336192"
+            "https://www.nexmark.com/AAA/item.htm?query=1&channel_id=1260388352"
         );
     }
 
