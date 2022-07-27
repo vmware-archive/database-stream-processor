@@ -8,15 +8,13 @@ use crate::{nexmark::model::Event, operator::FilterMap, Circuit, OrdZSet, Stream
 const AUCTION_ID_MODULO: u64 = 123;
 
 pub fn q2(input: NexmarkStream) -> Stream<Circuit<()>, OrdZSet<(u64, usize), isize>> {
-    input
-        .filter(|event| match event {
-            Event::Bid(b) => b.auction % AUCTION_ID_MODULO == 0,
-            _ => false,
-        })
-        .map(|bid_event| match bid_event {
-            Event::Bid(b) => (b.auction, b.price),
-            _ => panic!("bid expected but not found."),
-        })
+    input.flat_map(|event| match event {
+        Event::Bid(b) => match b.auction % AUCTION_ID_MODULO == 0 {
+            true => Some((b.auction, b.price)),
+            false => None,
+        },
+        _ => None,
+    })
 }
 
 #[cfg(test)]
