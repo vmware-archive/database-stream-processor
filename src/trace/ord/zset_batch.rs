@@ -236,6 +236,22 @@ where
     }
 }
 
+impl<K, R> OrdZSet<K, R>
+where
+    K: Ord + Clone + 'static,
+    R: MonoidValue,
+{
+    pub fn weighted_count(&self) -> R {
+        let mut sum = R::zero();
+        let mut cursor = self.cursor();
+        while cursor.key_valid() {
+            sum += cursor.weight();
+            cursor.step_key();
+        }
+        sum
+    }
+}
+
 impl<K, R> Batch for OrdZSet<K, R>
 where
     K: Ord + Clone + 'static,
