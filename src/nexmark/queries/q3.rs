@@ -6,14 +6,32 @@ use crate::{nexmark::model::Event, operator::FilterMap, Circuit, OrdZSet, Stream
 /// Who is selling in OR, ID or CA in category 10, and for what auction ids?
 /// Illustrates an incremental join (using per-key state and timer) and filter.
 ///
-/// See https://github.com/nexmark/nexmark/blob/v0.2.0/nexmark-flink/src/main/resources/queries/q3.sql
+/// From https://github.com/nexmark/nexmark/blob/v0.2.0/nexmark-flink/src/main/resources/queries/q3.sql
+///
+/// CREATE TABLE discard_sink (
+///   name  VARCHAR,
+///   city  VARCHAR,
+///   state  VARCHAR,
+///   id  BIGINT
+/// ) WITH (
+///   'connector' = 'blackhole'
+/// );
+///
+/// INSERT INTO discard_sink
+/// SELECT
+///     P.name, P.city, P.state, A.id
+/// FROM
+///     auction AS A INNER JOIN person AS P on A.seller = P.id
+/// WHERE
+///     A.category = 10 and (P.state = 'OR' OR P.state = 'ID' OR P.state =
+/// 'CA');
 
 const STATES_OF_INTEREST: &[&str] = &["OR", "ID", "CA"];
 const CATEGORY_OF_INTEREST: usize = 10;
 
-pub fn q3(
-    input: NexmarkStream,
-) -> Stream<Circuit<()>, OrdZSet<(String, String, String, u64), isize>> {
+type Q3Stream = Stream<Circuit<()>, OrdZSet<(String, String, String, u64), isize>>;
+
+pub fn q3(input: NexmarkStream) -> Q3Stream {
     // Select auctions of interest and index them by seller id.
     let auction_by_seller = input.flat_map_index(|event| match event {
         Event::Auction(a) if a.category == CATEGORY_OF_INTEREST => Some((a.seller, a.id)),

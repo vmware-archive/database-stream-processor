@@ -4,7 +4,18 @@ use crate::{nexmark::model::Event, operator::FilterMap, Circuit, OrdZSet, Stream
 /// Selection
 ///
 /// Find bids with specific auction ids and show their bid price.
-/// See https://github.com/nexmark/nexmark/blob/v0.2.0/nexmark-flink/src/main/resources/queries/q2.sql
+///
+/// From https://github.com/nexmark/nexmark/blob/v0.2.0/nexmark-flink/src/main/resources/queries/q2.sql
+///
+/// CREATE TABLE discard_sink (
+///   auction  BIGINT,
+///   price  BIGINT
+/// ) WITH (
+///   'connector' = 'blackhole'
+/// );
+///
+/// INSERT INTO discard_sink
+/// SELECT auction, price FROM bid WHERE MOD(auction, 123) = 0;
 const AUCTION_ID_MODULO: u64 = 123;
 
 pub fn q2(input: NexmarkStream) -> Stream<Circuit<()>, OrdZSet<(u64, usize), isize>> {
