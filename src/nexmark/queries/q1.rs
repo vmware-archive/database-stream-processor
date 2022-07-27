@@ -7,7 +7,8 @@ use crate::operator::FilterMap;
 /// Convert each bid value from dollars to euros. Illustrates a simple
 /// transformation.
 ///
-/// From https://github.com/nexmark/nexmark/blob/v0.2.0/nexmark-flink/src/main/resources/queries/q1.sql
+/// From [Nexmark q1.sql](https://github.com/nexmark/nexmark/blob/v0.2.0/nexmark-flink/src/main/resources/queries/q1.sql):
+///
 /// CREATE TABLE discard_sink (
 ///   auction  BIGINT,
 ///   bidder  BIGINT,

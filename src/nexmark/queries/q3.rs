@@ -6,7 +6,7 @@ use crate::{nexmark::model::Event, operator::FilterMap, Circuit, OrdZSet, Stream
 /// Who is selling in OR, ID or CA in category 10, and for what auction ids?
 /// Illustrates an incremental join (using per-key state and timer) and filter.
 ///
-/// From https://github.com/nexmark/nexmark/blob/v0.2.0/nexmark-flink/src/main/resources/queries/q3.sql
+/// From [Nexmark q3.sql](https://github.com/nexmark/nexmark/blob/v0.2.0/nexmark-flink/src/main/resources/queries/q3.sql)
 ///
 /// CREATE TABLE discard_sink (
 ///   name  VARCHAR,

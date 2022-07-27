@@ -5,7 +5,7 @@ use crate::{nexmark::model::Event, operator::FilterMap, Circuit, OrdZSet, Stream
 ///
 /// Find bids with specific auction ids and show their bid price.
 ///
-/// From https://github.com/nexmark/nexmark/blob/v0.2.0/nexmark-flink/src/main/resources/queries/q2.sql
+/// From [Nexmark q2.sql](https://github.com/nexmark/nexmark/blob/v0.2.0/nexmark-flink/src/main/resources/queries/q2.sql):
 ///
 /// CREATE TABLE discard_sink (
 ///   auction  BIGINT,
