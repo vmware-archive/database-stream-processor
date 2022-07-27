@@ -14,30 +14,33 @@ const CATEGORY_OF_INTEREST: usize = 10;
 pub fn q3(
     input: NexmarkStream,
 ) -> Stream<Circuit<()>, OrdZSet<(String, String, String, u64), isize>> {
-    // TODO: It's unclear to me how I'd using the DBSP join here (which seems
-    // more like a zip). In particular, how is state maintained for the people
-    // to look up the person when a related auction is found? Looks like it
-    // may be related to an indexed zset - but how would it be indexed on the person
-    // id?
-    //
-    // let auctions = input.filter(|event| match event {
-    //     Event::Auction(a) => a.category == 10,
-    //     _ => false,
-    // });
+    // Select auctions of interest and index them by seller id.
+    let auction_by_seller = input.flat_map_index(|event| match event {
+        Event::Auction(a) if a.category == CATEGORY_OF_INTEREST => Some((a.seller, a.id)),
+        _ => None,
+    });
 
-    // For now, just return the people matching the states regardless of
-    // the join on auction.seller.
-    input.flat_map(|event| match event {
+    // Select people from states of interest and index them by person id.
+    let person_by_id = input.flat_map_index(|event| match event {
         Event::Person(p) => match STATES_OF_INTEREST.contains(&p.state.as_str()) {
-            true => Some((p.name.clone(), p.city.clone(), p.state.clone(), 0)),
+            true => Some((p.id, (p.name.clone(), p.city.clone(), p.state.clone()))),
             false => None,
         },
         _ => None,
-    })
-    // let people_indexed = people.index();
+    });
 
-    // Look at join_trace_test for an example that uses same input (edges).
-    // auctions.join(&people, |_via, not, sure| {})
+    // In the future, it won't be necessary to specify type arguments to join.
+    auction_by_seller.join::<(), _, _, _>(
+        &person_by_id,
+        |_seller, &auction_id, (name, city, state)| {
+            (
+                name.to_string(),
+                city.to_string(),
+                state.to_string(),
+                auction_id,
+            )
+        },
+    )
 }
 
 #[cfg(test)]
