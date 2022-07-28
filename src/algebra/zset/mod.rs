@@ -2,7 +2,7 @@
 mod zset_macro;
 
 use crate::{
-    algebra::{GroupValue, HasOne, ZRingValue, HasZero},
+    algebra::{GroupValue, HasOne, HasZero, ZRingValue},
     trace::{cursor::Cursor, Batch, Builder},
     NumEntries, SharedRef,
 };
