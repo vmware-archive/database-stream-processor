@@ -49,11 +49,11 @@ pub fn q4(input: NexmarkStream) -> Q4Stream {
         _ => None,
     });
 
+    type BidsAuctionsJoin =
+        Stream<Circuit<()>, OrdZSet<((u64, usize, u64, u64), (usize, u64)), isize>>;
+
     // Join to get bids for each auction.
-    let bids_for_auctions: Stream<
-        Circuit<()>,
-        OrdZSet<((u64, usize, u64, u64), (usize, u64)), isize>,
-    > = auctions_by_id.join::<(), _, _, _>(
+    let bids_for_auctions: BidsAuctionsJoin = auctions_by_id.join::<(), _, _, _>(
         &bids_by_auction,
         |&auction_id, &(category, a_date_time, a_expires), &(bid_price, bid_date_time)| {
             (
@@ -83,13 +83,12 @@ pub fn q4(input: NexmarkStream) -> Q4Stream {
         });
     let winning_bids_by_category_indexed = winning_bids_by_category.index();
 
-    let average_bid_per_category =
-        winning_bids_by_category_indexed.aggregate(|&key, vals| -> (usize, usize) {
-            let num_items = vals.len();
-            let sum = vals.drain(..).map(|(bid, _)| bid).sum::<usize>();
-            (key, sum / num_items)
-        });
-    average_bid_per_category
+    // Finally, calculate the average winning bid per category.
+    winning_bids_by_category_indexed.aggregate(|&key, vals| -> (usize, usize) {
+        let num_items = vals.len();
+        let sum = vals.drain(..).map(|(bid, _)| bid).sum::<usize>();
+        (key, sum / num_items)
+    })
 }
 
 #[cfg(test)]
