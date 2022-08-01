@@ -10,13 +10,14 @@ pub const PERSON_ID_LEAD: usize = 10;
 /// A Nexmark streaming data source generator
 ///
 /// Based on the Java/Flink generator found in the [Nexmark repository](https://github.com/nexmark/nexmark).
-#[derive(Parser, Debug)]
+#[derive(Clone, Debug, Parser)]
 #[clap(author, version, about)]
 pub struct Config {
     // Cargo passes any `--bench nexmark` (for example) through to our main
     // as an arg, so just ensure it's a valid arg option for now.
-    #[clap(long)]
-    pub bench: bool,
+    #[doc(hidden)]
+    #[clap(long = "bench", hide = true)]
+    pub __bench: bool,
 
     /// Specify the proportion of events that will be new auctions.
     #[clap(long, default_value = "3", env = "NEXMARK_AUCTION_PROPORTION")]
@@ -39,7 +40,7 @@ pub struct Config {
     pub bid_proportion: usize,
 
     /// Initial overall event rate (per second).
-    #[clap(long, default_value = "10000", env = "NEXMARK_FIRST_EVENT_RATE")]
+    #[clap(long, default_value = "100000", env = "NEXMARK_FIRST_EVENT_RATE")]
     pub first_event_rate: usize,
 
     /// Ratio of bids to 'hot' auctions compared to all other auctions.
@@ -53,6 +54,10 @@ pub struct Config {
     /// Ration of auctions for 'hot' sellers compared to all other people.
     #[clap(long, default_value = "4", env = "NEXMARK_HOT_SELLERS_RATIO")]
     pub hot_sellers_ratio: usize,
+
+    /// Max number of events to be generated. 0 is unlimited.
+    #[clap(long, default_value = "1000000", env = "NEXMARK_MAX_EVENTS")]
+    pub max_events: u64,
 
     /// Maximum number of people to consider as active for placing auctions or
     /// bids.
@@ -78,6 +83,10 @@ pub struct Config {
     /// Specify the proportion of events that will be new people.
     #[clap(long, default_value = "1", env = "NEXMARK_PERSON_PROPORTION")]
     pub person_proportion: usize,
+
+    /// Queries to run, all by default.
+    #[clap(long, env = "NEXMARK_QUERIES", multiple = true)]
+    pub query: Vec<String>,
 }
 
 /// Implementation of config methods based on the Java implementation at
@@ -91,7 +100,7 @@ impl Config {
 impl Default for Config {
     fn default() -> Self {
         Config {
-            bench: true,
+            __bench: true,
             auction_proportion: 3,
             avg_auction_byte_size: 500,
             avg_bid_byte_size: 100,
@@ -101,11 +110,13 @@ impl Default for Config {
             hot_auction_ratio: 2,
             hot_bidders_ratio: 4,
             hot_sellers_ratio: 4,
+            max_events: 1_000_000,
             num_active_people: 1000,
             num_event_generators: 1,
             num_in_flight_auctions: 100,
             out_of_order_group_size: 1,
             person_proportion: 1,
+            query: vec![],
         }
     }
 }
