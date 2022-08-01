@@ -64,6 +64,8 @@ pub fn q4(input: NexmarkStream) -> Q4Stream {
     );
 
     // Filter out the invalid bids while indexing.
+    // TODO: update to use incremental version of `join_range` once implemented
+    // (#137).
     let bids_for_auctions_indexed = bids_for_auctions.flat_map_index(
         |&((auction_id, category, a_date_time, a_expires), (bid_price, bid_date_time))| {
             if bid_date_time >= a_date_time && bid_date_time <= a_expires {
@@ -77,14 +79,17 @@ pub fn q4(input: NexmarkStream) -> Q4Stream {
     // winning_bids_by_category: once we have the winning bids, we don't
     // need the auction ids anymore.
     let winning_bids_by_category: Stream<Circuit<()>, OrdZSet<(usize, usize), isize>> =
-        bids_for_auctions_indexed.aggregate(|&key, vals| -> (usize, usize) {
-            let max = vals.drain(..).map(|(bid, _)| bid).max().unwrap();
-            (key.1, *max)
+        bids_for_auctions_indexed.aggregate_incremental(|&key, vals| -> (usize, usize) {
+            // `vals` is sorted in ascending order for each key, so we can
+            // just grab the last one.
+            let (&max, _) = vals.last().unwrap();
+            (key.1, max)
         });
     let winning_bids_by_category_indexed = winning_bids_by_category.index();
 
     // Finally, calculate the average winning bid per category.
-    winning_bids_by_category_indexed.aggregate(|&key, vals| -> (usize, usize) {
+    // TODO: use linear aggregation when ready (#138).
+    winning_bids_by_category_indexed.aggregate_incremental(|&key, vals| -> (usize, usize) {
         let num_items = vals.len();
         let sum = vals.drain(..).map(|(bid, _)| bid).sum::<usize>();
         (key, sum / num_items)
@@ -164,10 +169,18 @@ mod tests {
                 }),
                 ..make_next_event()
             },
-            // Only bid for auction 2 (category 1).
+            // Max bid for auction 2 (category 1).
             NextEvent {
                 event: Event::Bid(Bid {
                     price: 300,
+                    auction: 2,
+                    ..make_bid()
+                }),
+                ..make_next_event()
+            },
+            NextEvent {
+                event: Event::Bid(Bid {
+                    price: 200,
                     auction: 2,
                     ..make_bid()
                 }),
