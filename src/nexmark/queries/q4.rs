@@ -78,6 +78,8 @@ pub fn q4(input: NexmarkStream) -> Q4Stream {
 
     // winning_bids_by_category: once we have the winning bids, we don't
     // need the auction ids anymore.
+    // TODO: We can optimize this given that there are no deletions, as DBSP
+    // doesn't need to keep records of the bids for future max calculations.
     let winning_bids_by_category: Stream<Circuit<()>, OrdZSet<(usize, usize), isize>> =
         bids_for_auctions_indexed.aggregate_incremental(|&key, vals| -> (usize, usize) {
             // `vals` is sorted in ascending order for each key, so we can
