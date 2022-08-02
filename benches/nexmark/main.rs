@@ -43,7 +43,6 @@ macro_rules! nexmark_circuit {
                 // TODO(absoludity): Nope, can't do that either as some streams
                 // return empty sets for initial data (eg, q2 doesn't emit data until the 123rd
                 // auction, which is well beyond 1000 generated events).
-                println!("zset: {:?}", zs);
                 if zs.len() == 0 {
                     $max_events_reached.set(true);
                 }
