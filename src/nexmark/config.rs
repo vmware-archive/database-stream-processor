@@ -40,7 +40,7 @@ pub struct Config {
     pub bid_proportion: usize,
 
     /// Initial overall event rate (per second).
-    #[clap(long, default_value = "100000", env = "NEXMARK_FIRST_EVENT_RATE")]
+    #[clap(long, default_value = "10000", env = "NEXMARK_FIRST_EVENT_RATE")]
     pub first_event_rate: usize,
 
     /// Ratio of bids to 'hot' auctions compared to all other auctions.

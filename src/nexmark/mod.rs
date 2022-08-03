@@ -223,7 +223,7 @@ pub mod tests {
     // After exhausting events, the source indicates a fixed point.
     #[test]
     fn test_fixed_point() {
-        let (mut source, _) = make_source_with_wallclock_times(0..1, 1);
+        let (mut source, _rx) = make_source_with_wallclock_times(0..1, 1);
         assert!(!source.fixedpoint(1));
 
         source.eval();
@@ -248,7 +248,7 @@ pub mod tests {
     // After exhausting events, the source returns empty ZSets.
     #[test]
     fn test_eval_empty_zset() {
-        let (mut source, _) = make_source_with_wallclock_times(0..2, 1);
+        let (mut source, _rx) = make_source_with_wallclock_times(0..2, 1);
 
         source.eval();
 
