@@ -117,9 +117,8 @@ macro_rules! run_query {
 macro_rules! run_queries {
     ( $generator_config:expr, $max_events:expr, $queries_to_run:expr, $( ($q_name:expr, $q:expr) ),+ ) => {{
         let mut results: Vec<NexmarkResult> = Vec::new();
-        let queries: Vec<&str> = $queries_to_run.iter().map(|s| s.as_str()).collect();
         $(
-        if $queries_to_run.len() == 0 || queries.contains(&$q_name) {
+        if $queries_to_run.len() == 0 || $queries_to_run.contains(&$q_name.to_string()) {
             println!("Starting {} bench of {} events...", $q_name, $max_events);
 
             results.push(run_query!($q_name, $q, $generator_config.clone(), $max_events));
