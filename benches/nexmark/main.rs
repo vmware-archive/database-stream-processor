@@ -107,7 +107,7 @@ macro_rules! run_query {
             }
         }
         NexmarkResult {
-            name: $q_name.clone(),
+            name: $q_name.to_string(),
             num_events: num_events_generated,
             elapsed: start.elapsed(),
         }
@@ -117,8 +117,9 @@ macro_rules! run_query {
 macro_rules! run_queries {
     ( $generator_config:expr, $max_events:expr, $queries_to_run:expr, $( ($q_name:expr, $q:expr) ),+ ) => {{
         let mut results: Vec<NexmarkResult> = Vec::new();
+        let queries: Vec<&str> = $queries_to_run.iter().map(|s| s.as_str()).collect();
         $(
-        if $queries_to_run.len() == 0 || $queries_to_run.contains(&$q_name) {
+        if $queries_to_run.len() == 0 || queries.contains(&$q_name) {
             println!("Starting {} bench of {} events...", $q_name, $max_events);
 
             results.push(run_query!($q_name, $q, $generator_config.clone(), $max_events));
@@ -159,11 +160,11 @@ fn main() -> Result<()> {
         generator_config,
         max_events,
         queries_to_run,
-        (String::from("q0"), q0),
-        (String::from("q1"), q1),
-        (String::from("q2"), q2),
-        (String::from("q3"), q3),
-        (String::from("q4"), q4)
+        ("q0", q0),
+        ("q1", q1),
+        ("q2", q2),
+        ("q3", q3),
+        ("q4", q4)
     );
 
     let ascii_table = create_ascii_table();
