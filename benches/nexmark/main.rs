@@ -94,7 +94,7 @@ macro_rules! run_query {
 
         let root = Root::build(circuit).unwrap();
 
-        let mut num_events_generated = 0;
+        let num_events_generated;
         let start = Instant::now();
         loop {
             match fixedpoint_rx.try_recv() {
