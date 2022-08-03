@@ -60,7 +60,7 @@ where
         NexmarkSource {
             generator: Box::new(generator),
             next_event: None,
-            fixedpoint_sync: fixedpoint_sync,
+            fixedpoint_sync,
             _t: PhantomData,
         }
     }

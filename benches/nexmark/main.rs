@@ -44,11 +44,6 @@ macro_rules! nexmark_circuit {
             );
             let input = circuit.add_source(source);
 
-            // Need to somehow have access to the generator's events_count_so_far ? Or have
-            // a signal sent - have a fn on the source which returns a channel that
-            // can be watched for when the source is exhausted - though will this
-            // also be a borrow?
-
             let output = $q(input);
 
             output.inspect(move |zs: &OrdZSet<_, _>| {
@@ -61,7 +56,7 @@ macro_rules! nexmark_circuit {
                 // it's finished (since they'll be returned in queries that don't
                 // emit data often). So, for simplicity, the source sends a message
                 // on it's fixedpoint_sync channel when it reaches its fixed point, which we can
-                // read here.
+                // read here and forward to the test harness.
                 match fixedpoint_rx.try_recv() {
                     Ok(num_events) => {
                         num_events_generated = num_events;
