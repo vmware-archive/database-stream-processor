@@ -132,7 +132,7 @@ pub trait NegByRef {
     fn neg_by_ref(&self) -> Self;
 }
 
-/// Implementation of AddByRef for types that have an Add.
+/// Implementation of NegByRef for types that have a Neg.
 impl<T> NegByRef for T
 where
     for<'a> &'a T: Neg<Output = T>,
@@ -161,6 +161,8 @@ where
 
 /// Like the Mul trait, but with arguments by reference
 pub trait MulByRef<Rhs = Self> {
+    type Output;
+
     fn mul_by_ref(&self, other: &Rhs) -> Self;
 }
 
@@ -169,6 +171,8 @@ impl<T> MulByRef<T> for T
 where
     for<'a> &'a T: Mul<Output = Self>,
 {
+    type Output = Self;
+
     #[inline]
     fn mul_by_ref(&self, other: &Self) -> Self {
         self.mul(other)
@@ -270,6 +274,56 @@ where
     }
 }
 
+/// Trait that allows values to be multiplied by weights.  Usually W
+/// will be a ZRingValue.  This is used for example by SQL's SUM
+/// aggregation, whose general implementation on Z-sets needs to
+/// multiply each value with its weight before summing.
+pub trait MulByWeight<W> {
+    /// Multiply self by the specified weight.
+    fn weigh(&self, w: &W) -> Self;
+}
+
+/*
+// This seems to be too general.
+impl<W, T> MulByWeight<W> for T
+where
+    T: MulByRef<W, Output = T>
+{
+    #[inline]
+    fn weigh(&self, w: &W) -> Self {
+        self.mul_by_ref(w)
+    }
+}
+*/
+
+impl MulByWeight<isize> for i32 {
+    #[inline(always)]
+    fn weigh(&self, w: &isize) -> Self {
+        (*self as isize * w) as Self
+    }
+}
+
+impl MulByWeight<isize> for i64 {
+    #[inline(always)]
+    fn weigh(&self, w: &isize) -> Self {
+        (*self as isize * w) as Self
+    }
+}
+
+impl MulByWeight<isize> for f32 {
+    #[inline(always)]
+    fn weigh(&self, w: &isize) -> Self {
+        *self * ((*w) as f32)
+    }
+}
+
+impl MulByWeight<isize> for f64 {
+    #[inline(always)]
+    fn weigh(&self, w: &isize) -> Self {
+        *self * ((*w) as f64)
+    }
+}
+
 #[cfg(test)]
 mod integer_ring_tests {
     use super::*;
@@ -292,5 +346,6 @@ mod integer_ring_tests {
         assert_eq!(2, two);
         assert_eq!(-2, two.neg_by_ref());
         assert_eq!(-4, two.mul_by_ref(&two.neg_by_ref()));
+        assert_eq!(6, 3.weigh(&(2 as isize)));
     }
 }

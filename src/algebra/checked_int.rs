@@ -1,4 +1,4 @@
-use crate::algebra::{AddAssignByRef, AddByRef, HasOne, HasZero, MulByRef, NegByRef};
+use crate::algebra::{AddAssignByRef, AddByRef, HasOne, HasZero, MulByRef, MulByWeight, NegByRef};
 use num::{traits::CheckedNeg, CheckedAdd, CheckedMul};
 use std::{
     cmp::Ordering,
@@ -72,6 +72,8 @@ impl<T> MulByRef for CheckedInt<T>
 where
     T: CheckedMul,
 {
+    type Output = T;
+
     fn mul_by_ref(&self, rhs: &Self) -> Self {
         // intentional panic on overflow
         Self {
@@ -170,9 +172,19 @@ where
     }
 }
 
+impl<D, T> MulByWeight<CheckedInt<T>> for D
+where
+    D: MulByRef<T, Output = D>,
+{
+    fn weigh(&self, w: &CheckedInt<T>) -> Self {
+        self.mul_by_ref(&w.value) as Self
+    }
+}
+
 #[cfg(test)]
 mod checked_integer_ring_tests {
     use super::{AddAssignByRef, AddByRef, CheckedInt, HasOne, HasZero, MulByRef, NegByRef};
+    use crate::algebra::MulByWeight;
 
     type CheckedI64 = CheckedInt<i64>;
 
@@ -190,6 +202,10 @@ mod checked_integer_ring_tests {
         three.add_assign_by_ref(&CheckedI64::from(1i64));
         assert_eq!(3i64, three.into_inner());
         assert!(!three.is_zero());
+        assert_eq!(
+            6i64,
+            <i64 as MulByWeight<CheckedInt<i64>>>::weigh(&2i64, &three)
+        );
     }
 
     #[test]
