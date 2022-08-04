@@ -202,10 +202,7 @@ mod checked_integer_ring_tests {
         three.add_assign_by_ref(&CheckedI64::from(1i64));
         assert_eq!(3i64, three.into_inner());
         assert!(!three.is_zero());
-        assert_eq!(
-            6i64,
-            <i64 as MulByWeight<CheckedInt<i64>>>::weigh(&2i64, &three)
-        );
+        assert_eq!(6i64, 2i64.weigh(&three));
     }
 
     #[test]
