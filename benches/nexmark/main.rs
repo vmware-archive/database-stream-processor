@@ -5,7 +5,7 @@
 use libc::{getrusage, rusage, timeval, RUSAGE_THREAD};
 use std::{
     io::Error,
-    mem,
+    mem::MaybeUninit,
     sync::{mpsc, mpsc::TryRecvError},
     thread,
     time::{Duration, Instant},
@@ -179,6 +179,7 @@ fn create_ascii_table() -> AsciiTable {
 // https://github.com/matklad/t-cmd/blob/master/src/main.rs Also CpuMonitor.java
 // in nexmark (binary that uses procfs to get cpu usage ever 100ms?)
 
+#[cfg(unix)]
 fn main() -> Result<()> {
     let nexmark_config = NexmarkConfig::parse();
     let max_events = nexmark_config.max_events;
@@ -220,13 +221,14 @@ fn duration_for_timeval(tv: timeval) -> Duration {
     Duration::new(tv.tv_sec as u64, tv.tv_usec as u32 * 1_000)
 }
 
-// Returns the user CPU, system CPU and maxrss (in Kb) for the current thread.
-unsafe fn rusage_thread() -> (Duration, Duration, u64) {
-    let mut ru: rusage = mem::zeroed();
-    let err_code = getrusage(RUSAGE_THREAD, &mut ru);
+/// Returns the user CPU, system CPU and maxrss (in Kb) for the current thread.
+pub unsafe fn rusage_thread() -> (Duration, Duration, u64) {
+    let mut ru: MaybeUninit<rusage> = MaybeUninit::uninit();
+    let err_code = getrusage(RUSAGE_THREAD, ru.as_mut_ptr());
     if err_code != 0 {
         panic!("getrusage returned {}", Error::last_os_error());
     }
+    let ru = ru.assume_init();
     (
         duration_for_timeval(ru.ru_utime),
         duration_for_timeval(ru.ru_stime),
