@@ -37,16 +37,20 @@ type Q6Stream = Stream<Circuit<()>, OrdZSet<(u64, usize), isize>>;
 
 pub fn q6(input: NexmarkStream) -> Q6Stream {
     // Select auctions sellers and index by auction id.
-    let auctions_by_id = input.flat_map_index(|event| match event {
-        Event::Auction(a) => Some((a.id, (a.seller, a.date_time, a.expires))),
-        _ => None,
-    });
+    let auctions_by_id = input
+        .flat_map_index(|event| match event {
+            Event::Auction(a) => Some((a.id, (a.seller, a.date_time, a.expires))),
+            _ => None,
+        })
+        .integrate();
 
     // Select bids and index by auction id.
-    let bids_by_auction = input.flat_map_index(|event| match event {
-        Event::Bid(b) => Some((b.auction, (b.price, b.date_time))),
-        _ => None,
-    });
+    let bids_by_auction = input
+        .flat_map_index(|event| match event {
+            Event::Bid(b) => Some((b.auction, (b.price, b.date_time))),
+            _ => None,
+        })
+        .integrate();
 
     type BidsAuctionsJoin =
         Stream<Circuit<()>, OrdZSet<((u64, u64, u64, u64), (usize, u64)), isize>>;
@@ -114,9 +118,11 @@ mod tests {
     };
 
     #[test]
-    fn test_q6_average_bids_per_seller_one_auction() {
+    fn test_q6_average_bids_per_seller_single_seller_single_auction() {
         let root = Root::build(move |circuit| {
             let mut source = vec![
+                // The first batch has a single auction for seller 99 with a highest bid of 100
+                // (currently).
                 zset! {
                     Event::Auction(Auction {
                         id: 1,
@@ -137,19 +143,8 @@ mod tests {
                         ..make_bid()
                     }) => 1,
                 },
+                // The second batch has a new highest bid for the (currently) only auction.
                 zset! {
-                    // Should not be repeating the auction here - but the
-                    // current query requires it apparently - because the join
-                    // is on the zset diff representations, and so there is
-                    // nothing to join on if there's not a (new) auction here...
-                    // find out how to join when we have new bids but no change
-                    // on the auction.
-                    // Event::Auction(Auction {
-                    //     id: 1,
-                    //     seller: 99,
-                    //     expires: 10_000,
-                    //     ..make_auction()
-                    // }) => 1,
                     Event::Bid(Bid {
                         auction: 1,
                         date_time: 9_000,
@@ -157,16 +152,94 @@ mod tests {
                         ..make_bid()
                     }) => 1,
                 },
+                // The third batch has a new bid but it's not higher, so no effect.
+                zset! {
+                    Event::Bid(Bid {
+                        auction: 1,
+                        date_time: 9_500,
+                        price: 150,
+                        ..make_bid()
+                    }) => 1,
+                },
             ]
             .into_iter();
 
-            let mut expected_output =
-                vec![zset! { (99, 100) => 1 }, zset! {(99, 150) => 1 }].into_iter();
+            let mut expected_output = vec![
+                // First batch has a single auction seller with best bid of 100.
+                zset! { (99, 100) => 1 },
+                // The second batch just updates the best bid for the single auction to 200 (ie. no
+                // averaging).
+                zset! {(99, 200) => 1 },
+                // The third batch has a bid that isn't higher, so no change.
+                zset! {(99, 200) => 1 },
+            ]
+            .into_iter();
 
             let input: Stream<_, OrdZSet<Event, isize>> =
                 circuit.add_source(Generator::new(move || source.next().unwrap()));
 
-            let output = q6(input);
+            let output = q6(input).integrate();
+
+            output.inspect(move |batch| assert_eq!(batch, &expected_output.next().unwrap()));
+        })
+        .unwrap();
+
+        for _ in 0..3 {
+            root.step().unwrap();
+        }
+    }
+
+    #[test]
+    fn test_q6_average_bids_per_seller_single_seller_multiple_auctions() {
+        let root = Root::build(move |circuit| {
+            let mut source = vec![
+                // The first batch has a single auction for seller 99 with a highest bid of 100.
+                zset! {
+                    Event::Auction(Auction {
+                        id: 1,
+                        seller: 99,
+                        expires: 10_000,
+                        ..make_auction()
+                    }) => 1,
+                    Event::Bid(Bid {
+                        auction: 1,
+                        date_time: 2_000,
+                        price: 100,
+                        ..make_bid()
+                    }) => 1,
+                },
+                // The second batch adds a new auction for the same seller, with
+                // a final bid of 200, so the average should be 150 for this seller.
+                zset! {
+                    Event::Auction(Auction {
+                        id: 2,
+                        seller: 99,
+                        expires: 20_000,
+                        ..make_auction()
+                    }) => 1,
+                    Event::Bid(Bid {
+                        auction: 2,
+                        date_time: 15_000,
+                        price: 200,
+                        ..make_bid()
+                    }) => 1,
+                },
+            ]
+            .into_iter();
+
+            let mut expected_output = vec![
+                // First batch has a single auction seller with best bid of 100.
+                zset! { (99, 100) => 1 },
+                // The second batch adds another auction for the same seller with a final bid of
+                // 200, so average is 150.
+                zset! {(99, 150) => 1 },
+            ]
+            .into_iter();
+
+            let input: Stream<_, OrdZSet<Event, isize>> =
+                circuit.add_source(Generator::new(move || source.next().unwrap()));
+
+            let output = q6(input).integrate();
 
             output.inspect(move |batch| assert_eq!(batch, &expected_output.next().unwrap()));
         })
