@@ -84,7 +84,7 @@ pub fn q6(input: NexmarkStream) -> Q6Stream {
     // TODO: We can optimize this given that there are no deletions, as DBSP
     // doesn't need to keep records of the bids for future max calculations.
     let winning_bids_by_seller: Stream<Circuit<()>, OrdZSet<(u64, usize), isize>> =
-        bids_for_auctions_indexed.aggregate_incremental(|&key, vals| -> (u64, usize) {
+        bids_for_auctions_indexed.aggregate(|&key, vals| -> (u64, usize) {
             // `vals` is sorted in ascending order for each key, so we can
             // just grab the last one.
             let (&max, _) = vals.last().unwrap();
@@ -95,12 +95,19 @@ pub fn q6(input: NexmarkStream) -> Q6Stream {
     // Finally, calculate the average winning bid per seller, using the last
     // 10 closed auctions.
     // TODO: use linear aggregation when ready (#138).
-    winning_bids_by_seller_indexed.aggregate_incremental(|&key, vals| -> (u64, usize) {
-        let num_items = vals.len();
-        // TODO: Once initial test issue solved, add test to ensure only last
-        // 10 auctions are considered then update here to get it passing.
-        let sum = vals.drain(..).map(|(bid, _)| bid).sum::<usize>();
-        (key, sum / num_items)
+    winning_bids_by_seller_indexed.aggregate(|&key, vals| -> (u64, usize) {
+        // We need to take into account the weight of each zset for the number of items
+        // and average calculation.
+        println!("key: {key:?}, vals: {vals:?}");
+        let num_items = vals.iter().map(|(_, count)| count).sum::<isize>();
+        // TODO: Need to update this so the zset is ordered by auction id so that we can
+        // take the last 10 (which will also mean we *don't* need to aggregate using the
+        // weights as I've done here)
+        let sum = vals
+            .drain(..)
+            .map(|(bid, count)| (*bid) * count as usize) // No deletions
+            .sum::<usize>();
+        (key, sum / num_items as usize)
     })
 }
 
@@ -178,13 +185,13 @@ mod tests {
             let input: Stream<_, OrdZSet<Event, isize>> =
                 circuit.add_source(Generator::new(move || source.next().unwrap()));
 
-            let output = q6(input).integrate();
+            let output = q6(input);
 
             output.inspect(move |batch| assert_eq!(batch, &expected_output.next().unwrap()));
         })
         .unwrap();
 
-        for _ in 0..3 {
+        for _ in 0..2 {
             root.step().unwrap();
         }
     }
@@ -239,13 +246,188 @@ mod tests {
             let input: Stream<_, OrdZSet<Event, isize>> =
                 circuit.add_source(Generator::new(move || source.next().unwrap()));
 
-            let output = q6(input).integrate();
+            let output = q6(input);
 
             output.inspect(move |batch| assert_eq!(batch, &expected_output.next().unwrap()));
         })
         .unwrap();
 
         for _ in 0..2 {
+            root.step().unwrap();
+        }
+    }
+
+    #[test]
+    fn test_q6_average_bids_per_seller_single_seller_more_than_10_auctions() {
+        let root = Root::build(move |circuit| {
+            let mut source = vec![
+                // The first batch has 5 auctions all with single bids of 100, except
+                // the first which is at 200.
+                zset! {
+                    Event::Auction(Auction {
+                        id: 1,
+                        seller: 99,
+                        expires: 10_000,
+                        ..make_auction()
+                    }) => 1,
+                    Event::Bid(Bid {
+                        auction: 1,
+                        date_time: 2_000,
+                        price: 200,
+                        ..make_bid()
+                    }) => 1,
+                    Event::Auction(Auction {
+                        id: 2,
+                        seller: 99,
+                        expires: 10_000,
+                        ..make_auction()
+                    }) => 1,
+                    Event::Bid(Bid {
+                        auction: 2,
+                        date_time: 2_000,
+                        price: 100,
+                        ..make_bid()
+                    }) => 1,
+                    Event::Auction(Auction {
+                        id: 3,
+                        seller: 99,
+                        expires: 10_000,
+                        ..make_auction()
+                    }) => 1,
+                    Event::Bid(Bid {
+                        auction: 3,
+                        date_time: 2_000,
+                        price: 100,
+                        ..make_bid()
+                    }) => 1,
+                    Event::Auction(Auction {
+                        id: 4,
+                        seller: 99,
+                        expires: 10_000,
+                        ..make_auction()
+                    }) => 1,
+                    Event::Bid(Bid {
+                        auction: 4,
+                        date_time: 2_000,
+                        price: 100,
+                        ..make_bid()
+                    }) => 1,
+                    Event::Auction(Auction {
+                        id: 5,
+                        seller: 99,
+                        expires: 10_000,
+                        ..make_auction()
+                    }) => 1,
+                    Event::Bid(Bid {
+                        auction: 5,
+                        date_time: 2_000,
+                        price: 100,
+                        ..make_bid()
+                    }) => 1,
+                },
+                // The second batch has another 5 auctions all with single bids of 100.
+                zset! {
+                    Event::Auction(Auction {
+                        id: 6,
+                        seller: 99,
+                        expires: 10_000,
+                        ..make_auction()
+                    }) => 1,
+                    Event::Bid(Bid {
+                        auction: 6,
+                        date_time: 2_000,
+                        price: 100,
+                        ..make_bid()
+                    }) => 1,
+                    Event::Auction(Auction {
+                        id: 7,
+                        seller: 99,
+                        expires: 10_000,
+                        ..make_auction()
+                    }) => 1,
+                    Event::Bid(Bid {
+                        auction: 7,
+                        date_time: 2_000,
+                        price: 100,
+                        ..make_bid()
+                    }) => 1,
+                    Event::Auction(Auction {
+                        id: 8,
+                        seller: 99,
+                        expires: 10_000,
+                        ..make_auction()
+                    }) => 1,
+                    Event::Bid(Bid {
+                        auction: 8,
+                        date_time: 2_000,
+                        price: 100,
+                        ..make_bid()
+                    }) => 1,
+                    Event::Auction(Auction {
+                        id: 9,
+                        seller: 99,
+                        expires: 10_000,
+                        ..make_auction()
+                    }) => 1,
+                    Event::Bid(Bid {
+                        auction: 9,
+                        date_time: 2_000,
+                        price: 100,
+                        ..make_bid()
+                    }) => 1,
+                    Event::Auction(Auction {
+                        id: 10,
+                        seller: 99,
+                        expires: 10_000,
+                        ..make_auction()
+                    }) => 1,
+                    Event::Bid(Bid {
+                        auction: 10,
+                        date_time: 2_000,
+                        price: 100,
+                        ..make_bid()
+                    }) => 1,
+                },
+                // The third batch has a single auction and bid of 100. The last
+                // 10 auctions all have 100 now, so average is 100.
+                zset! {
+                    Event::Auction(Auction {
+                        id: 11,
+                        seller: 99,
+                        expires: 10_000,
+                        ..make_auction()
+                    }) => 1,
+                    Event::Bid(Bid {
+                        auction: 11,
+                        date_time: 2_000,
+                        price: 100,
+                        ..make_bid()
+                    }) => 1,
+                },
+            ]
+            .into_iter();
+
+            let mut expected_output = vec![
+                // First has 5 auction for person 99, but average is (200 + 100 * 4) / 5.
+                zset! { (99, 120) => 1 },
+                // Second batch adds another 5 auctions for person 99, but average is still 100.
+                zset! {(99, 110) => 1 },
+                // Third batch adds a single auction with bid of 100, pushing
+                // out the first bid so average is now 100.
+                zset! {(99, 100) => 1 },
+            ]
+            .into_iter();
+
+            let input: Stream<_, OrdZSet<Event, isize>> =
+                circuit.add_source(Generator::new(move || source.next().unwrap()));
+
+            let output = q6(input);
+
+            output.inspect(move |batch| assert_eq!(batch, &expected_output.next().unwrap()));
+        })
+        .unwrap();
+
+        for _ in 0..3 {
             root.step().unwrap();
         }
     }
