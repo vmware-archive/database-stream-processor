@@ -161,8 +161,6 @@ where
 
 /// Like the Mul trait, but with arguments by reference
 pub trait MulByRef<Rhs = Self> {
-    type Output;
-
     fn mul_by_ref(&self, other: &Rhs) -> Self;
 }
 
@@ -171,8 +169,6 @@ impl<T> MulByRef<T> for T
 where
     for<'a> &'a T: Mul<Output = Self>,
 {
-    type Output = Self;
-
     #[inline]
     fn mul_by_ref(&self, other: &Self) -> Self {
         self.mul(other)
@@ -283,43 +279,30 @@ pub trait MulByWeight<W> {
     fn weigh(&self, w: &W) -> Self;
 }
 
-/*
-// This seems to be too general.
-impl<W, T> MulByWeight<W> for T
-where
-    T: MulByRef<W, Output = T>
-{
-    #[inline]
-    fn weigh(&self, w: &W) -> Self {
-        self.mul_by_ref(w)
-    }
-}
-*/
-
-impl MulByWeight<isize> for i32 {
+impl MulByRef<isize> for i32 {
     #[inline(always)]
-    fn weigh(&self, w: &isize) -> Self {
+    fn mul_by_ref(&self, w: &isize) -> Self {
         (*self as isize * w) as Self
     }
 }
 
-impl MulByWeight<isize> for i64 {
+impl MulByRef<isize> for i64 {
     #[inline(always)]
-    fn weigh(&self, w: &isize) -> Self {
+    fn mul_by_ref(&self, w: &isize) -> Self {
         (*self as isize * w) as Self
     }
 }
 
-impl MulByWeight<isize> for f32 {
+impl MulByRef<isize> for f32 {
     #[inline(always)]
-    fn weigh(&self, w: &isize) -> Self {
+    fn mul_by_ref(&self, w: &isize) -> Self {
         *self * ((*w) as f32)
     }
 }
 
-impl MulByWeight<isize> for f64 {
+impl MulByRef<isize> for f64 {
     #[inline(always)]
-    fn weigh(&self, w: &isize) -> Self {
+    fn mul_by_ref(&self, w: &isize) -> Self {
         *self * ((*w) as f64)
     }
 }

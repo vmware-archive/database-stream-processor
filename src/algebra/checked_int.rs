@@ -72,8 +72,6 @@ impl<T> MulByRef for CheckedInt<T>
 where
     T: CheckedMul,
 {
-    type Output = T;
-
     fn mul_by_ref(&self, rhs: &Self) -> Self {
         // intentional panic on overflow
         Self {
@@ -174,7 +172,7 @@ where
 
 impl<D, T> MulByWeight<CheckedInt<T>> for D
 where
-    D: MulByRef<T, Output = D>,
+    D: MulByRef<T>,
 {
     fn weigh(&self, w: &CheckedInt<T>) -> Self {
         self.mul_by_ref(&w.value) as Self
