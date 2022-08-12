@@ -329,6 +329,5 @@ mod integer_ring_tests {
         assert_eq!(2, two);
         assert_eq!(-2, two.neg_by_ref());
         assert_eq!(-4, two.mul_by_ref(&two.neg_by_ref()));
-        assert_eq!(6, 3.weigh(&(2 as isize)));
     }
 }

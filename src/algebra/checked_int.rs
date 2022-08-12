@@ -1,4 +1,4 @@
-use crate::algebra::{AddAssignByRef, AddByRef, HasOne, HasZero, MulByRef, MulByWeight, NegByRef};
+use crate::algebra::{AddAssignByRef, AddByRef, HasOne, HasZero, MulByRef, NegByRef};
 use num::{traits::CheckedNeg, CheckedAdd, CheckedMul};
 use std::{
     cmp::Ordering,
@@ -170,19 +170,9 @@ where
     }
 }
 
-impl<D, T> MulByWeight<CheckedInt<T>> for D
-where
-    D: MulByRef<T>,
-{
-    fn weigh(&self, w: &CheckedInt<T>) -> Self {
-        self.mul_by_ref(&w.value) as Self
-    }
-}
-
 #[cfg(test)]
 mod checked_integer_ring_tests {
     use super::{AddAssignByRef, AddByRef, CheckedInt, HasOne, HasZero, MulByRef, NegByRef};
-    use crate::algebra::MulByWeight;
 
     type CheckedI64 = CheckedInt<i64>;
 
@@ -200,7 +190,6 @@ mod checked_integer_ring_tests {
         three.add_assign_by_ref(&CheckedI64::from(1i64));
         assert_eq!(3i64, three.into_inner());
         assert!(!three.is_zero());
-        assert_eq!(6i64, 2i64.weigh(&three));
     }
 
     #[test]
