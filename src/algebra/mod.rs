@@ -270,15 +270,6 @@ where
     }
 }
 
-/// Trait that allows values to be multiplied by weights.  Usually W
-/// will be a ZRingValue.  This is used for example by SQL's SUM
-/// aggregation, whose general implementation on Z-sets needs to
-/// multiply each value with its weight before summing.
-pub trait MulByWeight<W> {
-    /// Multiply self by the specified weight.
-    fn weigh(&self, w: &W) -> Self;
-}
-
 impl MulByRef<isize> for i32 {
     #[inline(always)]
     fn mul_by_ref(&self, w: &isize) -> Self {
@@ -304,6 +295,34 @@ impl MulByRef<isize> for f64 {
     #[inline(always)]
     fn mul_by_ref(&self, w: &isize) -> Self {
         *self * ((*w) as f64)
+    }
+}
+
+impl MulByRef<isize> for Option<i32> {
+    #[inline(always)]
+    fn mul_by_ref(&self, w: &isize) -> Self {
+        self.as_ref().map(|x| (*x as isize * w) as i32)
+    }
+}
+
+impl MulByRef<isize> for Option<i64> {
+    #[inline(always)]
+    fn mul_by_ref(&self, w: &isize) -> Self {
+        self.as_ref().map(|x| (*x as isize * w) as i64)
+    }
+}
+
+impl MulByRef<isize> for Option<f32> {
+    #[inline(always)]
+    fn mul_by_ref(&self, w: &isize) -> Self {
+        self.as_ref().map(|x| *x * (*w as f32))
+    }
+}
+
+impl MulByRef<isize> for Option<f64> {
+    #[inline(always)]
+    fn mul_by_ref(&self, w: &isize) -> Self {
+        self.as_ref().map(|x| *x * (*w as f64))
     }
 }
 
