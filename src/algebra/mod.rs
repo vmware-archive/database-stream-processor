@@ -7,6 +7,8 @@ use std::{
     rc::Rc,
 };
 
+use ordered_float::OrderedFloat;
+
 #[macro_use]
 mod checked_int;
 pub mod zset;
@@ -298,6 +300,20 @@ impl MulByRef<isize> for f64 {
     }
 }
 
+impl MulByRef<isize> for OrderedFloat<f64> {
+    #[inline(always)]
+    fn mul_by_ref(&self, w: &isize) -> Self {
+        OrderedFloat(self.into_inner().mul_by_ref(w))
+    }
+}
+
+impl MulByRef<isize> for OrderedFloat<f32> {
+    #[inline(always)]
+    fn mul_by_ref(&self, w: &isize) -> Self {
+        OrderedFloat(self.into_inner().mul_by_ref(w))
+    }
+}
+
 impl MulByRef<isize> for Option<i32> {
     #[inline(always)]
     fn mul_by_ref(&self, w: &isize) -> Self {
@@ -326,6 +342,22 @@ impl MulByRef<isize> for Option<f64> {
     }
 }
 
+impl MulByRef<isize> for Option<OrderedFloat<f32>> {
+    #[inline(always)]
+    fn mul_by_ref(&self, w: &isize) -> Self {
+        self.as_ref()
+            .map(|x| OrderedFloat(x.into_inner().mul_by_ref(w)))
+    }
+}
+
+impl MulByRef<isize> for Option<OrderedFloat<f64>> {
+    #[inline(always)]
+    fn mul_by_ref(&self, w: &isize) -> Self {
+        self.as_ref()
+            .map(|x| OrderedFloat(x.into_inner().mul_by_ref(w)))
+    }
+}
+
 #[cfg(test)]
 mod integer_ring_tests {
     use super::*;
@@ -348,5 +380,41 @@ mod integer_ring_tests {
         assert_eq!(2, two);
         assert_eq!(-2, two.neg_by_ref());
         assert_eq!(-4, two.mul_by_ref(&two.neg_by_ref()));
+    }
+
+    #[test]
+    fn mul_by_ref_tests() {
+        let w: isize = 3;
+        assert_eq!(6, 2.mul_by_ref(&w));
+        assert_eq!(6i64, 2i64.mul_by_ref(&w));
+        assert_eq!(6.0, 2.0.mul_by_ref(&w));
+        assert_eq!(6.0f64, 2.0f64.mul_by_ref(&w));
+        assert_eq!(
+            OrderedFloat::<f32>(6.0f32),
+            OrderedFloat::<f32>(2.0f32).mul_by_ref(&w)
+        );
+        assert_eq!(
+            OrderedFloat::<f64>(6.0f64),
+            OrderedFloat::<f64>(2.0f64).mul_by_ref(&w)
+        );
+        assert_eq!(Option::<i32>::None, Option::<i32>::None.mul_by_ref(&w));
+        assert_eq!(Option::<f32>::None, Option::<f32>::None.mul_by_ref(&w));
+
+        assert_eq!(Some(6), Some(2).mul_by_ref(&w));
+        assert_eq!(Some(6i64), Some(2i64).mul_by_ref(&w));
+        assert_eq!(Some(6.0), Some(2.0).mul_by_ref(&w));
+        assert_eq!(Some(6.0f64), Some(2.0f64).mul_by_ref(&w));
+        assert_eq!(
+            Some(OrderedFloat::<f32>(6.0f32)),
+            Some(OrderedFloat::<f32>(2.0).mul_by_ref(&w))
+        );
+        assert_eq!(
+            Some(OrderedFloat::<f64>(6.0f64)),
+            Some(OrderedFloat::<f64>(2.0).mul_by_ref(&w))
+        );
+        assert_eq!(
+            Option::<OrderedFloat::<f64>>::None,
+            Option::<OrderedFloat::<f64>>::None.mul_by_ref(&w)
+        );
     }
 }

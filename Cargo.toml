@@ -29,6 +29,7 @@ rand = { version = "0.8", optional = true }
 clap = { version = "3.2", optional = true, features = ["derive", "env"] }
 cached = { version = "0.38.0", optional = true }
 crossbeam = "0.8.2"
+ordered-float = "3.0.0"
 
 # TODO: eliminate dependency on timely-dataflow by cloning relevant
 # parts.
@@ -46,7 +47,6 @@ proptest = "1.0.0"
 criterion = "0.3.6"
 rand_xoshiro = "0.6.0"
 indicatif = "0.17.0-rc.11"
-ordered-float = "3.0.0"
 clap = { version = "3.2.8", features = ["derive", "env"] }
 reqwest = { version = "0.11.11", features = ["blocking"] }
 ascii_table = "4.0.2"
