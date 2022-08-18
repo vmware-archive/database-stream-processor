@@ -80,8 +80,9 @@ pub fn q6(input: NexmarkStream) -> Q6Stream {
     // need the auction ids anymore.
     // TODO: We can optimize this given that there are no deletions, as DBSP
     // doesn't need to keep records of the bids for future max calculations.
-    let winning_bids_by_seller: Stream<Circuit<()>, OrdZSet<(u64, (u64, usize)), isize>> =
-        bids_for_auctions_indexed.aggregate_incremental(|&key, vals| -> (u64, (u64, usize)) {
+    type WinningBidsBySeller = Stream<Circuit<()>, OrdZSet<(u64, (u64, usize)), isize>>;
+    let winning_bids_by_seller: WinningBidsBySeller = bids_for_auctions_indexed
+        .aggregate_incremental(|&key, vals| -> (u64, (u64, usize)) {
             // `vals` is sorted in ascending order for each key, so we can
             // just grab the last one.
             let (&max, _) = vals.last().unwrap();
