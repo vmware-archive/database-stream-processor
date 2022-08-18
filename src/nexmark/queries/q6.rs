@@ -1,16 +1,15 @@
 use super::NexmarkStream;
 use crate::{nexmark::model::Event, operator::FilterMap, Circuit, OrdZSet, Stream};
 
-/// Query 6:
 /// Query 6: Average Selling Price by Seller
 ///
 /// What is the average selling price per seller for their last 10 closed
 /// auctions. Shares the same ‘winning bids’ core as for Query4, and illustrates
 /// a specialized combiner.
 ///
-/// From [Nexmark q6.sql](https://github.com/nexmark/nexmark/blob/v0.2.0/nexmark-flink/src/main/resources/queries/q6.sql)
+/// From [Nexmark q6.sql](https://github.com/nexmark/nexmark/blob/v0.2.0/nexmark-flink/src/main/resources/queries/q6.sql):
 ///
-/// ```
+/// ```sql
 /// CREATE TABLE discard_sink (
 ///   seller VARCHAR,
 ///   avg_price  BIGINT
@@ -35,22 +34,20 @@ use crate::{nexmark::model::Event, operator::FilterMap, Circuit, OrdZSet, Stream
 
 type Q6Stream = Stream<Circuit<()>, OrdZSet<(u64, usize), isize>>;
 
+const NUM_AUCTIONS_PER_SELLER: usize = 10;
+
 pub fn q6(input: NexmarkStream) -> Q6Stream {
     // Select auctions sellers and index by auction id.
-    let auctions_by_id = input
-        .flat_map_index(|event| match event {
-            Event::Auction(a) => Some((a.id, (a.seller, a.date_time, a.expires))),
-            _ => None,
-        })
-        .integrate();
+    let auctions_by_id = input.flat_map_index(|event| match event {
+        Event::Auction(a) => Some((a.id, (a.seller, a.date_time, a.expires))),
+        _ => None,
+    });
 
     // Select bids and index by auction id.
-    let bids_by_auction = input
-        .flat_map_index(|event| match event {
-            Event::Bid(b) => Some((b.auction, (b.price, b.date_time))),
-            _ => None,
-        })
-        .integrate();
+    let bids_by_auction = input.flat_map_index(|event| match event {
+        Event::Bid(b) => Some((b.auction, (b.price, b.date_time))),
+        _ => None,
+    });
 
     type BidsAuctionsJoin =
         Stream<Circuit<()>, OrdZSet<((u64, u64, u64, u64), (usize, u64)), isize>>;
@@ -83,29 +80,27 @@ pub fn q6(input: NexmarkStream) -> Q6Stream {
     // need the auction ids anymore.
     // TODO: We can optimize this given that there are no deletions, as DBSP
     // doesn't need to keep records of the bids for future max calculations.
-    let winning_bids_by_seller: Stream<Circuit<()>, OrdZSet<(u64, usize), isize>> =
-        bids_for_auctions_indexed.aggregate(|&key, vals| -> (u64, usize) {
+    let winning_bids_by_seller: Stream<Circuit<()>, OrdZSet<(u64, (u64, usize)), isize>> =
+        bids_for_auctions_indexed.aggregate_incremental(|&key, vals| -> (u64, (u64, usize)) {
             // `vals` is sorted in ascending order for each key, so we can
             // just grab the last one.
             let (&max, _) = vals.last().unwrap();
-            (key.1, max)
+            (key.1, (key.0, max))
         });
     let winning_bids_by_seller_indexed = winning_bids_by_seller.index();
 
     // Finally, calculate the average winning bid per seller, using the last
     // 10 closed auctions.
     // TODO: use linear aggregation when ready (#138).
-    winning_bids_by_seller_indexed.aggregate(|&key, vals| -> (u64, usize) {
-        // We need to take into account the weight of each zset for the number of items
-        // and average calculation.
-        println!("key: {key:?}, vals: {vals:?}");
-        let num_items = vals.iter().map(|(_, count)| count).sum::<isize>();
-        // TODO: Need to update this so the zset is ordered by auction id so that we can
-        // take the last 10 (which will also mean we *don't* need to aggregate using the
-        // weights as I've done here)
-        let sum = vals
-            .drain(..)
-            .map(|(bid, count)| (*bid) * count as usize) // No deletions
+    winning_bids_by_seller_indexed.aggregate_incremental(|&key, vals| -> (u64, usize) {
+        // Grab the last 10 vals,
+        let len = vals.len();
+        let start = len.saturating_sub(NUM_AUCTIONS_PER_SELLER);
+        let last_10 = &vals[start..len];
+        let num_items = last_10.len();
+        let sum = last_10
+            .iter()
+            .map(|((_, bid), _)| *bid as usize) // No deletions
             .sum::<usize>();
         (key, sum / num_items as usize)
     })
@@ -115,18 +110,18 @@ pub fn q6(input: NexmarkStream) -> Q6Stream {
 mod tests {
     use super::*;
     use crate::{
-        circuit::{Root, Stream},
+        circuit::Stream,
         nexmark::{
             generator::tests::{make_auction, make_bid},
             model::{Auction, Bid, Event},
         },
         operator::Generator,
-        zset,
+        zset, Circuit,
     };
 
     #[test]
-    fn test_q6_average_bids_per_seller_single_seller_single_auction() {
-        let root = Root::build(move |circuit| {
+    fn test_q6_single_seller_single_auction() {
+        let circuit = Circuit::build(move |circuit| {
             let mut source = vec![
                 // The first batch has a single auction for seller 99 with a highest bid of 100
                 // (currently).
@@ -176,7 +171,7 @@ mod tests {
                 zset! { (99, 100) => 1 },
                 // The second batch just updates the best bid for the single auction to 200 (ie. no
                 // averaging).
-                zset! {(99, 200) => 1 },
+                zset! {(99, 100) => -1, (99, 200) => 1 },
                 // The third batch has a bid that isn't higher, so no change.
                 zset! {(99, 200) => 1 },
             ]
@@ -189,16 +184,17 @@ mod tests {
 
             output.inspect(move |batch| assert_eq!(batch, &expected_output.next().unwrap()));
         })
-        .unwrap();
+        .unwrap()
+        .0;
 
         for _ in 0..2 {
-            root.step().unwrap();
+            circuit.step().unwrap();
         }
     }
 
     #[test]
-    fn test_q6_average_bids_per_seller_single_seller_multiple_auctions() {
-        let root = Root::build(move |circuit| {
+    fn test_q6_single_seller_multiple_auctions() {
+        let circuit = Circuit::build(move |circuit| {
             let mut source = vec![
                 // The first batch has a single auction for seller 99 with a highest bid of 100.
                 zset! {
@@ -239,7 +235,7 @@ mod tests {
                 zset! { (99, 100) => 1 },
                 // The second batch adds another auction for the same seller with a final bid of
                 // 200, so average is 150.
-                zset! {(99, 150) => 1 },
+                zset! { (99, 100) => -1, (99, 150) => 1 },
             ]
             .into_iter();
 
@@ -250,16 +246,17 @@ mod tests {
 
             output.inspect(move |batch| assert_eq!(batch, &expected_output.next().unwrap()));
         })
-        .unwrap();
+        .unwrap()
+        .0;
 
         for _ in 0..2 {
-            root.step().unwrap();
+            circuit.step().unwrap();
         }
     }
 
     #[test]
-    fn test_q6_average_bids_per_seller_single_seller_more_than_10_auctions() {
-        let root = Root::build(move |circuit| {
+    fn test_q6_single_seller_more_than_10_auctions() {
+        let circuit = Circuit::build(move |circuit| {
             let mut source = vec![
                 // The first batch has 5 auctions all with single bids of 100, except
                 // the first which is at 200.
@@ -410,11 +407,11 @@ mod tests {
             let mut expected_output = vec![
                 // First has 5 auction for person 99, but average is (200 + 100 * 4) / 5.
                 zset! { (99, 120) => 1 },
-                // Second batch adds another 5 auctions for person 99, but average is still 100.
-                zset! {(99, 110) => 1 },
+                // Second batch adds another 5 auctions for person 99, but average is still 110.
+                zset! {(99, 120) => -1, (99, 110) => 1 },
                 // Third batch adds a single auction with bid of 100, pushing
                 // out the first bid so average is now 100.
-                zset! {(99, 100) => 1 },
+                zset! {(99, 110) => -1, (99, 100) => 1 },
             ]
             .into_iter();
 
@@ -425,10 +422,105 @@ mod tests {
 
             output.inspect(move |batch| assert_eq!(batch, &expected_output.next().unwrap()));
         })
-        .unwrap();
+        .unwrap()
+        .0;
 
         for _ in 0..3 {
-            root.step().unwrap();
+            circuit.step().unwrap();
+        }
+    }
+
+    #[test]
+    fn test_q6_multiple_sellers_multiple_auctions() {
+        let circuit = Circuit::build(move |circuit| {
+            let mut source = vec![
+                // The first batch has a single auction for seller 99 with a highest bid of 100.
+                zset! {
+                    Event::Auction(Auction {
+                        id: 1,
+                        seller: 99,
+                        expires: 10_000,
+                        ..make_auction()
+                    }) => 1,
+                    Event::Bid(Bid {
+                        auction: 1,
+                        date_time: 2_000,
+                        price: 100,
+                        ..make_bid()
+                    }) => 1,
+                },
+                // The second batch adds a new auction for a different seller, with
+                // a final bid of 200, so the two sellers have 100 and 200 as
+                // their averages.
+                zset! {
+                    Event::Auction(Auction {
+                        id: 2,
+                        seller: 33,
+                        expires: 20_000,
+                        ..make_auction()
+                    }) => 1,
+                    Event::Bid(Bid {
+                        auction: 2,
+                        date_time: 15_000,
+                        price: 200,
+                        ..make_bid()
+                    }) => 1,
+                },
+                // The third batch adds a new auction for both sellers, with
+                // final bids of 200, so the two sellers have 150 and 200 as
+                // their averages.
+                zset! {
+                    Event::Auction(Auction {
+                        id: 3,
+                        seller: 99,
+                        expires: 20_000,
+                        ..make_auction()
+                    }) => 1,
+                    Event::Bid(Bid {
+                        auction: 3,
+                        date_time: 15_000,
+                        price: 200,
+                        ..make_bid()
+                    }) => 1,
+                    Event::Auction(Auction {
+                        id: 4,
+                        seller: 33,
+                        expires: 20_000,
+                        ..make_auction()
+                    }) => 1,
+                    Event::Bid(Bid {
+                        auction: 4,
+                        date_time: 15_000,
+                        price: 200,
+                        ..make_bid()
+                    }) => 1,
+                },
+            ]
+            .into_iter();
+
+            let mut expected_output = vec![
+                // First batch has a single auction seller with best bid of 100.
+                zset! { (99, 100) => 1 },
+                // The second batch adds another auction for the same seller with a final bid of
+                // 200, so average is 150.
+                zset! { (33, 200) => 1 },
+                // The average for person 33 doesn't change, only for 99.
+                zset! { (99, 100) => -1, (99, 150) => 1},
+            ]
+            .into_iter();
+
+            let input: Stream<_, OrdZSet<Event, isize>> =
+                circuit.add_source(Generator::new(move || source.next().unwrap()));
+
+            let output = q6(input);
+
+            output.inspect(move |batch| assert_eq!(batch, &expected_output.next().unwrap()));
+        })
+        .unwrap()
+        .0;
+
+        for _ in 0..3 {
+            circuit.step().unwrap();
         }
     }
 }
