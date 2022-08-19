@@ -22,7 +22,6 @@ use crate::{
 };
 use rand::prelude::ThreadRng;
 use rand::{thread_rng, Rng};
-use std::sync::mpsc::Sender;
 use std::thread::sleep;
 use std::time::Duration;
 use std::{borrow::Cow, marker::PhantomData};
@@ -41,10 +40,6 @@ pub struct NexmarkSource<R: Rng, W, C> {
     // next_event stores the next event during `eval` when `next_event()` is called but returns an
     // event in the future, so that we can include it in the next call to eval.
     next_event: Option<NextEvent>,
-    // fixedpoint_sync stores a channel transmitter so that when the source reaches its fixed
-    // point, it can communicate this by sending the number of events that have been generated,
-    // without sharing memory.
-    fixedpoint_sync: Sender<u64>,
 
     _t: PhantomData<(C, W)>,
 }
@@ -53,22 +48,15 @@ impl<R, W, C> NexmarkSource<R, W, C>
 where
     R: Rng + 'static,
 {
-    pub fn from_generator<G: EventGenerator<R> + 'static>(
-        generator: G,
-        fixedpoint_sync: Sender<u64>,
-    ) -> Self {
+    pub fn from_generator<G: EventGenerator<R> + 'static>(generator: G) -> Self {
         NexmarkSource {
             generator: Box::new(generator),
             next_event: None,
-            fixedpoint_sync,
             _t: PhantomData,
         }
     }
-    pub fn new(
-        config: Config,
-        fixedpoint_sync: Sender<u64>,
-    ) -> NexmarkSource<ThreadRng, isize, OrdZSet<Event, isize>> {
-        NexmarkSource::from_generator(NexmarkGenerator::new(config, thread_rng()), fixedpoint_sync)
+    pub fn new(config: Config) -> NexmarkSource<ThreadRng, isize, OrdZSet<Event, isize>> {
+        NexmarkSource::from_generator(NexmarkGenerator::new(config, thread_rng()))
     }
 }
 
@@ -96,6 +84,60 @@ where
     }
 }
 
+impl<R, W, C> Iterator for NexmarkSource<R, W, C>
+where
+    R: Rng + 'static,
+    W: ZRingValue + 'static,
+    C: Data + ZSet<Key = Event, R = W>,
+{
+    type Item = Vec<(Event, W)>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        // Grab a next event, either the last event from the previous call that
+        // was saved because it couldn't yet be emitted, or the next generated
+        // event.
+        let next_event = self
+            .next_event
+            .clone()
+            .or_else(|| self.generator.next_event().unwrap());
+
+        if next_event.is_none() {
+            return None;
+        }
+
+        // Otherwise we want to emit at least one event, so if the next event
+        // is still in the future, we sleep until we can emit it.
+        let next_event = next_event.unwrap();
+        let mut wallclock_time_now = self.generator.wallclock_time();
+        if next_event.wallclock_timestamp > wallclock_time_now {
+            let millis_to_sleep = next_event.wallclock_timestamp - wallclock_time_now;
+            sleep(Duration::from_millis(millis_to_sleep));
+            wallclock_time_now += millis_to_sleep;
+        }
+
+        // Collect as many next events as are ready.
+        let mut next_events = vec![next_event];
+        let mut next_event = self.generator.next_event().unwrap();
+        while next_event
+            .is_some_and(|next_event| next_event.wallclock_timestamp <= wallclock_time_now)
+        {
+            next_events.push(next_event.unwrap());
+            next_event = self.generator.next_event().unwrap();
+        }
+
+        // Ensure we remember the last event that was generated but not emitted for the
+        // next call.
+        self.next_event = next_event;
+
+        Some(
+            next_events
+                .into_iter()
+                .map(|next_event| (next_event.event, W::one()))
+                .collect(),
+        )
+    }
+}
+
 impl<R, W, C> SourceOperator<C> for NexmarkSource<R, W, C>
 where
     R: Rng + 'static,
@@ -110,12 +152,6 @@ where
             .next_event
             .clone()
             .or_else(|| self.generator.next_event().unwrap());
-
-        if self.fixedpoint(1) {
-            self.fixedpoint_sync
-                .send(self.generator.event_count())
-                .unwrap();
-        }
 
         // If there are no more events, we return an empty set.
         if next_event.is_none() {
@@ -229,20 +265,6 @@ pub mod tests {
         source.eval();
 
         assert!(source.fixedpoint(1));
-    }
-
-    // After exhausting events, the source sends a message on the fixedpoint_sync
-    // channel.
-    #[test]
-    fn test_fixed_point_sync_channel() {
-        let (mut source, rx) = make_source_with_wallclock_times(0..3, 3);
-        assert!(rx.try_recv().is_err());
-
-        source.eval();
-        source.eval();
-        source.eval();
-
-        assert_eq!(rx.try_recv().unwrap(), 3);
     }
 
     // After exhausting events, the source returns empty ZSets.
