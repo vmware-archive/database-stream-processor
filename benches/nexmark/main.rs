@@ -25,7 +25,7 @@ use dbsp::{
         NexmarkSource,
     },
     trace::{ord::OrdZSet, BatchReader},
-    Circuit, Runtime,
+    Circuit, CollectionHandle, DBSPHandle, Runtime,
 };
 use num_format::{Locale, ToFormattedString};
 use rand::prelude::ThreadRng;
@@ -45,9 +45,8 @@ macro_rules! nexmark_circuit {
             let output = $q(stream);
 
             output.inspect(move |zs: &OrdZSet<_, _>| {
-                // Currently using the print below not only to get an idea of the batch
-                // size but also to see how much time is spent creating the zsets from
-                // the input.
+                // Uncomment the println! below to see how the zsets are growing (or
+                // not) over time.
                 println!("zs.len() = {}", zs.len());
             });
 
@@ -66,38 +65,155 @@ struct NexmarkResult {
     max_rss: u64,
 }
 
-macro_rules! run_query {
-    ( $q_name:expr, $q:expr, $generator_config:expr, $result_tx:expr ) => {{
-        let circuit_closure = nexmark_circuit!($q);
+enum StepCompleted {
+    DBSP,
+    Source,
+}
 
-        let num_cores = $generator_config.nexmark_config.cpu_cores;
-        let (mut dbsp, mut input_handle) =
-            Runtime::init_circuit(num_cores, circuit_closure).unwrap();
-
-        let source =
-            NexmarkSource::<ThreadRng, isize, OrdZSet<Event, isize>>::new($generator_config);
-
-        let mut num_events_generated: u64 = 0;
+fn spawn_dbsp_consumer(
+    mut dbsp: DBSPHandle,
+    step_do_rx: mpsc::Receiver<()>,
+    step_done_tx: mpsc::SyncSender<StepCompleted>,
+    resource_usage_tx: mpsc::SyncSender<NexmarkResult>,
+) {
+    thread::spawn(move || {
         let start = Instant::now();
 
-        for mut batch in source {
-            num_events_generated += batch.len() as u64;
-            input_handle.append(&mut batch);
+        while let Ok(()) = step_do_rx.recv() {
             dbsp.step().unwrap();
+            step_done_tx.send(StepCompleted::DBSP).unwrap();
         }
 
         let (usr_cpu, sys_cpu, max_rss) = unsafe { rusage_thread() };
 
-        $result_tx
+        resource_usage_tx
             .send(NexmarkResult {
-                name: $q_name.to_string(),
-                num_events: num_events_generated,
+                name: String::from(""),
+                num_events: 0,
                 elapsed: start.elapsed(),
                 sys_cpu,
                 usr_cpu,
                 max_rss,
             })
             .unwrap();
+    });
+}
+
+fn spawn_source_producer(
+    generator_config: GeneratorConfig,
+    mut input_handle: CollectionHandle<Event, isize>,
+    step_do_rx: mpsc::Receiver<isize>,
+    step_done_tx: mpsc::SyncSender<StepCompleted>,
+    source_exhausted_tx: mpsc::SyncSender<u64>,
+) {
+    thread::spawn(move || {
+        // Create the source and load up the first batch of input ready for processing.
+        let mut source =
+            NexmarkSource::<ThreadRng, isize, OrdZSet<Event, isize>>::new(generator_config);
+        let mut num_events_generated: u64 = 0;
+        let mut batch = source.next().unwrap();
+        num_events_generated += batch.len() as u64;
+        input_handle.append(&mut batch);
+
+        // Wait for further coordination before adding more input.
+        while let Ok(num_batches) = step_do_rx.recv() {
+            for _ in 0..num_batches {
+                // When the source is exhausted, communicate the number of events generated
+                // back.
+                let mut batch = match source.next() {
+                    Some(b) => b,
+                    None => {
+                        source_exhausted_tx.send(num_events_generated).unwrap();
+                        step_done_tx.send(StepCompleted::Source).unwrap();
+                        return;
+                    }
+                };
+
+                num_events_generated += batch.len() as u64;
+                // TODO: Try collecting the batches for a single call to `append` so hashing is
+                // done once? Shouldn't make a difference.
+                input_handle.append(&mut batch);
+            }
+            step_done_tx.send(StepCompleted::Source).unwrap();
+        }
+        source_exhausted_tx.send(num_events_generated).unwrap();
+    });
+}
+
+fn coordinate_input_and_steps(
+    dbsp_step_tx: mpsc::SyncSender<()>,
+    source_step_tx: mpsc::SyncSender<isize>,
+    step_done_rx: mpsc::Receiver<StepCompleted>,
+    source_exhausted_rx: mpsc::Receiver<u64>,
+) -> u64 {
+    let mut num_input_batches = 1;
+    // Continue until the source is exhausted.
+    loop {
+        match source_exhausted_rx.try_recv() {
+            Ok(num_events) => return num_events,
+            _ => (),
+        }
+
+        // Trigger the step and the input of the next batch.
+        dbsp_step_tx.send(()).unwrap();
+        source_step_tx.send(num_input_batches).unwrap();
+
+        // If the consumer finished first, increase the input batches.
+        match step_done_rx.recv() {
+            Ok(StepCompleted::DBSP) => num_input_batches += 1,
+            _ => (),
+        }
+        step_done_rx.recv().unwrap();
+    }
+}
+
+macro_rules! run_query {
+    ( $q_name:expr, $q:expr, $generator_config:expr) => {{
+        let circuit_closure = nexmark_circuit!($q);
+
+        let num_cores = $generator_config.nexmark_config.cpu_cores;
+        let (dbsp, input_handle) = Runtime::init_circuit(num_cores, circuit_closure).unwrap();
+
+        // Create a channel for the coordinating thread to determine whether the
+        // producer or consumer step is completed first.
+        let (step_done_tx, step_done_rx) = mpsc::sync_channel(2);
+
+        // Start the DBSP runtime processing steps only when it receives a message to do
+        // so. The DBSP processing happens in its own thread where the resource usage
+        // calculation can also happen.
+        let (dbsp_step_tx, dbsp_step_rx) = mpsc::sync_channel(1);
+        let (resource_usage_tx, resource_usage_rx): (
+            mpsc::SyncSender<NexmarkResult>,
+            mpsc::Receiver<NexmarkResult>,
+        ) = mpsc::sync_channel(0);
+        spawn_dbsp_consumer(dbsp, dbsp_step_rx, step_done_tx.clone(), resource_usage_tx);
+
+        // Start the generator inputting the specified number of batches to the circuit
+        // whenever it receives a message.
+        let (source_step_tx, source_step_rx) = mpsc::sync_channel(1);
+        let (source_exhausted_tx, source_exhausted_rx) = mpsc::sync_channel(1);
+        spawn_source_producer(
+            $generator_config,
+            input_handle,
+            source_step_rx,
+            step_done_tx,
+            source_exhausted_tx,
+        );
+
+        let num_events_generated = coordinate_input_and_steps(
+            dbsp_step_tx,
+            source_step_tx,
+            step_done_rx,
+            source_exhausted_rx,
+        );
+
+        println!("{num_events_generated} events generated.");
+
+        NexmarkResult {
+            name: $q_name.to_string(),
+            num_events: num_events_generated,
+            ..resource_usage_rx.recv().unwrap()
+        }
     }};
 }
 
@@ -105,22 +221,11 @@ macro_rules! run_queries {
     ( $generator_config:expr, $max_events:expr, $queries_to_run:expr, $( ($q_name:expr, $q:expr) ),+ ) => {{
         let mut results: Vec<NexmarkResult> = Vec::new();
 
-        // Run each query in a separate thread so we can measure the resource
-        // usage of the thread in isolation. We'll communicate the resource usage
-        // for collection via a channel to accumulate here.
-        let (result_tx, result_rx): (mpsc::Sender<NexmarkResult>, mpsc::Receiver<NexmarkResult>) =
-            mpsc::channel();
-
         $(
         if $queries_to_run.len() == 0 || $queries_to_run.contains(&$q_name.to_string()) {
             println!("Starting {} bench of {} events...", $q_name, $max_events);
-            let thread_result_tx = result_tx.clone();
             let thread_generator_config = $generator_config.clone();
-            thread::spawn(move || {
-                run_query!($q_name, $q, thread_generator_config, thread_result_tx);
-            });
-            // Wait for the thread to finish then collect the result.
-            results.push(result_rx.recv().unwrap());
+            results.push(run_query!($q_name, $q, thread_generator_config));
         }
         )+
         results
@@ -129,7 +234,7 @@ macro_rules! run_queries {
 
 fn create_ascii_table() -> AsciiTable {
     let mut ascii_table = AsciiTable::default();
-    ascii_table.set_max_width(120);
+    ascii_table.set_max_width(160);
     ascii_table.column(0).set_header("Query");
     ascii_table.column(1).set_header("#Events");
     ascii_table.column(2).set_header("Cores");

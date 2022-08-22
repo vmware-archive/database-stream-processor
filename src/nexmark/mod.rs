@@ -118,8 +118,9 @@ where
         // Collect as many next events as are ready.
         let mut next_events = vec![next_event];
         let mut next_event = self.generator.next_event().unwrap();
-        while next_event
-            .is_some_and(|next_event| next_event.wallclock_timestamp <= wallclock_time_now)
+        while next_events.len() < 1000
+            && next_event
+                .is_some_and(|next_event| next_event.wallclock_timestamp <= wallclock_time_now)
         {
             next_events.push(next_event.unwrap());
             next_event = self.generator.next_event().unwrap();
@@ -199,22 +200,14 @@ pub mod tests {
     use crate::{trace::Batch, Circuit, OrdZSet};
     use core::ops::Range;
     use rand::rngs::mock::StepRng;
-    use std::sync::{mpsc, mpsc::Receiver};
 
     /// Returns a source that generates the default events/s with the specified
     /// range of wallclock time ticks.
     pub fn make_source_with_wallclock_times(
         times: Range<u64>,
         max_events: u64,
-    ) -> (
-        NexmarkSource<StepRng, isize, OrdZSet<Event, isize>>,
-        Receiver<u64>,
-    ) {
-        let (tx, rx) = mpsc::channel();
-        (
-            NexmarkSource::from_generator(RangedTimeGenerator::new(times, max_events), tx),
-            rx,
-        )
+    ) -> NexmarkSource<StepRng, isize, OrdZSet<Event, isize>> {
+        NexmarkSource::from_generator(RangedTimeGenerator::new(times, max_events))
     }
 
     pub fn generate_expected_zset_tuples(
@@ -245,7 +238,7 @@ pub mod tests {
     fn test_start_clock() {
         let expected_zset = generate_expected_zset(0, 2);
 
-        let (mut source, _) = make_source_with_wallclock_times(0..2, 2);
+        let mut source = make_source_with_wallclock_times(0..2, 2);
 
         assert_eq!(source.eval(), expected_zset);
 
@@ -259,7 +252,7 @@ pub mod tests {
     // After exhausting events, the source indicates a fixed point.
     #[test]
     fn test_fixed_point() {
-        let (mut source, _rx) = make_source_with_wallclock_times(0..1, 1);
+        let mut source = make_source_with_wallclock_times(0..1, 1);
         assert!(!source.fixedpoint(1));
 
         source.eval();
@@ -270,7 +263,7 @@ pub mod tests {
     // After exhausting events, the source returns empty ZSets.
     #[test]
     fn test_eval_empty_zset() {
-        let (mut source, _rx) = make_source_with_wallclock_times(0..2, 1);
+        let mut source = make_source_with_wallclock_times(0..2, 1);
 
         source.eval();
 
@@ -280,7 +273,7 @@ pub mod tests {
     #[test]
     fn test_nexmark_dbsp_source_full_batch() {
         let root = Circuit::build(move |circuit| {
-            let (source, _) = make_source_with_wallclock_times(0..9, 10);
+            let source = make_source_with_wallclock_times(0..9, 10);
             let expected_zset = generate_expected_zset(0, 10);
 
             circuit
@@ -301,7 +294,7 @@ pub mod tests {
     #[test]
     fn test_eval_batched() {
         let wallclock_time = 0;
-        let (mut source, _) = make_source_with_wallclock_times(0..3, 60);
+        let mut source = make_source_with_wallclock_times(0..3, 60);
         let expected_zset_tuples = generate_expected_zset_tuples(wallclock_time, 60);
 
         assert_eq!(
