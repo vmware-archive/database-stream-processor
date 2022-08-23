@@ -13,7 +13,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use ascii_table::AsciiTable;
 use clap::Parser;
 use dbsp::{
@@ -28,6 +28,7 @@ use dbsp::{
     Circuit, CollectionHandle, DBSPHandle, Runtime,
 };
 use num_format::{Locale, ToFormattedString};
+use pbr::ProgressBar;
 use rand::prelude::ThreadRng;
 
 // TODO: Ideally these macros would be in a separate `lib.rs` in this benchmark
@@ -122,7 +123,6 @@ fn spawn_source_producer(
             if batch_count < num_batches {
                 continue;
             }
-            println!("Added {} events", num_batches * 1000);
             step_done_tx.send(StepCompleted::Source).unwrap();
 
             // Wait for the next batch.
@@ -135,6 +135,7 @@ fn spawn_source_producer(
 }
 
 fn coordinate_input_and_steps(
+    expected_num_events: u64,
     dbsp_step_tx: mpsc::SyncSender<()>,
     source_step_tx: mpsc::SyncSender<usize>,
     step_done_rx: mpsc::Receiver<StepCompleted>,
@@ -143,18 +144,23 @@ fn coordinate_input_and_steps(
     let mut num_input_batches = 1;
     // The producer should have already loaded up the first batch ready for
     // consumption before we start the loop.
-    // TODO: verify the event.
-    step_done_rx.recv().unwrap();
+    let mut progress_bar = ProgressBar::new(expected_num_events);
+
+    if let Ok(StepCompleted::DBSP) = step_done_rx.recv() {
+        return Err(anyhow!("Expected initial source step, got DBSP step"));
+    }
 
     // Continue until the source is exhausted.
     loop {
         if let Ok(num_events) = source_exhausted_rx.try_recv() {
+            progress_bar.finish_print("Done");
             return Ok(num_events);
         }
 
         // Trigger the step and the input of the next batch.
         dbsp_step_tx.send(())?;
         source_step_tx.send(num_input_batches)?;
+        progress_bar.add(num_input_batches as u64 * 1000);
 
         // If the consumer finished first, increase the input batches.
         if let Ok(StepCompleted::DBSP) = step_done_rx.recv() {
@@ -170,6 +176,7 @@ macro_rules! run_query {
         let circuit_closure = nexmark_circuit!($q);
 
         let num_cores = $generator_config.nexmark_config.cpu_cores;
+        let expected_num_events = $generator_config.nexmark_config.max_events;
         let (dbsp, input_handle) = Runtime::init_circuit(num_cores, circuit_closure).unwrap();
 
         // Create a channel for the coordinating thread to determine whether the
@@ -200,6 +207,7 @@ macro_rules! run_query {
         );
 
         let num_events_generated = coordinate_input_and_steps(
+            expected_num_events,
             dbsp_step_tx,
             source_step_tx,
             step_done_rx,
