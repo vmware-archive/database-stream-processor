@@ -24,7 +24,7 @@ use dbsp::{
         queries::{q0, q1, q2, q3, q4, q6},
         NexmarkSource,
     },
-    trace::{ord::OrdZSet, BatchReader},
+    trace::ord::OrdZSet,
     Circuit, CollectionHandle, DBSPHandle, Runtime,
 };
 use num_format::{Locale, ToFormattedString};
@@ -44,10 +44,10 @@ macro_rules! nexmark_circuit {
 
             let output = $q(stream);
 
-            output.inspect(move |zs: &OrdZSet<_, _>| {
+            output.inspect(move |_zs: &OrdZSet<_, _>| {
                 // Uncomment the println! below to see how the zsets are growing (or
                 // not) over time.
-                println!("zs.len() = {}", zs.len());
+                // println!("zs.len() = {}", zs.len());
             });
 
             input_handle
@@ -102,68 +102,66 @@ fn spawn_dbsp_consumer(
 fn spawn_source_producer(
     generator_config: GeneratorConfig,
     mut input_handle: CollectionHandle<Event, isize>,
-    step_do_rx: mpsc::Receiver<isize>,
+    step_do_rx: mpsc::Receiver<usize>,
     step_done_tx: mpsc::SyncSender<StepCompleted>,
     source_exhausted_tx: mpsc::SyncSender<u64>,
 ) {
     thread::spawn(move || {
-        // Create the source and load up the first batch of input ready for processing.
-        let mut source =
+        let source =
             NexmarkSource::<ThreadRng, isize, OrdZSet<Event, isize>>::new(generator_config);
         let mut num_events_generated: u64 = 0;
-        let mut batch = source.next().unwrap();
-        num_events_generated += batch.len() as u64;
-        input_handle.append(&mut batch);
 
-        // Wait for further coordination before adding more input.
-        while let Ok(num_batches) = step_do_rx.recv() {
-            for _ in 0..num_batches {
-                // When the source is exhausted, communicate the number of events generated
-                // back.
-                let mut batch = match source.next() {
-                    Some(b) => b,
-                    None => {
-                        source_exhausted_tx.send(num_events_generated).unwrap();
-                        step_done_tx.send(StepCompleted::Source).unwrap();
-                        return;
-                    }
-                };
-
-                num_events_generated += batch.len() as u64;
-                // TODO: Try collecting the batches for a single call to `append` so hashing is
-                // done once? Shouldn't make a difference.
-                input_handle.append(&mut batch);
+        // Start iterating by loading up the first batch of input ready for processing,
+        // then waiting for further instructions.
+        let mut num_batches = 1;
+        let mut batch_count = 0;
+        for mut batch in source {
+            num_events_generated += batch.len() as u64;
+            input_handle.append(&mut batch);
+            batch_count += 1;
+            if batch_count < num_batches {
+                continue;
             }
+            println!("Added {} events", num_batches * 1000);
             step_done_tx.send(StepCompleted::Source).unwrap();
+
+            // Wait for the next batch.
+            batch_count = 0;
+            num_batches = step_do_rx.recv().unwrap();
         }
         source_exhausted_tx.send(num_events_generated).unwrap();
+        step_done_tx.send(StepCompleted::Source).unwrap();
     });
 }
 
 fn coordinate_input_and_steps(
     dbsp_step_tx: mpsc::SyncSender<()>,
-    source_step_tx: mpsc::SyncSender<isize>,
+    source_step_tx: mpsc::SyncSender<usize>,
     step_done_rx: mpsc::Receiver<StepCompleted>,
     source_exhausted_rx: mpsc::Receiver<u64>,
-) -> u64 {
+) -> Result<u64> {
     let mut num_input_batches = 1;
+    // The producer should have already loaded up the first batch ready for
+    // consumption before we start the loop.
+    // TODO: verify the event.
+    step_done_rx.recv().unwrap();
+
     // Continue until the source is exhausted.
     loop {
-        match source_exhausted_rx.try_recv() {
-            Ok(num_events) => return num_events,
-            _ => (),
+        if let Ok(num_events) = source_exhausted_rx.try_recv() {
+            return Ok(num_events);
         }
 
         // Trigger the step and the input of the next batch.
-        dbsp_step_tx.send(()).unwrap();
-        source_step_tx.send(num_input_batches).unwrap();
+        dbsp_step_tx.send(())?;
+        source_step_tx.send(num_input_batches)?;
 
         // If the consumer finished first, increase the input batches.
-        match step_done_rx.recv() {
-            Ok(StepCompleted::DBSP) => num_input_batches += 1,
-            _ => (),
+        if let Ok(StepCompleted::DBSP) = step_done_rx.recv() {
+            num_input_batches += 1;
         }
-        step_done_rx.recv().unwrap();
+        // Consume the other input/dbsp step.
+        step_done_rx.recv()?;
     }
 }
 
@@ -190,7 +188,8 @@ macro_rules! run_query {
 
         // Start the generator inputting the specified number of batches to the circuit
         // whenever it receives a message.
-        let (source_step_tx, source_step_rx) = mpsc::sync_channel(1);
+        let (source_step_tx, source_step_rx): (mpsc::SyncSender<usize>, mpsc::Receiver<usize>) =
+            mpsc::sync_channel(1);
         let (source_exhausted_tx, source_exhausted_rx) = mpsc::sync_channel(1);
         spawn_source_producer(
             $generator_config,
@@ -205,7 +204,8 @@ macro_rules! run_query {
             source_step_tx,
             step_done_rx,
             source_exhausted_rx,
-        );
+        )
+        .unwrap();
 
         println!("{num_events_generated} events generated.");
 
@@ -288,7 +288,7 @@ fn main() -> Result<()> {
         vec![
             r.name,
             format!("{}", r.num_events.to_formatted_string(&Locale::en)),
-            format!("{}", cpu_cores),
+            format!("{cpu_cores}"),
             format!("{0:.3}", r.elapsed.as_secs_f32()),
             format!("{0:.3}", cpu_cores as f32 * r.elapsed.as_secs_f32()),
             format!(
