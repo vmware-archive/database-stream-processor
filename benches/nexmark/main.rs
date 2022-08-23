@@ -4,7 +4,7 @@
 #![feature(is_some_with)]
 
 #[cfg(unix)]
-use libc::{getrusage, rusage, timeval, RUSAGE_THREAD};
+use libc::{getrusage, rusage, timeval};
 use std::{
     io::Error,
     mem::MaybeUninit,
@@ -45,11 +45,7 @@ macro_rules! nexmark_circuit {
 
             let output = $q(stream);
 
-            output.inspect(move |_zs: &OrdZSet<_, _>| {
-                // Uncomment the println! below to see how the zsets are growing (or
-                // not) over time.
-                // println!("zs.len() = {}", zs.len());
-            });
+            output.inspect(move |_zs: &OrdZSet<_, _>| ());
 
             input_handle
         }
@@ -57,13 +53,22 @@ macro_rules! nexmark_circuit {
 }
 
 /// Currently just the elapsed time, but later add CPU and Mem.
+#[derive(Default)]
 struct NexmarkResult {
     name: String,
     num_events: u64,
     elapsed: Duration,
+    total_usr_cpu: Duration,
+    total_sys_cpu: Duration,
+    input_usr_cpu: Duration,
+    input_sys_cpu: Duration,
+    max_rss: Option<u64>,
+}
+
+struct InputStats {
+    num_events: u64,
     usr_cpu: Duration,
     sys_cpu: Duration,
-    max_rss: u64,
 }
 
 enum StepCompleted {
@@ -75,28 +80,15 @@ fn spawn_dbsp_consumer(
     mut dbsp: DBSPHandle,
     step_do_rx: mpsc::Receiver<()>,
     step_done_tx: mpsc::SyncSender<StepCompleted>,
-    resource_usage_tx: mpsc::SyncSender<NexmarkResult>,
+    done_tx: mpsc::SyncSender<()>,
 ) {
     thread::spawn(move || {
-        let start = Instant::now();
-
         while let Ok(()) = step_do_rx.recv() {
             dbsp.step().unwrap();
             step_done_tx.send(StepCompleted::DBSP).unwrap();
         }
 
-        let (usr_cpu, sys_cpu, max_rss) = unsafe { rusage_thread() };
-
-        resource_usage_tx
-            .send(NexmarkResult {
-                name: String::from(""),
-                num_events: 0,
-                elapsed: start.elapsed(),
-                sys_cpu,
-                usr_cpu,
-                max_rss,
-            })
-            .unwrap();
+        done_tx.send(()).unwrap();
     });
 }
 
@@ -105,19 +97,19 @@ fn spawn_source_producer(
     mut input_handle: CollectionHandle<Event, isize>,
     step_do_rx: mpsc::Receiver<usize>,
     step_done_tx: mpsc::SyncSender<StepCompleted>,
-    source_exhausted_tx: mpsc::SyncSender<u64>,
+    source_exhausted_tx: mpsc::SyncSender<InputStats>,
 ) {
     thread::spawn(move || {
         let source =
             NexmarkSource::<ThreadRng, isize, OrdZSet<Event, isize>>::new(generator_config);
-        let mut num_events_generated: u64 = 0;
+        let mut num_events: u64 = 0;
 
         // Start iterating by loading up the first batch of input ready for processing,
         // then waiting for further instructions.
         let mut num_batches = 1;
         let mut batch_count = 0;
         for mut batch in source {
-            num_events_generated += batch.len() as u64;
+            num_events += batch.len() as u64;
             input_handle.append(&mut batch);
             batch_count += 1;
             if batch_count < num_batches {
@@ -129,7 +121,14 @@ fn spawn_source_producer(
             batch_count = 0;
             num_batches = step_do_rx.recv().unwrap();
         }
-        source_exhausted_tx.send(num_events_generated).unwrap();
+        let (input_usr_cpu, input_sys_cpu, _) = unsafe { rusage(libc::RUSAGE_THREAD) };
+        source_exhausted_tx
+            .send(InputStats {
+                num_events,
+                usr_cpu: input_usr_cpu,
+                sys_cpu: input_sys_cpu,
+            })
+            .unwrap();
         step_done_tx.send(StepCompleted::Source).unwrap();
     });
 }
@@ -139,8 +138,8 @@ fn coordinate_input_and_steps(
     dbsp_step_tx: mpsc::SyncSender<()>,
     source_step_tx: mpsc::SyncSender<usize>,
     step_done_rx: mpsc::Receiver<StepCompleted>,
-    source_exhausted_rx: mpsc::Receiver<u64>,
-) -> Result<u64> {
+    source_exhausted_rx: mpsc::Receiver<InputStats>,
+) -> Result<InputStats> {
     let mut num_input_batches = 1;
     // The producer should have already loaded up the first batch ready for
     // consumption before we start the loop.
@@ -152,9 +151,9 @@ fn coordinate_input_and_steps(
 
     // Continue until the source is exhausted.
     loop {
-        if let Ok(num_events) = source_exhausted_rx.try_recv() {
+        if let Ok(input_stats) = source_exhausted_rx.try_recv() {
             progress_bar.finish_print("Done");
-            return Ok(num_events);
+            return Ok(input_stats);
         }
 
         // Trigger the step and the input of the next batch.
@@ -172,7 +171,7 @@ fn coordinate_input_and_steps(
 }
 
 macro_rules! run_query {
-    ( $q_name:expr, $q:expr, $generator_config:expr) => {{
+    ( $q:expr, $generator_config:expr) => {{
         let circuit_closure = nexmark_circuit!($q);
 
         let num_cores = $generator_config.nexmark_config.cpu_cores;
@@ -187,11 +186,8 @@ macro_rules! run_query {
         // so. The DBSP processing happens in its own thread where the resource usage
         // calculation can also happen.
         let (dbsp_step_tx, dbsp_step_rx) = mpsc::sync_channel(1);
-        let (resource_usage_tx, resource_usage_rx): (
-            mpsc::SyncSender<NexmarkResult>,
-            mpsc::Receiver<NexmarkResult>,
-        ) = mpsc::sync_channel(0);
-        spawn_dbsp_consumer(dbsp, dbsp_step_rx, step_done_tx.clone(), resource_usage_tx);
+        let (dbsp_done_tx, dbsp_done_rx) = mpsc::sync_channel(0);
+        spawn_dbsp_consumer(dbsp, dbsp_step_rx, step_done_tx.clone(), dbsp_done_tx);
 
         // Start the generator inputting the specified number of batches to the circuit
         // whenever it receives a message.
@@ -206,7 +202,7 @@ macro_rules! run_query {
             source_exhausted_tx,
         );
 
-        let num_events_generated = coordinate_input_and_steps(
+        let input_stats = coordinate_input_and_steps(
             expected_num_events,
             dbsp_step_tx,
             source_step_tx,
@@ -215,12 +211,14 @@ macro_rules! run_query {
         )
         .unwrap();
 
-        println!("{num_events_generated} events generated.");
+        dbsp_done_rx.recv().unwrap();
 
+        // Return the user/system CPU overhead from the generator/input thread.
         NexmarkResult {
-            name: $q_name.to_string(),
-            num_events: num_events_generated,
-            ..resource_usage_rx.recv().unwrap()
+            num_events: input_stats.num_events,
+            input_usr_cpu: input_stats.usr_cpu,
+            input_sys_cpu: input_stats.sys_cpu,
+            ..NexmarkResult::default()
         }
     }};
 }
@@ -228,12 +226,29 @@ macro_rules! run_query {
 macro_rules! run_queries {
     ( $generator_config:expr, $max_events:expr, $queries_to_run:expr, $( ($q_name:expr, $q:expr) ),+ ) => {{
         let mut results: Vec<NexmarkResult> = Vec::new();
-
+        // We have no way (currently) of finding the max memory usage for each
+        // subsequent query as the value is for the process. So only the first
+        // query will have a value.
+        let mut query_count = 0;
         $(
         if $queries_to_run.len() == 0 || $queries_to_run.contains(&$q_name.to_string()) {
+            query_count += 1;
             println!("Starting {} bench of {} events...", $q_name, $max_events);
+
+            let start = Instant::now();
+            let (before_usr_cpu, before_sys_cpu, before_max_rss) = unsafe { rusage(libc::RUSAGE_SELF) };
+
             let thread_generator_config = $generator_config.clone();
-            results.push(run_query!($q_name, $q, thread_generator_config));
+            let result = run_query!($q, thread_generator_config);
+            let (after_usr_cpu, after_sys_cpu, after_max_rss) = unsafe { rusage(libc::RUSAGE_SELF) };
+            results.push(NexmarkResult {
+                name: $q_name.to_string(),
+                total_usr_cpu: after_usr_cpu - before_usr_cpu,
+                total_sys_cpu: after_sys_cpu - before_sys_cpu,
+                max_rss: match query_count { 1 => Some(after_max_rss - before_max_rss), _ => None},
+                elapsed: start.elapsed(),
+                ..result
+            });
         }
         )+
         results
@@ -242,16 +257,18 @@ macro_rules! run_queries {
 
 fn create_ascii_table() -> AsciiTable {
     let mut ascii_table = AsciiTable::default();
-    ascii_table.set_max_width(160);
+    ascii_table.set_max_width(200);
     ascii_table.column(0).set_header("Query");
     ascii_table.column(1).set_header("#Events");
     ascii_table.column(2).set_header("Cores");
-    ascii_table.column(3).set_header("Time(s)");
-    ascii_table.column(4).set_header("Cores * Time(s)");
+    ascii_table.column(3).set_header("Elapsed");
+    ascii_table.column(4).set_header("Cores * Elapsed");
     ascii_table.column(5).set_header("Throughput/Cores");
-    ascii_table.column(6).set_header("User CPU(s)");
-    ascii_table.column(7).set_header("System CPU(s)");
-    ascii_table.column(8).set_header("Max RSS(Kb)");
+    ascii_table.column(6).set_header("Input Usr CPU");
+    ascii_table.column(7).set_header("Input Sys CPU");
+    ascii_table.column(8).set_header("DBSP Usr CPU");
+    ascii_table.column(9).set_header("DBSP Sys CPU");
+    ascii_table.column(10).set_header("Max RSS(Kb)");
     ascii_table
 }
 
@@ -297,15 +314,24 @@ fn main() -> Result<()> {
             r.name,
             format!("{}", r.num_events.to_formatted_string(&Locale::en)),
             format!("{cpu_cores}"),
-            format!("{0:.3}", r.elapsed.as_secs_f32()),
-            format!("{0:.3}", cpu_cores as f32 * r.elapsed.as_secs_f32()),
+            format!("{0:.3}s", r.elapsed.as_secs_f32()),
+            format!("{0:.3}s", cpu_cores as f32 * r.elapsed.as_secs_f32()),
             format!(
                 "{0:.3} K/s",
                 r.num_events as f32 / r.elapsed.as_secs_f32() / cpu_cores as f32 / 1000.0
             ),
-            format!("{0:.3}", r.usr_cpu.as_secs_f32()),
-            format!("{0:.3}", r.sys_cpu.as_secs_f32()),
-            format!("{}", r.max_rss.to_formatted_string(&Locale::en)),
+            format!("{0:.3}s", r.input_usr_cpu.as_secs_f32()),
+            format!("{0:.3}s", r.input_sys_cpu.as_secs_f32()),
+            format!("{0:.3}s", (r.total_usr_cpu - r.input_usr_cpu).as_secs_f32()),
+            format!("{0:.3}s", (r.total_sys_cpu - r.input_sys_cpu).as_secs_f32()),
+            format!(
+                "{}",
+                if let Some(max_rss) = r.max_rss {
+                    max_rss.to_formatted_string(&Locale::en)
+                } else {
+                    "N/A".to_string()
+                }
+            ),
         ]
     }));
 
@@ -317,11 +343,11 @@ fn duration_for_timeval(tv: timeval) -> Duration {
     Duration::new(tv.tv_sec as u64, tv.tv_usec as u32 * 1_000)
 }
 
-/// Returns the user CPU, system CPU and maxrss (in Kb) for the current thread.
+/// Returns the user CPU, system CPU and maxrss (in Kb) for the current process.
 #[cfg(unix)]
-pub unsafe fn rusage_thread() -> (Duration, Duration, u64) {
+pub unsafe fn rusage(target: i32) -> (Duration, Duration, u64) {
     let mut ru: MaybeUninit<rusage> = MaybeUninit::uninit();
-    let err_code = getrusage(RUSAGE_THREAD, ru.as_mut_ptr());
+    let err_code = getrusage(target, ru.as_mut_ptr());
     if err_code != 0 {
         panic!("getrusage returned {}", Error::last_os_error());
     }
