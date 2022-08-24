@@ -76,14 +76,21 @@ fn spawn_dbsp_consumer(
     input_complete_rx: mpsc::Receiver<()>,
     processing_complete_tx: mpsc::SyncSender<()>,
 ) {
-    thread::spawn(move || loop {
-        dbsp.step().unwrap();
-
-        // When the input is complete, we do one final step and return.
-        if let Ok(()) = input_complete_rx.try_recv() {
+    thread::spawn(move || {
+        let mut count = 0;
+        loop {
             dbsp.step().unwrap();
-            processing_complete_tx.send(()).unwrap();
-            return;
+            count += 1;
+            println!("Step called {count} times");
+
+            // When the input is complete, we do one final step and return.
+            if let Ok(()) = input_complete_rx.try_recv() {
+                dbsp.step().unwrap();
+                count += 1;
+                println!("Step called {count} times");
+                processing_complete_tx.send(()).unwrap();
+                return;
+            }
         }
     });
 }
@@ -91,6 +98,7 @@ fn spawn_dbsp_consumer(
 fn spawn_source_producer(
     generator_config: GeneratorConfig,
     mut input_handle: CollectionHandle<Event, isize>,
+    input_ready_tx: mpsc::SyncSender<()>,
     source_exhausted_tx: mpsc::SyncSender<InputStats>,
 ) {
     thread::spawn(move || {
@@ -101,8 +109,11 @@ fn spawn_source_producer(
 
         for mut batch in source {
             let batch_len = batch.len() as u64;
-            num_events += batch_len;
             input_handle.append(&mut batch);
+            if num_events == 0 {
+                input_ready_tx.send(()).unwrap();
+            }
+            num_events += batch_len;
             progress_bar.add(batch_len);
         }
         let (input_usr_cpu, input_sys_cpu, _) = unsafe { rusage(libc::RUSAGE_THREAD) };
@@ -124,14 +135,22 @@ macro_rules! run_query {
         let num_cores = $generator_config.nexmark_config.cpu_cores;
         let (dbsp, input_handle) = Runtime::init_circuit(num_cores, circuit_closure).unwrap();
 
-        let (input_complete_tx, input_complete_rx) = mpsc::sync_channel(1);
-        let (processing_complete_tx, processing_complete_rx) = mpsc::sync_channel(1);
-        spawn_dbsp_consumer(dbsp, input_complete_rx, processing_complete_tx);
-
         // Start the generator inputting the specified number of batches to the circuit
         // whenever it receives a message.
         let (source_exhausted_tx, source_exhausted_rx) = mpsc::sync_channel(1);
-        spawn_source_producer($generator_config, input_handle, source_exhausted_tx);
+        let (input_ready_tx, input_ready_rx) = mpsc::sync_channel(1);
+        spawn_source_producer(
+            $generator_config,
+            input_handle,
+            input_ready_tx,
+            source_exhausted_tx,
+        );
+
+        // Wait until some input has been added before starting the consumer.
+        input_ready_rx.recv().unwrap();
+        let (input_complete_tx, input_complete_rx) = mpsc::sync_channel(1);
+        let (processing_complete_tx, processing_complete_rx) = mpsc::sync_channel(1);
+        spawn_dbsp_consumer(dbsp, input_complete_rx, processing_complete_tx);
 
         // Wait for the source to be exhausted, then let the consumer know it can
         // finishe up too and wait for it to complete.
