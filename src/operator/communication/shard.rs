@@ -230,6 +230,47 @@ where
     }
 }
 
+impl<P, T> Stream<Circuit<P>, T>
+where
+    P: Clone + 'static,
+    T: 'static,
+{
+    /// Marks the data within the current stream as sharded, meaning that all
+    /// further calls to `.shard()` will have no effect.
+    ///
+    /// This must only be used on streams of values that are properly sharded
+    /// across workers, otherwise this will cause the dataflow to yield
+    /// incorrect results
+    pub fn mark_sharded(&self) -> Self {
+        self.circuit().cache_insert(
+            ShardId::new((
+                self.origin_node_id().clone(),
+                sharding_policy(self.circuit()),
+            )),
+            self.clone(),
+        );
+
+        self.clone()
+    }
+
+    /// Returns `true` if the current stream is properly sharded across workers
+    pub(crate) fn is_sharded(&self) -> bool {
+        Runtime::runtime()
+            .map(|runtime| {
+                if runtime.num_workers() == 1 {
+                    true
+                } else {
+                    self.circuit()
+                        .cache_contains(&ShardId::<Circuit<P>, T>::new((
+                            self.origin_node_id().clone(),
+                            sharding_policy(self.circuit()),
+                        )))
+                }
+            })
+            .unwrap_or(true)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::{

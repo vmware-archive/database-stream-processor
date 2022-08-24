@@ -1024,9 +1024,16 @@ where
     /// See [`cache`] module documentation for details.
     pub(crate) fn cache_insert<K>(&self, key: K, val: K::Value)
     where
-        K: 'static + TypedMapKey<CircuitStoreMarker>,
+        K: TypedMapKey<CircuitStoreMarker> + 'static,
     {
         self.inner_mut().store.insert(key, val);
+    }
+
+    pub(crate) fn cache_contains<K>(&self, key: &K) -> bool
+    where
+        K: TypedMapKey<CircuitStoreMarker> + 'static,
+    {
+        self.inner_mut().store.contains_key(key)
     }
 
     pub(crate) fn register_ready_callback(&self, id: NodeId, cb: Box<dyn Fn() + Send + Sync>) {

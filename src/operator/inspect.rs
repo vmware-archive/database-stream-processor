@@ -37,8 +37,14 @@ where
     where
         F: FnMut(&D) + 'static,
     {
-        self.circuit()
-            .add_unary_operator(Inspect::new(callback), self)
+        let inspected = self
+            .circuit()
+            .add_unary_operator(Inspect::new(callback), self);
+        if self.is_sharded() {
+            inspected.mark_sharded();
+        }
+
+        inspected
     }
 }
 
