@@ -53,14 +53,18 @@ where
     /// # }
     /// ```
     pub fn plus(&self, other: &Stream<Circuit<P>, D>) -> Stream<Circuit<P>, D> {
-        let sum = self.circuit().add_binary_operator(Plus::new(), self, other);
-
         // If both inputs are properly sharded then the sum of those inputs will be
         // sharded
-        if self.is_sharded() && other.is_sharded() {
-            sum.mark_sharded()
+        if self.has_sharded_version() && other.has_sharded_version() {
+            self.circuit()
+                .add_binary_operator(
+                    Plus::new(),
+                    &self.try_sharded_version(),
+                    &other.try_sharded_version(),
+                )
+                .mark_sharded()
         } else {
-            sum
+            self.circuit().add_binary_operator(Plus::new(), self, other)
         }
     }
 }
@@ -72,16 +76,19 @@ where
 {
     /// Apply the [`Minus`] operator to `self` and `other`.
     pub fn minus(&self, other: &Stream<Circuit<P>, D>) -> Stream<Circuit<P>, D> {
-        let difference = self
-            .circuit()
-            .add_binary_operator(Minus::new(), self, other);
-
         // If both inputs are properly sharded then the difference of those inputs will
         // be sharded
-        if self.is_sharded() && other.is_sharded() {
-            difference.mark_sharded()
+        if self.has_sharded_version() && other.has_sharded_version() {
+            self.circuit()
+                .add_binary_operator(
+                    Minus::new(),
+                    &self.try_sharded_version(),
+                    &other.try_sharded_version(),
+                )
+                .mark_sharded()
         } else {
-            difference
+            self.circuit()
+                .add_binary_operator(Minus::new(), self, other)
         }
     }
 }

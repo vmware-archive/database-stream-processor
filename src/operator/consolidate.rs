@@ -35,15 +35,15 @@ where
             .cache_get_or_insert_with(ConsolidateId::new(self.origin_node_id().clone()), || {
                 let consolidated = self.circuit().add_unary_operator_with_preference(
                     Consolidate::new(),
-                    self,
+                    &self.try_sharded_version(),
                     OwnershipPreference::STRONGLY_PREFER_OWNED,
                 );
 
-                if self.is_sharded() {
-                    consolidated.mark_sharded()
-                } else {
-                    consolidated
+                if self.has_sharded_version() {
+                    consolidated.mark_sharded();
                 }
+
+                consolidated
             })
             .clone()
     }

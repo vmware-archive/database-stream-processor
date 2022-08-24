@@ -15,14 +15,16 @@ where
     P: Clone + 'static,
 {
     pub fn neg(&self) -> Stream<Circuit<P>, D> {
-        let negated = self.circuit().add_unary_operator(UnaryMinus::new(), self);
+        let negated = self
+            .circuit()
+            .add_unary_operator(UnaryMinus::new(), &self.try_sharded_version());
 
         // If the input stream is sharded then the negated stream is sharded
-        if self.is_sharded() {
-            negated.mark_sharded()
-        } else {
-            negated
+        if self.has_sharded_version() {
+            negated.mark_sharded();
         }
+
+        negated
     }
 }
 

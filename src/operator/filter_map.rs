@@ -170,13 +170,13 @@ where
     {
         let filtered = self
             .circuit()
-            .add_unary_operator(FilterKeys::new(filter_func), self);
+            .add_unary_operator(FilterKeys::new(filter_func), &self.try_sharded_version());
 
-        if filtered.is_sharded() {
-            filtered.mark_sharded()
-        } else {
-            filtered
+        if self.has_sharded_version() {
+            filtered.mark_sharded();
         }
+
+        filtered
     }
 
     fn map_generic<F, T, O>(&self, map_func: F) -> Stream<Circuit<P>, O>
@@ -245,13 +245,13 @@ where
     {
         let filtered = self
             .circuit()
-            .add_unary_operator(FilterVals::new(filter_func), self);
+            .add_unary_operator(FilterVals::new(filter_func), &self.try_sharded_version());
 
-        if filtered.is_sharded() {
-            filtered.mark_sharded()
-        } else {
-            filtered
+        if self.has_sharded_version() {
+            filtered.mark_sharded();
         }
+
+        filtered
     }
 
     fn map_generic<F, T, O>(&self, map_func: F) -> Stream<Circuit<P>, O>

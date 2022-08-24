@@ -112,16 +112,6 @@ where
             if num_workers == 1 {
                 None
             } else {
-                if let Some(sharded) =
-                    self.circuit()
-                        .cache_get(&DirectShardId::<Circuit<P>, OB>::new((
-                            self.origin_node_id().clone(),
-                            sharding_policy(self.circuit()),
-                        )))
-                {
-                    return Some(sharded);
-                }
-
                 let output = self
                     .circuit()
                     .cache_get_or_insert_with(
@@ -150,7 +140,7 @@ where
                                 .consolidate();
 
                             self.circuit().cache_insert(
-                                DirectShardId::new((
+                                ShardId::new((
                                     output.origin_node_id().clone(),
                                     sharding_policy(self.circuit()),
                                 )),
@@ -264,32 +254,31 @@ where
     /// across workers, otherwise this will cause the dataflow to yield
     /// incorrect results
     pub fn mark_sharded(&self) -> Self {
-        self.circuit()
-            .cache_get_or_insert_with(
-                DirectShardId::new((
-                    self.origin_node_id().clone(),
-                    sharding_policy(self.circuit()),
-                )),
-                || self.clone(),
-            )
-            .clone()
+        self.circuit().cache_insert(
+            DirectShardId::new((
+                self.origin_node_id().clone(),
+                sharding_policy(self.circuit()),
+            )),
+            self.clone(),
+        );
+        self.clone()
     }
 
-    /// Returns `true` if the current stream is properly sharded across workers
-    pub(crate) fn is_sharded(&self) -> bool {
-        Runtime::runtime()
-            .map(|runtime| {
-                if runtime.num_workers() == 1 {
-                    true
-                } else {
-                    self.circuit()
-                        .cache_contains(&DirectShardId::<Circuit<P>, T>::new((
-                            self.origin_node_id().clone(),
-                            sharding_policy(self.circuit()),
-                        )))
-                }
-            })
-            .unwrap_or(true)
+    pub fn has_sharded_version(&self) -> bool {
+        self.circuit()
+            .cache_contains(&DirectShardId::<Circuit<P>, T>::new((
+                self.origin_node_id().clone(),
+                sharding_policy(self.circuit()),
+            )))
+    }
+
+    pub fn try_sharded_version(&self) -> Self {
+        self.circuit()
+            .cache_get(&DirectShardId::new((
+                self.origin_node_id().clone(),
+                sharding_policy(self.circuit()),
+            )))
+            .unwrap_or_else(|| self.clone())
     }
 }
 

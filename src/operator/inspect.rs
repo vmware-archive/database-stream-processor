@@ -39,13 +39,13 @@ where
     {
         let inspected = self
             .circuit()
-            .add_unary_operator(Inspect::new(callback), self);
+            .add_unary_operator(Inspect::new(callback), &self.try_sharded_version());
 
-        if self.is_sharded() {
-            inspected.mark_sharded()
-        } else {
-            inspected
+        if self.has_sharded_version() {
+            inspected.mark_sharded();
         }
+
+        inspected
     }
 }
 
