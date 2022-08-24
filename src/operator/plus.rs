@@ -58,10 +58,10 @@ where
         // If both inputs are properly sharded then the sum of those inputs will be
         // sharded
         if self.is_sharded() && other.is_sharded() {
-            sum.mark_sharded();
+            sum.mark_sharded()
+        } else {
+            sum
         }
-
-        sum
     }
 }
 
@@ -79,10 +79,10 @@ where
         // If both inputs are properly sharded then the difference of those inputs will
         // be sharded
         if self.is_sharded() && other.is_sharded() {
-            difference.mark_sharded();
+            difference.mark_sharded()
+        } else {
+            difference
         }
-
-        difference
     }
 }
 

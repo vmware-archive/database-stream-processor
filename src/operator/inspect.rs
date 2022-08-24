@@ -40,11 +40,12 @@ where
         let inspected = self
             .circuit()
             .add_unary_operator(Inspect::new(callback), self);
-        if self.is_sharded() {
-            inspected.mark_sharded();
-        }
 
-        inspected
+        if self.is_sharded() {
+            inspected.mark_sharded()
+        } else {
+            inspected
+        }
     }
 }
 

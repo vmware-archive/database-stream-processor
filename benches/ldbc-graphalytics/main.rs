@@ -8,13 +8,12 @@ use crate::data::{
 };
 use clap::Parser;
 use dbsp::{
-    algebra::Present,
     circuit::{trace::SchedulerEvent, Runtime},
     monitor::TraceMonitor,
     operator::Generator,
     profile::CPUProfiler,
     trace::{BatchReader, Cursor},
-    zset, Circuit,
+    Circuit,
 };
 use deepsize::DeepSizeOf;
 use hashbrown::HashMap;
@@ -122,7 +121,6 @@ fn main() {
         properties.edges,
     );
 
-    let mut root_data = Some(zset! { properties.source_vertex => Present });
     let edge_data = Arc::new(edge_data.into_iter().map(Mutex::new).collect::<Vec<_>>());
     let vertex_data = Arc::new(vertex_data.into_iter().map(Mutex::new).collect::<Vec<_>>());
 
@@ -152,11 +150,9 @@ fn main() {
             }
 
             let roots = circuit.region("roots", || {
-                circuit.add_source(Generator::new(move || if is_leader {
-                    root_data.take().unwrap()
-                } else {
-                    Default::default()
-                }))
+                let (roots, root_handle) = circuit.add_input_set();
+                root_handle.push(properties.source_vertex, true);
+                roots
             });
 
             let vertices = circuit.region("vertices", || {

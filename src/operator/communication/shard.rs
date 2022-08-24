@@ -13,6 +13,7 @@ use crate::{
 use std::hash::Hash;
 
 circuit_cache_key!(ShardId<C, D>((GlobalNodeId, ShardingPolicy) => Stream<C, D>));
+circuit_cache_key!(DirectShardId<C, D>((GlobalNodeId, ShardingPolicy) => Stream<C, D>));
 circuit_cache_key!(GatherId<C, D>((GlobalNodeId, usize) => Stream<C, D>));
 
 // An attempt to future-proof the design for when we support multiple sharding
@@ -111,6 +112,16 @@ where
             if num_workers == 1 {
                 None
             } else {
+                if let Some(sharded) =
+                    self.circuit()
+                        .cache_get(&DirectShardId::<Circuit<P>, OB>::new((
+                            self.origin_node_id().clone(),
+                            sharding_policy(self.circuit()),
+                        )))
+                {
+                    return Some(sharded);
+                }
+
                 let output = self
                     .circuit()
                     .cache_get_or_insert_with(
@@ -133,9 +144,20 @@ where
 
                             // Is `consolidate` always necessary? Some (all?) consumers may be happy
                             // working with traces.
-                            self.circuit()
+                            let output = self
+                                .circuit()
                                 .add_exchange(sender, receiver, self)
-                                .consolidate()
+                                .consolidate();
+
+                            self.circuit().cache_insert(
+                                DirectShardId::new((
+                                    output.origin_node_id().clone(),
+                                    sharding_policy(self.circuit()),
+                                )),
+                                output.clone(),
+                            );
+
+                            output
                         },
                     )
                     .clone();
@@ -242,15 +264,15 @@ where
     /// across workers, otherwise this will cause the dataflow to yield
     /// incorrect results
     pub fn mark_sharded(&self) -> Self {
-        self.circuit().cache_insert(
-            ShardId::new((
-                self.origin_node_id().clone(),
-                sharding_policy(self.circuit()),
-            )),
-            self.clone(),
-        );
-
-        self.clone()
+        self.circuit()
+            .cache_get_or_insert_with(
+                DirectShardId::new((
+                    self.origin_node_id().clone(),
+                    sharding_policy(self.circuit()),
+                )),
+                || self.clone(),
+            )
+            .clone()
     }
 
     /// Returns `true` if the current stream is properly sharded across workers
@@ -261,7 +283,7 @@ where
                     true
                 } else {
                     self.circuit()
-                        .cache_contains(&ShardId::<Circuit<P>, T>::new((
+                        .cache_contains(&DirectShardId::<Circuit<P>, T>::new((
                             self.origin_node_id().clone(),
                             sharding_policy(self.circuit()),
                         )))

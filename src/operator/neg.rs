@@ -19,10 +19,10 @@ where
 
         // If the input stream is sharded then the negated stream is sharded
         if self.is_sharded() {
-            negated.mark_sharded();
+            negated.mark_sharded()
+        } else {
+            negated
         }
-
-        negated
     }
 }
 

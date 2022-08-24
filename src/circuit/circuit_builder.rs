@@ -1036,6 +1036,14 @@ where
         self.inner_mut().store.contains_key(key)
     }
 
+    pub(crate) fn cache_get<K>(&self, key: &K) -> Option<K::Value>
+    where
+        K: TypedMapKey<CircuitStoreMarker> + 'static,
+        K::Value: Clone,
+    {
+        self.inner_mut().store.get(key).cloned()
+    }
+
     pub(crate) fn register_ready_callback(&self, id: NodeId, cb: Box<dyn Fn() + Send + Sync>) {
         self.inner_mut().nodes[id.0].register_ready_callback(cb);
     }

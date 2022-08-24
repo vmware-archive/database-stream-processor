@@ -40,10 +40,10 @@ where
                 );
 
                 if self.is_sharded() {
-                    consolidated.mark_sharded();
+                    consolidated.mark_sharded()
+                } else {
+                    consolidated
                 }
-
-                consolidated
             })
             .clone()
     }
