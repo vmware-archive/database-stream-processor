@@ -81,7 +81,7 @@ fn spawn_dbsp_consumer(
         loop {
             dbsp.step().unwrap();
             count += 1;
-            println!("Step called {count} times");
+            println!("\nStep called {count} times");
 
             // When the input is complete, we do one final step and return.
             if let Ok(()) = input_complete_rx.try_recv() {
