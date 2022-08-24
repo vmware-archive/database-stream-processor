@@ -13,7 +13,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use ascii_table::AsciiTable;
 use clap::Parser;
 use dbsp::{
@@ -71,55 +71,39 @@ struct InputStats {
     sys_cpu: Duration,
 }
 
-enum StepCompleted {
-    DBSP,
-    Source,
-}
-
 fn spawn_dbsp_consumer(
     mut dbsp: DBSPHandle,
-    step_do_rx: mpsc::Receiver<()>,
-    step_done_tx: mpsc::SyncSender<StepCompleted>,
-    done_tx: mpsc::SyncSender<()>,
+    input_complete_rx: mpsc::Receiver<()>,
+    processing_complete_tx: mpsc::SyncSender<()>,
 ) {
-    thread::spawn(move || {
-        while let Ok(()) = step_do_rx.recv() {
-            dbsp.step().unwrap();
-            step_done_tx.send(StepCompleted::DBSP).unwrap();
-        }
+    thread::spawn(move || loop {
+        dbsp.step().unwrap();
 
-        done_tx.send(()).unwrap();
+        // When the input is complete, we do one final step and return.
+        if let Ok(()) = input_complete_rx.try_recv() {
+            dbsp.step().unwrap();
+            processing_complete_tx.send(()).unwrap();
+            return;
+        }
     });
 }
 
 fn spawn_source_producer(
     generator_config: GeneratorConfig,
     mut input_handle: CollectionHandle<Event, isize>,
-    step_do_rx: mpsc::Receiver<usize>,
-    step_done_tx: mpsc::SyncSender<StepCompleted>,
     source_exhausted_tx: mpsc::SyncSender<InputStats>,
 ) {
     thread::spawn(move || {
+        let mut progress_bar = ProgressBar::new(generator_config.nexmark_config.max_events);
         let source =
             NexmarkSource::<ThreadRng, isize, OrdZSet<Event, isize>>::new(generator_config);
         let mut num_events: u64 = 0;
 
-        // Start iterating by loading up the first batch of input ready for processing,
-        // then waiting for further instructions.
-        let mut num_batches = 1;
-        let mut batch_count = 0;
         for mut batch in source {
-            num_events += batch.len() as u64;
+            let batch_len = batch.len() as u64;
+            num_events += batch_len;
             input_handle.append(&mut batch);
-            batch_count += 1;
-            if batch_count < num_batches {
-                continue;
-            }
-            step_done_tx.send(StepCompleted::Source).unwrap();
-
-            // Wait for the next batch.
-            batch_count = 0;
-            num_batches = step_do_rx.recv().unwrap();
+            progress_bar.add(batch_len);
         }
         let (input_usr_cpu, input_sys_cpu, _) = unsafe { rusage(libc::RUSAGE_THREAD) };
         source_exhausted_tx
@@ -129,45 +113,8 @@ fn spawn_source_producer(
                 sys_cpu: input_sys_cpu,
             })
             .unwrap();
-        step_done_tx.send(StepCompleted::Source).unwrap();
+        progress_bar.finish_print("Done");
     });
-}
-
-fn coordinate_input_and_steps(
-    expected_num_events: u64,
-    dbsp_step_tx: mpsc::SyncSender<()>,
-    source_step_tx: mpsc::SyncSender<usize>,
-    step_done_rx: mpsc::Receiver<StepCompleted>,
-    source_exhausted_rx: mpsc::Receiver<InputStats>,
-) -> Result<InputStats> {
-    let mut num_input_batches = 1;
-    // The producer should have already loaded up the first batch ready for
-    // consumption before we start the loop.
-    let mut progress_bar = ProgressBar::new(expected_num_events);
-
-    if let Ok(StepCompleted::DBSP) = step_done_rx.recv() {
-        return Err(anyhow!("Expected initial source step, got DBSP step"));
-    }
-
-    // Continue until the source is exhausted.
-    loop {
-        if let Ok(input_stats) = source_exhausted_rx.try_recv() {
-            progress_bar.finish_print("Done");
-            return Ok(input_stats);
-        }
-
-        // Trigger the step and the input of the next batch.
-        dbsp_step_tx.send(())?;
-        source_step_tx.send(num_input_batches)?;
-        progress_bar.add(num_input_batches as u64 * 1000);
-
-        // If the consumer finished first, increase the input batches.
-        if let Ok(StepCompleted::DBSP) = step_done_rx.recv() {
-            num_input_batches += 1;
-        }
-        // Consume the other input/dbsp step.
-        step_done_rx.recv()?;
-    }
 }
 
 macro_rules! run_query {
@@ -175,43 +122,22 @@ macro_rules! run_query {
         let circuit_closure = nexmark_circuit!($q);
 
         let num_cores = $generator_config.nexmark_config.cpu_cores;
-        let expected_num_events = $generator_config.nexmark_config.max_events;
         let (dbsp, input_handle) = Runtime::init_circuit(num_cores, circuit_closure).unwrap();
 
-        // Create a channel for the coordinating thread to determine whether the
-        // producer or consumer step is completed first.
-        let (step_done_tx, step_done_rx) = mpsc::sync_channel(2);
-
-        // Start the DBSP runtime processing steps only when it receives a message to do
-        // so. The DBSP processing happens in its own thread where the resource usage
-        // calculation can also happen.
-        let (dbsp_step_tx, dbsp_step_rx) = mpsc::sync_channel(1);
-        let (dbsp_done_tx, dbsp_done_rx) = mpsc::sync_channel(0);
-        spawn_dbsp_consumer(dbsp, dbsp_step_rx, step_done_tx.clone(), dbsp_done_tx);
+        let (input_complete_tx, input_complete_rx) = mpsc::sync_channel(1);
+        let (processing_complete_tx, processing_complete_rx) = mpsc::sync_channel(1);
+        spawn_dbsp_consumer(dbsp, input_complete_rx, processing_complete_tx);
 
         // Start the generator inputting the specified number of batches to the circuit
         // whenever it receives a message.
-        let (source_step_tx, source_step_rx): (mpsc::SyncSender<usize>, mpsc::Receiver<usize>) =
-            mpsc::sync_channel(1);
         let (source_exhausted_tx, source_exhausted_rx) = mpsc::sync_channel(1);
-        spawn_source_producer(
-            $generator_config,
-            input_handle,
-            source_step_rx,
-            step_done_tx,
-            source_exhausted_tx,
-        );
+        spawn_source_producer($generator_config, input_handle, source_exhausted_tx);
 
-        let input_stats = coordinate_input_and_steps(
-            expected_num_events,
-            dbsp_step_tx,
-            source_step_tx,
-            step_done_rx,
-            source_exhausted_rx,
-        )
-        .unwrap();
-
-        dbsp_done_rx.recv().unwrap();
+        // Wait for the source to be exhausted, then let the consumer know it can
+        // finishe up too and wait for it to complete.
+        let input_stats = source_exhausted_rx.recv().unwrap();
+        input_complete_tx.send(()).unwrap();
+        processing_complete_rx.recv().unwrap();
 
         // Return the user/system CPU overhead from the generator/input thread.
         NexmarkResult {
