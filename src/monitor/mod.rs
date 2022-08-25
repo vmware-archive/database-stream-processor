@@ -6,6 +6,7 @@ use std::{
     collections::{HashMap, HashSet},
     fmt,
     fmt::Display,
+    panic::Location,
     sync::{Arc, Mutex},
 };
 
@@ -231,13 +232,18 @@ impl TraceMonitorInternal {
         )
     }
 
-    fn push_region(&mut self, name: Cow<'static, str>) {
+    fn push_region(
+        &mut self,
+        name: Cow<'static, str>,
+        location: Option<&'static Location<'static>>,
+    ) {
         let mut current_region = self.current_region();
         let circuit_node = self.circuit.node_mut(&self.current_scope).unwrap();
-        current_region = circuit_node
-            .region_mut()
-            .unwrap()
-            .add_region(&current_region, name);
+        current_region =
+            circuit_node
+                .region_mut()
+                .unwrap()
+                .add_region(&current_region, name, location);
         self.set_current_region(current_region);
     }
 
@@ -328,7 +334,7 @@ impl TraceMonitorInternal {
                                 NodeKind::Circuit {
                                     iterative: event.is_iterative_subcircuit_event(),
                                     children: HashMap::new(),
-                                    region: Region::new(RegionId::root(), Cow::Borrowed("")),
+                                    region: Region::new(RegionId::root(), Cow::Borrowed(""), None),
                                 },
                             )
                         };
@@ -361,10 +367,11 @@ impl TraceMonitorInternal {
             Ok(())
         } else {
             match event {
-                CircuitEvent::PushRegion { name } => {
-                    self.push_region(name.clone());
+                CircuitEvent::PushRegion { name, location } => {
+                    self.push_region(name.clone(), *location);
                     Ok(())
                 }
+
                 CircuitEvent::PopRegion => self.pop_region(),
                 _ => panic!("unknown event"),
             }

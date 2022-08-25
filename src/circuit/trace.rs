@@ -15,7 +15,7 @@
 //! Event handlers are invoked synchronously and therefore must complete
 //! quickly, with any expensive processing completed asynchronously.
 
-use std::{borrow::Cow, fmt, fmt::Display, hash::Hash};
+use std::{borrow::Cow, fmt, fmt::Display, hash::Hash, panic::Location};
 
 use super::{circuit_builder::Node, GlobalNodeId, NodeId, OwnershipPreference};
 
@@ -45,9 +45,12 @@ pub enum CircuitEvent {
     PushRegion {
         /// Sub-region name.
         name: Cow<'static, str>,
+        location: Option<&'static Location<'static>>,
     },
+
     /// Subregion complete.
     PopRegion,
+
     /// A new regular (non-strict) operator is added to the circuit.
     Operator {
         /// Global id of the new operator.
@@ -55,6 +58,7 @@ pub enum CircuitEvent {
         /// Operator name.
         name: Cow<'static, str>,
     },
+
     /// The output half of a
     /// [`StrictOperator`](`crate::circuit::operator_traits::StrictOperator`).
     /// A strict operator is activated twice in each clock cycle: first, its
@@ -68,6 +72,7 @@ pub enum CircuitEvent {
         /// Operator name.
         name: Cow<'static, str>,
     },
+
     /// The input half of a strict operator is added to the circuit.  This event
     /// is triggered when the circuit builder connects an input stream to
     /// the strict operator.  The output node already exists at this point.
@@ -78,6 +83,7 @@ pub enum CircuitEvent {
         /// circuit.
         output_node_id: NodeId,
     },
+
     /// A new nested circuit is added to the circuit.
     Subcircuit {
         /// Global id of the nested circuit.
@@ -86,11 +92,13 @@ pub enum CircuitEvent {
         /// times for each parent clock tick.
         iterative: bool,
     },
+
     /// Nested circuit has been fully populated.
     SubcircuitComplete {
         /// Global id of the nested circuit.
         node_id: GlobalNodeId,
     },
+
     /// A new edge between nodes connected as producer and consumer to the same
     /// stream. Producer and consumer nodes can be located in different
     /// subcircuits.
@@ -106,16 +114,21 @@ pub enum CircuitEvent {
 
 impl CircuitEvent {
     /// Create a [`CircuitEvent::PushRegion`] event instance.
-    pub fn push_region_static(name: &'static str) -> Self {
+    pub fn push_region_static(
+        name: &'static str,
+        location: Option<&'static Location<'static>>,
+    ) -> Self {
         Self::PushRegion {
             name: Cow::Borrowed(name),
+            location,
         }
     }
 
     /// Create a [`CircuitEvent::PushRegion`] event instance.
-    pub fn push_region(name: &str) -> Self {
+    pub fn push_region(name: &str, location: Option<&'static Location<'static>>) -> Self {
         Self::PushRegion {
             name: Cow::Owned(name.to_string()),
+            location,
         }
     }
 
@@ -299,9 +312,21 @@ impl CircuitEvent {
 impl Display for CircuitEvent {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::PushRegion { name } => {
-                write!(f, "PushRegion(\"{}\")", name)
+            Self::PushRegion { name, location } => {
+                write!(f, "PushRegion(\"{name}\")")?;
+                if let Some(location) = location {
+                    write!(
+                        f,
+                        " @ {}:{}:{}",
+                        location.file(),
+                        location.line(),
+                        location.column()
+                    )?;
+                }
+
+                Ok(())
             }
+
             Self::PopRegion => f.write_str("PopRegion"),
             Self::Operator { node_id, name } => {
                 write!(f, "Operator(\"{}\", {})", name, node_id)

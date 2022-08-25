@@ -1,13 +1,13 @@
-use std::{
-    borrow::Cow,
-    collections::{hash_map::Entry, HashMap},
-    slice,
-};
-
 use super::visual_graph::{
     ClusterNode, Edge as VisEdge, Graph as VisGraph, Node as VisNode, SimpleNode,
 };
 use crate::circuit::{trace::EdgeKind, GlobalNodeId, NodeId};
+use std::{
+    borrow::Cow,
+    collections::{hash_map::Entry, HashMap},
+    panic::Location,
+    slice,
+};
 
 /// A region is a named grouping of operators in a circuit.
 ///
@@ -17,6 +17,7 @@ pub(super) struct Region {
     id: RegionId,
     pub(super) nodes: Vec<NodeId>,
     name: Cow<'static, str>,
+    location: Option<&'static Location<'static>>,
     children: Vec<Region>,
 }
 
@@ -46,11 +47,16 @@ impl RegionId {
 }
 
 impl Region {
-    pub(super) fn new(id: RegionId, name: Cow<'static, str>) -> Self {
+    pub(super) fn new(
+        id: RegionId,
+        name: Cow<'static, str>,
+        location: Option<&'static Location<'static>>,
+    ) -> Self {
         Self {
             id,
             nodes: Vec::new(),
             name,
+            location,
             children: Vec::new(),
         }
     }
@@ -92,21 +98,36 @@ impl Region {
             nodes.push(VisNode::Cluster(child.visualize(scope, annotate)));
         }
 
-        ClusterNode::new(
-            Self::region_identifier(&scope.id, &self.id),
-            self.name.to_string(),
-            nodes,
-        )
+        let label = if let Some(location) = self.location {
+            format!(
+                "{} @ {}:{}:{}",
+                self.name,
+                // Windows uses "\" for paths which dot interprets as an escape char
+                location.file().replace('\\', "\\\\"),
+                location.line(),
+                location.column(),
+            )
+        } else {
+            self.name.to_string()
+        };
+
+        ClusterNode::new(Self::region_identifier(&scope.id, &self.id), label, nodes)
     }
 
-    fn do_add_region(&mut self, path: &[usize], name: Cow<'static, str>) -> RegionId {
+    fn do_add_region(
+        &mut self,
+        path: &[usize],
+        name: Cow<'static, str>,
+        location: Option<&'static Location<'static>>,
+    ) -> RegionId {
         match path.split_first() {
             None => {
                 let new_region_id = self.id.child(self.children.len());
-                self.children.push(Region::new(new_region_id.clone(), name));
+                self.children
+                    .push(Region::new(new_region_id.clone(), name, location));
                 new_region_id
             }
-            Some((id, ids)) => self.children[*id].do_add_region(ids, name),
+            Some((id, ids)) => self.children[*id].do_add_region(ids, name, location),
         }
     }
 
@@ -115,10 +136,14 @@ impl Region {
     /// * `self` - must be a root region.
     /// * `parent` - existing sub-region id.
     /// * `description` - name of a new region to add as child to `parent`.
-    pub(super) fn add_region(&mut self, parent: &RegionId, name: Cow<'static, str>) -> RegionId {
+    pub(super) fn add_region(
+        &mut self,
+        parent: &RegionId,
+        name: Cow<'static, str>,
+        location: Option<&'static Location<'static>>,
+    ) -> RegionId {
         debug_assert_eq!(self.id, RegionId::root());
-
-        self.do_add_region(parent.0.as_slice(), name)
+        self.do_add_region(parent.0.as_slice(), name, location)
     }
 
     fn do_get_region(&mut self, path: &[usize]) -> &mut Region {
@@ -323,7 +348,7 @@ impl CircuitGraph {
                 NodeKind::Circuit {
                     iterative: true,
                     children: HashMap::new(),
-                    region: Region::new(RegionId::root(), Cow::Borrowed("root")),
+                    region: Region::new(RegionId::root(), Cow::Borrowed("root"), None),
                 },
             ),
             edges: HashMap::new(),

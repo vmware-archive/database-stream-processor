@@ -34,6 +34,7 @@ use std::{
     fmt::{Debug, Display, Write},
     iter::repeat,
     marker::PhantomData,
+    panic::Location,
     rc::Rc,
 };
 
@@ -1092,11 +1093,12 @@ where
     /// of the circuit.  This function creates a new region and executes
     /// closure `f` inside it.  Any operators or subcircuits created by
     /// `f` will belong to the new region.
+    #[track_caller]
     pub fn region<F, T>(&self, name: &str, f: F) -> T
     where
         F: FnOnce() -> T,
     {
-        self.log_circuit_event(&CircuitEvent::push_region(name));
+        self.log_circuit_event(&CircuitEvent::push_region(name, Some(Location::caller())));
         let res = f();
         self.log_circuit_event(&CircuitEvent::pop_region());
         res
