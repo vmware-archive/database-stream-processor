@@ -10,8 +10,10 @@
 //! it will allow us later to extend it to support multiple data sources in
 //! parallel when DBSP can be scaled.
 
-use self::generator::{config::Config, NexmarkGenerator, NextEvent};
-use self::model::Event;
+use self::{
+    self::model::Event,
+    generator::{config::Config as GeneratorConfig, NexmarkGenerator, NextEvent},
+};
 use crate::{
     algebra::{ZRingValue, ZSet},
     circuit::operator_traits::Data,
@@ -62,6 +64,7 @@ impl<W, C> NexmarkSource<W, C> {
             _t: PhantomData,
         }
     }
+
     pub fn new(config: Config) -> NexmarkSource<isize, OrdZSet<Event, isize>> {
         let (next_event_tx, next_event_rx) = mpsc::sync_channel(5);
         thread::spawn(move || {
@@ -229,5 +232,33 @@ pub mod tests {
             source.next().unwrap(),
             Vec::from(&expected_zset_tuples[20..30])
         );
+    }
+
+    #[test]
+    fn test_source_with_multiple_generators() {
+        let nexmark_config = NexmarkConfig {
+            num_event_generators: 3,
+            first_event_rate: 1_000_000,
+            max_events: 10,
+            ..NexmarkConfig::default()
+        };
+        let generators = (0..3)
+            .map(|generator_num| GeneratorConfig::new(nexmark_config.clone(), 0, 0, generator_num))
+            .map(|generator_config| {
+                Box::new(RangedTimeGenerator::new_with_config(
+                    0..10,
+                    generator_config,
+                )) as Box<dyn EventGenerator<StepRng>>
+            })
+            .collect();
+        let mut source = NexmarkSource::<_, _, OrdZSet<Event, isize>> {
+            generators,
+            next_event: None,
+            _t: PhantomData,
+        };
+
+        let expected_zset_tuple = generate_expected_zset_tuples(0, 10);
+
+        assert_eq!(source.next().unwrap(), expected_zset_tuple);
     }
 }
