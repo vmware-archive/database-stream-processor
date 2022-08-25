@@ -644,7 +644,7 @@ impl EdgeParser {
 
             self.parse(|src, dest| {
                 forward_batches[fxhash::hash(&src) % workers].push(((src, dest), Present));
-                reverse_batches[fxhash::hash(&src) % workers].push(((dest, src), Present));
+                reverse_batches[fxhash::hash(&dest) % workers].push(((dest, src), Present));
             });
 
             forward_batches

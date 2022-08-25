@@ -15,9 +15,10 @@
 //! Event handlers are invoked synchronously and therefore must complete
 //! quickly, with any expensive processing completed asynchronously.
 
+use super::{circuit_builder::Node, GlobalNodeId, NodeId, OwnershipPreference};
 use std::{borrow::Cow, fmt, fmt::Display, hash::Hash, panic::Location};
 
-use super::{circuit_builder::Node, GlobalNodeId, NodeId, OwnershipPreference};
+pub(crate) type OperatorLocation = Option<&'static Location<'static>>;
 
 /// Type of edge in a circuit graph.
 #[derive(Debug, Eq, PartialEq, Clone, Hash)]
@@ -45,7 +46,8 @@ pub enum CircuitEvent {
     PushRegion {
         /// Sub-region name.
         name: Cow<'static, str>,
-        location: Option<&'static Location<'static>>,
+        /// The region's source location
+        location: OperatorLocation,
     },
 
     /// Subregion complete.
@@ -57,6 +59,8 @@ pub enum CircuitEvent {
         node_id: GlobalNodeId,
         /// Operator name.
         name: Cow<'static, str>,
+        /// The operator's source location
+        location: OperatorLocation,
     },
 
     /// The output half of a
@@ -71,6 +75,8 @@ pub enum CircuitEvent {
         node_id: GlobalNodeId,
         /// Operator name.
         name: Cow<'static, str>,
+        /// The operator's source location
+        location: OperatorLocation,
     },
 
     /// The input half of a strict operator is added to the circuit.  This event
@@ -114,10 +120,7 @@ pub enum CircuitEvent {
 
 impl CircuitEvent {
     /// Create a [`CircuitEvent::PushRegion`] event instance.
-    pub fn push_region_static(
-        name: &'static str,
-        location: Option<&'static Location<'static>>,
-    ) -> Self {
+    pub fn push_region_static(name: &'static str, location: OperatorLocation) -> Self {
         Self::PushRegion {
             name: Cow::Borrowed(name),
             location,
@@ -125,7 +128,7 @@ impl CircuitEvent {
     }
 
     /// Create a [`CircuitEvent::PushRegion`] event instance.
-    pub fn push_region(name: &str, location: Option<&'static Location<'static>>) -> Self {
+    pub fn push_region(name: &str, location: OperatorLocation) -> Self {
         Self::PushRegion {
             name: Cow::Owned(name.to_string()),
             location,
@@ -138,13 +141,31 @@ impl CircuitEvent {
     }
 
     /// Create a [`CircuitEvent::Operator`] event instance.
-    pub fn operator(node_id: GlobalNodeId, name: Cow<'static, str>) -> Self {
-        Self::Operator { node_id, name }
+    pub fn operator(
+        node_id: GlobalNodeId,
+        name: Cow<'static, str>,
+        location: OperatorLocation,
+    ) -> Self {
+        Self::Operator {
+            node_id,
+            name,
+            location,
+        }
     }
+
     /// Create a [`CircuitEvent::StrictOperatorOutput`] event instance.
-    pub fn strict_operator_output(node_id: GlobalNodeId, name: Cow<'static, str>) -> Self {
-        Self::StrictOperatorOutput { node_id, name }
+    pub fn strict_operator_output(
+        node_id: GlobalNodeId,
+        name: Cow<'static, str>,
+        location: OperatorLocation,
+    ) -> Self {
+        Self::StrictOperatorOutput {
+            node_id,
+            name,
+            location,
+        }
     }
+
     /// Create a [`CircuitEvent::StrictOperatorInput`] event instance.
     pub fn strict_operator_input(node_id: GlobalNodeId, output_node_id: NodeId) -> Self {
         Self::StrictOperatorInput {
@@ -264,9 +285,18 @@ impl CircuitEvent {
 
     /// If `self` is a [`CircuitEvent::Operator`] or
     /// [`CircuitEvent::StrictOperatorOutput`], returns `self.name`.
-    pub fn node_name(&self) -> Option<&str> {
+    pub fn node_name(&self) -> Option<&Cow<'static, str>> {
         match self {
             Self::Operator { name, .. } | Self::StrictOperatorOutput { name, .. } => Some(name),
+            _ => None,
+        }
+    }
+
+    pub fn location(&self) -> OperatorLocation {
+        match *self {
+            Self::PushRegion { location, .. }
+            | Self::Operator { location, .. }
+            | Self::StrictOperatorOutput { location, .. } => location,
             _ => None,
         }
     }
@@ -313,7 +343,7 @@ impl Display for CircuitEvent {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::PushRegion { name, location } => {
-                write!(f, "PushRegion(\"{name}\")")?;
+                write!(f, "PushRegion(\"{name}\"")?;
                 if let Some(location) = location {
                     write!(
                         f,
@@ -324,22 +354,56 @@ impl Display for CircuitEvent {
                     )?;
                 }
 
-                Ok(())
+                write!(f, ")")
             }
 
             Self::PopRegion => f.write_str("PopRegion"),
-            Self::Operator { node_id, name } => {
-                write!(f, "Operator(\"{}\", {})", name, node_id)
+
+            Self::Operator {
+                node_id,
+                name,
+                location,
+            } => {
+                write!(f, "Operator(\"{name}\", {node_id}")?;
+                if let Some(location) = location {
+                    write!(
+                        f,
+                        " @ {}:{}:{}",
+                        location.file(),
+                        location.line(),
+                        location.column()
+                    )?;
+                }
+
+                write!(f, ")")
             }
-            Self::StrictOperatorOutput { node_id, name } => {
-                write!(f, "StrictOperatorOutput(\"{}\", {})", name, node_id)
+
+            Self::StrictOperatorOutput {
+                node_id,
+                name,
+                location,
+            } => {
+                write!(f, "StrictOperatorOutput(\"{name}\", {node_id}")?;
+                if let Some(location) = location {
+                    write!(
+                        f,
+                        " @ {}:{}:{}",
+                        location.file(),
+                        location.line(),
+                        location.column()
+                    )?;
+                }
+
+                write!(f, ")")
             }
+
             Self::StrictOperatorInput {
                 node_id,
                 output_node_id,
             } => {
                 write!(f, "StrictOperatorInput({} -> {})", node_id, output_node_id)
             }
+
             Self::Subcircuit { node_id, iterative } => {
                 write!(
                     f,
@@ -348,9 +412,11 @@ impl Display for CircuitEvent {
                     node_id,
                 )
             }
+
             Self::SubcircuitComplete { node_id } => {
                 write!(f, "SubcircuitComplete({})", node_id,)
             }
+
             Self::Edge {
                 kind: EdgeKind::Stream(preference),
                 from,
@@ -358,6 +424,7 @@ impl Display for CircuitEvent {
             } => {
                 write!(f, "Stream({} -> [{}]{})", from, preference, to)
             }
+
             Self::Edge {
                 kind: EdgeKind::Dependency,
                 from,

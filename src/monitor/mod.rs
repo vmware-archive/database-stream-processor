@@ -293,17 +293,20 @@ impl TraceMonitorInternal {
                         if children.get(&local_node_id).is_some() {
                             return Err(TraceError::NodeExists(node_id.clone()));
                         }
+
                         let new_node = if event.is_operator_event() {
                             Node::new(
                                 node_id.clone(),
-                                event.node_name().unwrap(),
+                                event.node_name().unwrap().clone(),
+                                event.location(),
                                 current_region.clone(),
                                 NodeKind::Operator,
                             )
                         } else if event.is_strict_output_event() {
                             Node::new(
                                 node_id.clone(),
-                                event.node_name().unwrap(),
+                                event.node_name().unwrap().clone(),
+                                event.location(),
                                 current_region.clone(),
                                 NodeKind::StrictOutput,
                             )
@@ -320,7 +323,8 @@ impl TraceMonitorInternal {
 
                             Node::new(
                                 node_id.clone(),
-                                &output_node.name,
+                                output_node.name.clone(),
+                                output_node.location,
                                 current_region.clone(),
                                 NodeKind::StrictInput { output },
                             )
@@ -329,7 +333,8 @@ impl TraceMonitorInternal {
                             self.region_stack.push(RegionId::root());
                             Node::new(
                                 node_id.clone(),
-                                "",
+                                Cow::Borrowed(""),
+                                None,
                                 current_region.clone(),
                                 NodeKind::Circuit {
                                     iterative: event.is_iterative_subcircuit_event(),

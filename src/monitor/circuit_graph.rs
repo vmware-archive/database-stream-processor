@@ -1,7 +1,12 @@
-use super::visual_graph::{
-    ClusterNode, Edge as VisEdge, Graph as VisGraph, Node as VisNode, SimpleNode,
+use crate::{
+    circuit::{
+        trace::{EdgeKind, OperatorLocation},
+        GlobalNodeId, NodeId,
+    },
+    monitor::visual_graph::{
+        ClusterNode, Edge as VisEdge, Graph as VisGraph, Node as VisNode, SimpleNode,
+    },
 };
-use crate::circuit::{trace::EdgeKind, GlobalNodeId, NodeId};
 use std::{
     borrow::Cow,
     collections::{hash_map::Entry, HashMap},
@@ -9,21 +14,9 @@ use std::{
     slice,
 };
 
-/// A region is a named grouping of operators in a circuit.
-///
-/// Regions can be nested inside other regions, forming a tree.
-/// A circuit is created with a single root region.
-pub(super) struct Region {
-    id: RegionId,
-    pub(super) nodes: Vec<NodeId>,
-    name: Cow<'static, str>,
-    location: Option<&'static Location<'static>>,
-    children: Vec<Region>,
-}
-
 /// Region id is a path from the root of the region tree.
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(transparent)]
-#[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct RegionId(Vec<usize>);
 
 impl RegionId {
@@ -46,12 +39,20 @@ impl RegionId {
     }
 }
 
+/// A region is a named grouping of operators in a circuit.
+///
+/// Regions can be nested inside other regions, forming a tree.
+/// A circuit is created with a single root region.
+pub(super) struct Region {
+    id: RegionId,
+    pub(super) nodes: Vec<NodeId>,
+    name: Cow<'static, str>,
+    location: OperatorLocation,
+    children: Vec<Region>,
+}
+
 impl Region {
-    pub(super) fn new(
-        id: RegionId,
-        name: Cow<'static, str>,
-        location: Option<&'static Location<'static>>,
-    ) -> Self {
+    pub(super) fn new(id: RegionId, name: Cow<'static, str>, location: OperatorLocation) -> Self {
         Self {
             id,
             nodes: Vec::new(),
@@ -76,6 +77,7 @@ impl Region {
                 region_ident.push('_');
             }
         }
+
         region_ident
     }
 
@@ -98,20 +100,11 @@ impl Region {
             nodes.push(VisNode::Cluster(child.visualize(scope, annotate)));
         }
 
-        let label = if let Some(location) = self.location {
-            format!(
-                "{} @ {}:{}:{}",
-                self.name,
-                // Windows uses "\" for paths which dot interprets as an escape char
-                location.file().replace('\\', "\\\\"),
-                location.line(),
-                location.column(),
-            )
-        } else {
-            self.name.to_string()
-        };
-
-        ClusterNode::new(Self::region_identifier(&scope.id, &self.id), label, nodes)
+        ClusterNode::new(
+            Self::region_identifier(&scope.id, &self.id),
+            label(&self.name, self.location),
+            nodes,
+        )
     }
 
     fn do_add_region(
@@ -140,7 +133,7 @@ impl Region {
         &mut self,
         parent: &RegionId,
         name: Cow<'static, str>,
-        location: Option<&'static Location<'static>>,
+        location: OperatorLocation,
     ) -> RegionId {
         debug_assert_eq!(self.id, RegionId::root());
         self.do_add_region(parent.0.as_slice(), name, location)
@@ -182,17 +175,25 @@ pub(super) enum NodeKind {
 /// A node in a circuit graph represents an operator or a circuit.
 pub(super) struct Node {
     id: GlobalNodeId,
-    pub name: String,
+    pub name: Cow<'static, str>,
+    pub location: OperatorLocation,
     #[allow(dead_code)]
     pub region_id: RegionId,
     pub kind: NodeKind,
 }
 
 impl Node {
-    pub(super) fn new(id: GlobalNodeId, name: &str, region_id: RegionId, kind: NodeKind) -> Self {
+    pub(super) fn new(
+        id: GlobalNodeId,
+        name: Cow<'static, str>,
+        location: OperatorLocation,
+        region_id: RegionId,
+        kind: NodeKind,
+    ) -> Self {
         Self {
             id,
-            name: name.to_string(),
+            name,
+            location,
             region_id,
             kind,
         }
@@ -303,22 +304,24 @@ impl Node {
                     Self::node_identifier(&self.id),
                     format!(
                         "{}{}{}",
-                        self.name,
+                        label(&self.name, self.location),
                         if annotation.is_empty() { "" } else { "\\l" },
                         annotation
                     ),
                 )))
             }
+
             NodeKind::Circuit { region, .. } => {
                 Some(VisNode::Cluster(region.visualize(self, annotate)))
             }
+
             NodeKind::StrictInput { output } => {
                 let annotation = annotate(&self.id);
                 Some(VisNode::Simple(SimpleNode::new(
                     Self::node_identifier(&self.id.parent_id().unwrap().child(*output)),
                     format!(
                         "{}{}{}",
-                        self.name,
+                        label(&self.name, self.location),
                         if annotation.is_empty() { "" } else { "\\l" },
                         annotation
                     ),
@@ -343,7 +346,8 @@ impl CircuitGraph {
         Self {
             nodes: Node::new(
                 GlobalNodeId::root(),
-                "root",
+                Cow::Borrowed("root"),
+                None,
                 RegionId::root(),
                 NodeKind::Circuit {
                     iterative: true,
@@ -407,5 +411,33 @@ impl CircuitGraph {
         }
 
         VisGraph::new(cluster, edges)
+    }
+}
+
+fn label(name: &str, location: OperatorLocation) -> String {
+    if let Some(location) = location {
+        let file = if location.file().starts_with(env!("CARGO_MANIFEST_DIR")) {
+            let mut path = location
+                .file()
+                // Strip the crate's path from any of its operators
+                .trim_start_matches(env!("CARGO_MANIFEST_DIR"))
+                .replace('\\', "\\\\");
+            path.insert_str(0, "database-stream-processor");
+            path
+        } else {
+            location
+                .file() // Windows uses "\" for paths which dot interprets as an escape char
+                .replace('\\', "\\\\")
+        };
+
+        format!(
+            "{} @ {}:{}:{}",
+            name,
+            file,
+            location.line(),
+            location.column(),
+        )
+    } else {
+        name.to_owned()
     }
 }

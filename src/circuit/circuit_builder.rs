@@ -1114,7 +1114,9 @@ where
             self.log_circuit_event(&CircuitEvent::operator(
                 GlobalNodeId::child_of(self, id),
                 operator.name(),
+                operator.location(),
             ));
+
             let node = SourceNode::new(operator, self.clone(), id);
             let output_stream = node.output_stream();
             (node, output_stream)
@@ -1183,7 +1185,9 @@ where
             self.log_circuit_event(&CircuitEvent::operator(
                 GlobalNodeId::child_of(self, id),
                 sender.name(),
+                sender.location(),
             ));
+
             let node = SinkNode::new(sender, input_stream.clone(), self.clone(), id);
             self.connect_stream(input_stream, id, input_preference);
             (node, id)
@@ -1193,7 +1197,9 @@ where
             self.log_circuit_event(&CircuitEvent::operator(
                 GlobalNodeId::child_of(self, id),
                 receiver.name(),
+                receiver.location(),
             ));
+
             let node = SourceNode::new(receiver, self.clone(), id);
             let output_stream = node.output_stream();
             (node, output_stream)
@@ -1230,6 +1236,7 @@ where
             self.log_circuit_event(&CircuitEvent::operator(
                 GlobalNodeId::child_of(self, id),
                 operator.name(),
+                operator.location(),
             ));
 
             self.connect_stream(input_stream, id, input_preference);
@@ -1272,6 +1279,7 @@ where
             self.log_circuit_event(&CircuitEvent::operator(
                 GlobalNodeId::child_of(self, id),
                 operator.name(),
+                operator.location(),
             ));
 
             let node = UnaryNode::new(operator, input_stream.clone(), self.clone(), id);
@@ -1325,6 +1333,7 @@ where
             self.log_circuit_event(&CircuitEvent::operator(
                 GlobalNodeId::child_of(self, id),
                 operator.name(),
+                operator.location(),
             ));
 
             let node = BinaryNode::new(
@@ -1392,6 +1401,7 @@ where
             self.log_circuit_event(&CircuitEvent::operator(
                 GlobalNodeId::child_of(self, id),
                 operator.name(),
+                operator.location(),
             ));
 
             let node = TernaryNode::new(
@@ -1445,6 +1455,7 @@ where
             self.log_circuit_event(&CircuitEvent::operator(
                 GlobalNodeId::child_of(self, id),
                 operator.name(),
+                operator.location(),
             ));
 
             let node = NaryNode::new(
@@ -1547,6 +1558,7 @@ where
             self.log_circuit_event(&CircuitEvent::strict_operator_output(
                 GlobalNodeId::child_of(self, id),
                 operator.name(),
+                operator.location(),
             ));
 
             let operator = Rc::new(UnsafeCell::new(operator));
@@ -1846,6 +1858,7 @@ where
             self.log_circuit_event(&CircuitEvent::operator(
                 GlobalNodeId::child_of(self, id),
                 operator.name(),
+                operator.location(),
             ));
             let node = ImportNode::new(operator, self.clone(), parent_stream.clone(), id);
             self.parent()
