@@ -13,7 +13,6 @@ use crate::{
 use std::hash::Hash;
 
 circuit_cache_key!(ShardId<C, D>((GlobalNodeId, ShardingPolicy) => Stream<C, D>));
-circuit_cache_key!(DirectShardId<C, D>((GlobalNodeId, ShardingPolicy) => Stream<C, D>));
 circuit_cache_key!(GatherId<C, D>((GlobalNodeId, usize) => Stream<C, D>));
 
 // An attempt to future-proof the design for when we support multiple sharding
@@ -255,7 +254,7 @@ where
     /// incorrect results
     pub fn mark_sharded(&self) -> Self {
         self.circuit().cache_insert(
-            DirectShardId::new((
+            ShardId::new((
                 self.origin_node_id().clone(),
                 sharding_policy(self.circuit()),
             )),
@@ -266,7 +265,7 @@ where
 
     pub fn has_sharded_version(&self) -> bool {
         self.circuit()
-            .cache_contains(&DirectShardId::<Circuit<P>, T>::new((
+            .cache_contains(&ShardId::<Circuit<P>, T>::new((
                 self.origin_node_id().clone(),
                 sharding_policy(self.circuit()),
             )))
@@ -274,7 +273,7 @@ where
 
     pub fn try_sharded_version(&self) -> Self {
         self.circuit()
-            .cache_get(&DirectShardId::new((
+            .cache_get(&ShardId::new((
                 self.origin_node_id().clone(),
                 sharding_policy(self.circuit()),
             )))

@@ -501,13 +501,20 @@ impl OwnershipPreference {
     }
 }
 
+impl Default for OwnershipPreference {
+    #[inline]
+    fn default() -> Self {
+        Self::INDIFFERENT
+    }
+}
+
 impl Display for OwnershipPreference {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             Self::INDIFFERENT => f.write_str("Indifferent"),
             Self::PREFER_OWNED => f.write_str("PreferOwned"),
             Self::STRONGLY_PREFER_OWNED => f.write_str("StronglyPreferOwned"),
-            _ => write!(f, "Preference({})", self.raw()),
+            Self(preference) => write!(f, "Preference({preference})"),
         }
     }
 }

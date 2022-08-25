@@ -19,13 +19,7 @@ where
     ///
     /// See [`Delta0`] operator documentation.
     pub fn delta0(&self, subcircuit: &Circuit<Circuit<P>>) -> Stream<Circuit<Circuit<P>>, D> {
-        let delta = subcircuit.import_stream(Delta0::new(), &self.try_sharded_version());
-
-        if self.has_sharded_version() {
-            delta.mark_sharded();
-        }
-
-        delta
+        subcircuit.import_stream(Delta0::new(), self)
     }
 
     /// Like [`Self::delta0`], but overrides the ownership
@@ -35,17 +29,7 @@ where
         circuit: &Circuit<Circuit<P>>,
         input_preference: OwnershipPreference,
     ) -> Stream<Circuit<Circuit<P>>, D> {
-        let delta = circuit.import_stream_with_preference(
-            Delta0::new(),
-            &self.try_sharded_version(),
-            input_preference,
-        );
-
-        if self.has_sharded_version() {
-            delta.mark_sharded();
-        }
-
-        delta
+        circuit.import_stream_with_preference(Delta0::new(), self, input_preference)
     }
 }
 
@@ -104,6 +88,7 @@ where
     fn name(&self) -> Cow<'static, str> {
         Cow::from("delta0")
     }
+
     fn fixedpoint(&self, scope: Scope) -> bool {
         if scope == 0 {
             // Output becomes stable (all zeros) after the first clock cycle.
@@ -123,6 +108,7 @@ where
         self.val = Some(val.clone());
         self.fixedpoint = false;
     }
+
     fn import_owned(&mut self, val: D) {
         self.val = Some(val);
         self.fixedpoint = false;
