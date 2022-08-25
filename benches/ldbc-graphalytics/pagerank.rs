@@ -1,10 +1,10 @@
 use crate::data::{Edges, Node, Rank, RankPairs, RankSet, Ranks, Streamed, Vertices};
 use dbsp::{
-    algebra::HasOne,
+    algebra::{HasOne, Present},
     circuit::operator_traits::Data,
     operator::{DelayedFeedback, FilterMap, Generator},
     trace::{Batch, BatchReader, Batcher, Builder, Cursor},
-    OrdIndexedZSet, OrdZSet,
+    OrdIndexedZSet, OrdZSet, Runtime,
 };
 use std::{
     cmp::{min, Ordering},
@@ -41,6 +41,8 @@ where
 {
     type Weights = OrdZSet<Node, Rank>;
     type Weighted<S> = Streamed<S, Weights>;
+
+    let total_vertices = count_vertices(&vertices);
 
     // Vertices weighted by F64s instead of isizes
     let weighted_vertices = vertices
@@ -244,6 +246,39 @@ where
         batcher.push_batch(&mut batch);
         batcher.seal()
     })
+}
+
+fn count_vertices<P>(vertices: &Vertices<P>) -> Streamed<P, OrdZSet<u64, Present>>
+where
+    P: Clone + 'static,
+{
+    let local_count = vertices.stream_fold(0, move |old_watermark, batch| todo!());
+
+    if let Some(runtime) = Runtime::runtime() {
+        let num_workers = runtime.num_workers();
+        if num_workers == 1 {
+            return local_count;
+        }
+
+        let (sender, receiver) = vertices.circuit().new_exchange_operators(
+            &runtime,
+            Runtime::worker_index(),
+            move |watermark: u64, watermarks: &mut Vec<u64>| {
+                watermarks.extend((0..num_workers).map(|_| watermark));
+            },
+            |result, watermark| {
+                if &watermark > result {
+                    *result = watermark;
+                }
+            },
+        );
+
+        vertices
+            .circuit()
+            .add_exchange(sender, receiver, &local_count)
+    } else {
+        local_count
+    }
 }
 
 // This code implements a join with weight division instead of multiplication
