@@ -33,6 +33,12 @@ pub mod model;
 pub mod queries;
 
 pub struct NexmarkSource<W, C> {
+    // TODO(absoludity): Longer-term, it'd be great to extract this to a separate gRPC service that
+    // generates and streams the events, so that user benchmarks, such as DBSP, will only need the
+    // gRPC client (and their process will only be receiving the stream, so no need to measure the
+    // CPU usage of the source). This could additionally allow the NexmarkSource to be used by
+    // other projects (in other languages).
+
     // Channel on which the source receives next events.
     next_event_rx: mpsc::Receiver<Option<NextEvent>>,
 
