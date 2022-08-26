@@ -19,7 +19,6 @@ use clap::Parser;
 use dbsp::{
     nexmark::{
         config::Config as NexmarkConfig,
-        generator::config::Config as GeneratorConfig,
         model::Event,
         queries::{q0, q1, q2, q3, q4, q6},
         NexmarkSource,
@@ -29,7 +28,6 @@ use dbsp::{
 };
 use num_format::{Locale, ToFormattedString};
 use pbr::ProgressBar;
-use rand::prelude::ThreadRng;
 
 // TODO: Ideally these macros would be in a separate `lib.rs` in this benchmark
 // crate, but benchmark binaries don't appear to work like that (in that, I
@@ -93,14 +91,14 @@ fn spawn_dbsp_consumer(
 }
 
 fn spawn_source_producer(
-    generator_config: GeneratorConfig,
+    nexmark_config: NexmarkConfig,
     mut input_handle: CollectionHandle<Event, isize>,
     step_do_rx: mpsc::Receiver<usize>,
     step_done_tx: mpsc::SyncSender<StepCompleted>,
     source_exhausted_tx: mpsc::SyncSender<InputStats>,
 ) {
     thread::spawn(move || {
-        let source = NexmarkSource::<isize, OrdZSet<Event, isize>>::new(generator_config);
+        let source = NexmarkSource::<isize, OrdZSet<Event, isize>>::new(nexmark_config);
         let mut num_events: u64 = 0;
 
         // Start iterating by loading up the first batch of input ready for processing,
@@ -170,11 +168,11 @@ fn coordinate_input_and_steps(
 }
 
 macro_rules! run_query {
-    ( $q:expr, $generator_config:expr) => {{
+    ( $q:expr, $nexmark_config:expr) => {{
         let circuit_closure = nexmark_circuit!($q);
 
-        let num_cores = $generator_config.nexmark_config.cpu_cores;
-        let expected_num_events = $generator_config.nexmark_config.max_events;
+        let num_cores = $nexmark_config.cpu_cores;
+        let expected_num_events = $nexmark_config.max_events;
         let (dbsp, input_handle) = Runtime::init_circuit(num_cores, circuit_closure).unwrap();
 
         // Create a channel for the coordinating thread to determine whether the
@@ -194,7 +192,7 @@ macro_rules! run_query {
             mpsc::sync_channel(1);
         let (source_exhausted_tx, source_exhausted_rx) = mpsc::sync_channel(1);
         spawn_source_producer(
-            $generator_config,
+            $nexmark_config,
             input_handle,
             source_step_rx,
             step_done_tx,
@@ -223,7 +221,7 @@ macro_rules! run_query {
 }
 
 macro_rules! run_queries {
-    ( $generator_config:expr, $max_events:expr, $queries_to_run:expr, $( ($q_name:expr, $q:expr) ),+ ) => {{
+    ( $nexmark_config:expr, $max_events:expr, $queries_to_run:expr, $( ($q_name:expr, $q:expr) ),+ ) => {{
         let mut results: Vec<NexmarkResult> = Vec::new();
         // We have no way (currently) of finding the max memory usage for each
         // subsequent query as the value is for the process. So only the first
@@ -237,8 +235,8 @@ macro_rules! run_queries {
             let start = Instant::now();
             let (before_usr_cpu, before_sys_cpu, before_max_rss) = unsafe { rusage(libc::RUSAGE_SELF) };
 
-            let thread_generator_config = $generator_config.clone();
-            let result = run_query!($q, thread_generator_config);
+            let thread_nexmark_config = $nexmark_config.clone();
+            let result = run_query!($q, thread_nexmark_config);
             let (after_usr_cpu, after_sys_cpu, after_max_rss) = unsafe { rusage(libc::RUSAGE_SELF) };
             results.push(NexmarkResult {
                 name: $q_name.to_string(),
@@ -293,10 +291,9 @@ fn main() -> Result<()> {
     let max_events = nexmark_config.max_events;
     let queries_to_run = nexmark_config.query.clone();
     let cpu_cores = nexmark_config.cpu_cores;
-    let generator_config = GeneratorConfig::new(nexmark_config, 0, 0, 0);
 
     let results = run_queries!(
-        generator_config,
+        nexmark_config,
         max_events,
         queries_to_run,
         ("q0", q0),

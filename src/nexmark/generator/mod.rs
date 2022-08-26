@@ -65,7 +65,8 @@ impl<R: Rng> NexmarkGenerator<R> {
                 .next_event_number_for_watermark(self.events_count_so_far),
         );
         // When, in wallclock time, we should emit the event.
-        let wallclock_timestamp = self.wallclock_base_time + event_timestamp;
+        let wallclock_timestamp =
+            self.wallclock_base_time + event_timestamp - self.config.base_time;
 
         let (auction_proportion, person_proportion, total_proportion) = (
             self.config.nexmark_config.auction_proportion as u64,
@@ -243,7 +244,7 @@ pub mod tests {
             first_event_number,
             ..Config::default()
         };
-        let mut generator = NexmarkGenerator::new(config, StepRng::new(0, 1));
+        let mut generator = NexmarkGenerator::new(config, StepRng::new(0, 1), 0);
 
         for expected_id in expected_next_event_ids.into_iter() {
             assert_eq!(generator.get_next_event_id(), expected_id);
