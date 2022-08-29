@@ -63,11 +63,11 @@ pub struct NexmarkSource<W, C> {
 // the receiver to listen on for next events.
 fn create_generators_for_config<R: Rng + Default>(
     nexmark_config: NexmarkConfig,
-    // Need to pass a closure that returns an R so it can be passed to thread?
-    // Tried that - can't pass the dyn Fn() -> Rng either.
-    // Can use R::default() for ThreadRng, but not StepRng :/ Could wrap StepRng with own
-    // DefaultStepRng and implement Default? Do this for fun :) Or not. Just leave this as
-    // thread_rng.
+    // TODO: I originally planned for this function to be generic for Rng, so I could test
+    // it with a StepRng, but was unable to because although `R::default()` can be used to
+    // instantiate a ThreadRng, `Default` is not supported for `StepRng`. Not sure if it's
+    // worth writing a wrapper around `StepRng` with a `Default` implementation (or if there's
+    // a better way).
 ) -> mpsc::Receiver<Option<NextEvent>> {
     let wallclock_base_time = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
