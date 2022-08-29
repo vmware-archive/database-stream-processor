@@ -35,6 +35,9 @@ pub mod generator;
 pub mod model;
 pub mod queries;
 
+const NEXMARK_BATCH_SIZE: usize = 1000;
+const SOURCE_CHANNEL_BUFFER_SIZE: usize = 2 * NEXMARK_BATCH_SIZE;
+
 pub struct NexmarkSource<W, C> {
     // TODO(absoludity): Longer-term, it'd be great to extract this to a separate gRPC service that
     // generates and streams the events, so that user benchmarks, such as DBSP, will only need the
@@ -81,12 +84,12 @@ fn create_generators_for_config<R: Rng + Default>(
             )
         })
         .map(|generator_config| {
-            let (tx, rx) = mpsc::sync_channel(5);
+            let (tx, rx) = mpsc::sync_channel(SOURCE_CHANNEL_BUFFER_SIZE);
             thread::spawn(move || {
                 let mut generator =
                     NexmarkGenerator::new(generator_config, R::default(), wallclock_base_time);
-                while generator.has_next() {
-                    tx.send(generator.next_event().unwrap()).unwrap();
+                while let Ok(Some(event)) = generator.next_event() {
+                    tx.send(Some(event)).unwrap();
                 }
             });
             rx
@@ -95,12 +98,21 @@ fn create_generators_for_config<R: Rng + Default>(
 
     // Finally, read from the generators round-robin, sending the ordered
     // events down a single channel buffered.
-    // TODO(absoludity): play with the buffering.
-    let (next_event_tx, next_event_rx) = mpsc::sync_channel(5);
-    thread::spawn(move || loop {
-        // TODO: Update so that it stops receiving on closed channels etc.
-        for rx in &next_event_rxs {
-            next_event_tx.send(rx.recv().unwrap()).unwrap();
+    let (next_event_tx, next_event_rx) = mpsc::sync_channel(SOURCE_CHANNEL_BUFFER_SIZE);
+    thread::spawn(move || {
+        let mut num_completed_receivers = 0;
+        while num_completed_receivers < next_event_rxs.len() {
+            for rx in &next_event_rxs {
+                next_event_tx
+                    .send(match rx.recv() {
+                        Ok(e) => e,
+                        Err(_) => {
+                            num_completed_receivers += 1;
+                            continue;
+                        }
+                    })
+                    .unwrap();
+            }
         }
     });
 
@@ -158,8 +170,8 @@ where
 
         // Collect as many next events as are ready.
         let mut next_events = vec![next_event];
-        let mut next_event = self.next_event_rx.recv().unwrap();
-        while next_events.len() < 1000
+        let mut next_event = self.next_event_rx.recv().unwrap_or(None);
+        while next_events.len() < NEXMARK_BATCH_SIZE
             && next_event
                 .is_some_and(|next_event| next_event.wallclock_timestamp <= wallclock_time_now)
         {

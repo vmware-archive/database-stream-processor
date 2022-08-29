@@ -98,6 +98,7 @@ fn spawn_source_producer(
     source_exhausted_tx: mpsc::SyncSender<InputStats>,
 ) {
     thread::spawn(move || {
+        println!("max events: {}", nexmark_config.max_events);
         let source = NexmarkSource::<isize, OrdZSet<Event, isize>>::new(nexmark_config);
         let mut num_events: u64 = 0;
 
