@@ -58,15 +58,11 @@ struct NexmarkResult {
     elapsed: Duration,
     total_usr_cpu: Duration,
     total_sys_cpu: Duration,
-    input_usr_cpu: Duration,
-    input_sys_cpu: Duration,
     max_rss: Option<u64>,
 }
 
 struct InputStats {
     num_events: u64,
-    usr_cpu: Duration,
-    sys_cpu: Duration,
 }
 
 enum StepCompleted {
@@ -119,14 +115,7 @@ fn spawn_source_producer(
             batch_count = 0;
             num_batches = step_do_rx.recv().unwrap();
         }
-        let (input_usr_cpu, input_sys_cpu, _) = unsafe { rusage(libc::RUSAGE_THREAD) };
-        source_exhausted_tx
-            .send(InputStats {
-                num_events,
-                usr_cpu: input_usr_cpu,
-                sys_cpu: input_sys_cpu,
-            })
-            .unwrap();
+        source_exhausted_tx.send(InputStats { num_events }).unwrap();
         step_done_tx.send(StepCompleted::Source).unwrap();
     });
 }
@@ -214,8 +203,6 @@ macro_rules! run_query {
         // Return the user/system CPU overhead from the generator/input thread.
         NexmarkResult {
             num_events: input_stats.num_events,
-            input_usr_cpu: input_stats.usr_cpu,
-            input_sys_cpu: input_stats.sys_cpu,
             ..NexmarkResult::default()
         }
     }};
@@ -262,11 +249,9 @@ fn create_ascii_table() -> AsciiTable {
     ascii_table.column(3).set_header("Elapsed");
     ascii_table.column(4).set_header("Cores * Elapsed");
     ascii_table.column(5).set_header("Throughput/Cores");
-    ascii_table.column(6).set_header("Input Usr CPU");
-    ascii_table.column(7).set_header("Input Sys CPU");
-    ascii_table.column(8).set_header("DBSP Usr CPU");
-    ascii_table.column(9).set_header("DBSP Sys CPU");
-    ascii_table.column(10).set_header("Max RSS(Kb)");
+    ascii_table.column(6).set_header("Total Usr CPU");
+    ascii_table.column(7).set_header("Total Sys CPU");
+    ascii_table.column(8).set_header("Max RSS(Kb)");
     ascii_table
 }
 
@@ -317,10 +302,8 @@ fn main() -> Result<()> {
                 "{0:.3} K/s",
                 r.num_events as f32 / r.elapsed.as_secs_f32() / cpu_cores as f32 / 1000.0
             ),
-            format!("{0:.3}s", r.input_usr_cpu.as_secs_f32()),
-            format!("{0:.3}s", r.input_sys_cpu.as_secs_f32()),
-            format!("{0:.3}s", (r.total_usr_cpu - r.input_usr_cpu).as_secs_f32()),
-            format!("{0:.3}s", (r.total_sys_cpu - r.input_sys_cpu).as_secs_f32()),
+            format!("{0:.3}s", (r.total_usr_cpu).as_secs_f32()),
+            format!("{0:.3}s", (r.total_sys_cpu).as_secs_f32()),
             format!(
                 "{}",
                 if let Some(max_rss) = r.max_rss {
