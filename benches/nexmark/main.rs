@@ -9,7 +9,7 @@ use std::{
     io::Error,
     mem::MaybeUninit,
     sync::mpsc,
-    thread,
+    thread::{self, JoinHandle},
     time::{Duration, Instant},
 };
 
@@ -74,16 +74,13 @@ fn spawn_dbsp_consumer(
     mut dbsp: DBSPHandle,
     step_do_rx: mpsc::Receiver<()>,
     step_done_tx: mpsc::SyncSender<StepCompleted>,
-    done_tx: mpsc::SyncSender<()>,
-) {
+) -> JoinHandle<()> {
     thread::spawn(move || {
         while let Ok(()) = step_do_rx.recv() {
             dbsp.step().unwrap();
             step_done_tx.send(StepCompleted::DBSP).unwrap();
         }
-
-        done_tx.send(()).unwrap();
-    });
+    })
 }
 
 fn spawn_source_producer(
@@ -188,8 +185,7 @@ macro_rules! run_query {
         // so. The DBSP processing happens in its own thread where the resource usage
         // calculation can also happen.
         let (dbsp_step_tx, dbsp_step_rx) = mpsc::sync_channel(1);
-        let (dbsp_done_tx, dbsp_done_rx) = mpsc::sync_channel(0);
-        spawn_dbsp_consumer(dbsp, dbsp_step_rx, step_done_tx.clone(), dbsp_done_tx);
+        let dbsp_join_handle = spawn_dbsp_consumer(dbsp, dbsp_step_rx, step_done_tx.clone());
 
         // Start the generator inputting the specified number of batches to the circuit
         // whenever it receives a message.
@@ -214,7 +210,9 @@ macro_rules! run_query {
         .unwrap();
 
         // Wait for the consumer to complete.
-        dbsp_done_rx.recv().unwrap();
+        dbsp_join_handle
+            .join()
+            .expect("DBSP consumer thread panicked");
 
         // Return the user/system CPU overhead from the generator/input thread.
         NexmarkResult {
