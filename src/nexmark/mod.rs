@@ -148,13 +148,7 @@ where
     type Item = Event;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let next_event = self.next_event_rx.recv().unwrap_or(None);
-
-        if next_event == None {
-            return None;
-        }
-
-        let next_event = next_event.unwrap();
+        let next_event = self.next_event_rx.recv().unwrap_or(None)?;
 
         // If the next event is still in the future then we're getting ahead of
         // ourselves, so we sleep until we can emit it.
