@@ -80,13 +80,16 @@ fn create_generators_for_config<R: Rng + Default>(
         })
         .map(|generator_config| {
             let (tx, rx) = mpsc::sync_channel(SOURCE_CHANNEL_BUFFER_SIZE);
-            thread::spawn(move || {
-                let mut generator =
-                    NexmarkGenerator::new(generator_config, R::default(), wallclock_base_time);
-                while let Ok(Some(event)) = generator.next_event() {
-                    tx.send(Some(event)).unwrap();
-                }
-            });
+            thread::Builder::new()
+                .name(format!("generator-{}", generator_config.first_event_number))
+                .spawn(move || {
+                    let mut generator =
+                        NexmarkGenerator::new(generator_config, R::default(), wallclock_base_time);
+                    while let Ok(Some(event)) = generator.next_event() {
+                        tx.send(Some(event)).unwrap();
+                    }
+                })
+                .unwrap();
             rx
         })
         .collect();
