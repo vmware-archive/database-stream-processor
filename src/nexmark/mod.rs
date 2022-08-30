@@ -22,6 +22,7 @@ use crate::{
 };
 use rand::{rngs::ThreadRng, Rng};
 use std::{
+    collections::VecDeque,
     marker::PhantomData,
     ops::Range,
     sync::mpsc,
@@ -42,8 +43,11 @@ pub struct NexmarkSource<W, C> {
     // CPU usage of the source). This could additionally allow the NexmarkSource to be used by
     // other projects (in other languages).
 
-    // Channel on which the source receives next events.
-    next_event_rx: mpsc::Receiver<Option<NextEvent>>,
+    // Channel on which the source receives vectors of next events.
+    next_events_rx: mpsc::Receiver<VecDeque<NextEvent>>,
+
+    // next_events stores any remaining future events that should not be emitted yet.
+    next_events: VecDeque<NextEvent>,
 
     /// An optional iterator that provides wallclock timestamps in tests.
     /// This is set to None by default.
@@ -61,7 +65,7 @@ fn create_generators_for_config<R: Rng + Default>(
     // instantiate a ThreadRng, `Default` is not supported for `StepRng`. Not sure if it's
     // worth writing a wrapper around `StepRng` with a `Default` implementation (or if there's
     // a better way).
-) -> mpsc::Receiver<Option<NextEvent>> {
+) -> mpsc::Receiver<VecDeque<NextEvent>> {
     let wallclock_base_time = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .unwrap()
@@ -95,31 +99,42 @@ fn create_generators_for_config<R: Rng + Default>(
 
     // Finally, read from the generators round-robin, sending the ordered
     // events down a single channel buffered.
-    let (next_event_tx, next_event_rx) = mpsc::sync_channel(buffer_size);
-    thread::spawn(move || {
-        let mut num_completed_receivers = 0;
-        while num_completed_receivers < next_event_rxs.len() {
-            for rx in &next_event_rxs {
-                next_event_tx
-                    .send(match rx.recv() {
-                        Ok(e) => e,
-                        Err(_) => {
-                            num_completed_receivers += 1;
-                            continue;
+    let (next_events_tx, next_events_rx) = mpsc::sync_channel(buffer_size);
+    thread::Builder::new()
+        .name("nexmark collector".into())
+        .spawn(move || {
+            let mut num_completed_receivers = 0;
+            let mut events = VecDeque::<NextEvent>::with_capacity(buffer_size);
+            while num_completed_receivers < next_event_rxs.len() {
+                for rx in &next_event_rxs {
+                    // Update this loop so that we always receive, but append to
+                    // a vec before sending...
+                    match rx.recv() {
+                        Ok(Some(e)) => {
+                            events.push_back(e);
+                            if events.len() == buffer_size {
+                                next_events_tx.send(events).unwrap();
+                                events = VecDeque::<NextEvent>::with_capacity(buffer_size);
+                            }
                         }
-                    })
-                    .unwrap();
+                        _ => {
+                            num_completed_receivers += 1;
+                        }
+                    }
+                }
             }
-        }
-    });
+            next_events_tx.send(events).unwrap();
+        })
+        .unwrap();
 
-    next_event_rx
+    next_events_rx
 }
 
 impl<W, C> NexmarkSource<W, C> {
-    pub fn from_next_events(next_event_rx: mpsc::Receiver<Option<NextEvent>>) -> Self {
+    pub fn from_next_events(next_events_rx: mpsc::Receiver<VecDeque<NextEvent>>) -> Self {
         NexmarkSource {
-            next_event_rx,
+            next_events_rx,
+            next_events: VecDeque::new(),
             wallclock_iterator: None,
             _t: PhantomData,
         }
@@ -148,8 +163,16 @@ where
     type Item = Event;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let next_event = self.next_event_rx.recv().unwrap_or(None)?;
-
+        let next_event = match self.next_events.pop_front() {
+            Some(ne) => ne,
+            None => {
+                self.next_events = match self.next_events_rx.recv() {
+                    Ok(next_events) => next_events,
+                    _ => return None,
+                };
+                self.next_events.pop_front().unwrap()
+            }
+        };
         // If the next event is still in the future then we're getting ahead of
         // ourselves, so we sleep until we can emit it.
         let wallclock_time_now = self.wallclock_time();
@@ -157,6 +180,7 @@ where
             let millis_to_sleep = next_event.wallclock_timestamp - wallclock_time_now;
             sleep(Duration::from_millis(millis_to_sleep));
         }
+
         Some(next_event.event)
     }
 }
@@ -189,10 +213,11 @@ pub mod tests {
             StepRng::new(0, 1),
             0,
         );
+        let mut v = VecDeque::new();
         for _ in 0..max_events {
-            next_event_tx.send(generator.next_event().unwrap()).unwrap();
+            v.push_back(generator.next_event().unwrap().unwrap());
         }
-        next_event_tx.send(None).unwrap();
+        next_event_tx.send(v).unwrap();
 
         // Create a source using the pre-generated next events.
         let mut source = NexmarkSource::from_next_events(next_event_rx);
