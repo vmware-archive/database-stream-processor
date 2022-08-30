@@ -128,7 +128,6 @@ fn spawn_source_producer(
                 step_do_rx.recv().unwrap();
             };
 
-            println!("Source exhausted");
             source_exhausted_tx.send(InputStats { num_events }).unwrap();
             step_done_tx
                 .send(StepCompleted::Source(last_batch_count))
