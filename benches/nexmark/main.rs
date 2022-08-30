@@ -94,26 +94,40 @@ fn spawn_source_producer(
     source_exhausted_tx: mpsc::SyncSender<InputStats>,
 ) {
     thread::spawn(move || {
-        let source = NexmarkSource::<isize, OrdZSet<Event, isize>>::new(nexmark_config);
+        let mut source = NexmarkSource::<isize, OrdZSet<Event, isize>>::new(nexmark_config);
         let mut num_events: u64 = 0;
 
         // Start iterating by loading up the first batch of input ready for processing,
         // then waiting for further instructions.
-        let mut num_batches = 1;
-        let mut batch_count = 0;
-        for mut batch in source {
-            num_events += batch.len() as u64;
-            input_handle.append(&mut batch);
-            batch_count += 1;
-            if batch_count < num_batches {
-                continue;
-            }
-            step_done_tx.send(StepCompleted::Source).unwrap();
+        let mut multiplier = 1;
+        let mut batch_size = 1000 * multiplier;
 
-            // Wait for the next batch.
-            batch_count = 0;
-            num_batches = step_do_rx.recv().unwrap();
+        // TODO: Update so batch_size is constant (but configurable) so vec below
+        // can be pre-allocated and re-used.
+        loop {
+            let mut tuples: Vec<(Event, isize)> = Vec::with_capacity(batch_size);
+            let mut batch_count = 0;
+
+            while let Some(event) = source.next() {
+                tuples.push((event, 1));
+                batch_count += 1;
+                if batch_count == batch_size {
+                    break;
+                }
+            }
+
+            input_handle.append(&mut tuples);
+            num_events += batch_count as u64;
+
+            step_done_tx.send(StepCompleted::Source).unwrap();
+            // If we're unable to fetch a full batch, then we're done.
+            if batch_count < batch_size {
+                break;
+            }
+            multiplier = step_do_rx.recv().unwrap();
+            batch_size = 1000 * multiplier;
         }
+
         source_exhausted_tx.send(InputStats { num_events }).unwrap();
         step_done_tx.send(StepCompleted::Source).unwrap();
     });
@@ -139,6 +153,8 @@ fn coordinate_input_and_steps(
     loop {
         if let Ok(input_stats) = source_exhausted_rx.try_recv() {
             progress_bar.finish_print("Done");
+            // Wait for the last processing step to complete before returning.
+            step_done_rx.recv()?;
             return Ok(input_stats);
         }
 
@@ -197,6 +213,7 @@ macro_rules! run_query {
         )
         .unwrap();
 
+        // Wait for the consumer to complete.
         dbsp_done_rx.recv().unwrap();
 
         // Return the user/system CPU overhead from the generator/input thread.

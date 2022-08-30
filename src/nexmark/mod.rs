@@ -35,8 +35,7 @@ pub mod generator;
 pub mod model;
 pub mod queries;
 
-const NEXMARK_BATCH_SIZE: usize = 1000;
-const SOURCE_CHANNEL_BUFFER_SIZE: usize = 2 * NEXMARK_BATCH_SIZE;
+const SOURCE_CHANNEL_BUFFER_SIZE: usize = 2000;
 
 pub struct NexmarkSource<W, C> {
     // TODO(absoludity): Longer-term, it'd be great to extract this to a separate gRPC service that
@@ -47,10 +46,6 @@ pub struct NexmarkSource<W, C> {
 
     // Channel on which the source receives next events.
     next_event_rx: mpsc::Receiver<Option<NextEvent>>,
-
-    // next_event stores the next event during `next` when `next_event()` is called but returns an
-    // event in the future, so that we can include it in the next call to next.
-    next_event: Option<NextEvent>,
 
     /// An optional iterator that provides wallclock timestamps in tests.
     /// This is set to None by default.
@@ -122,7 +117,6 @@ fn create_generators_for_config<R: Rng + Default>(
 impl<W, C> NexmarkSource<W, C> {
     pub fn from_next_events(next_event_rx: mpsc::Receiver<Option<NextEvent>>) -> Self {
         NexmarkSource {
-            next_event: None,
             next_event_rx,
             wallclock_iterator: None,
             _t: PhantomData,
@@ -149,47 +143,25 @@ where
     W: ZRingValue + 'static,
     C: Data + ZSet<Key = Event, R = W>,
 {
-    type Item = Vec<(Event, W)>;
+    type Item = Event;
 
     fn next(&mut self) -> Option<Self::Item> {
-        // Grab a next event, either the last event from the previous call that
-        // was saved because it couldn't yet be emitted, or the next generated
-        // event.
-        let next_event = self
-            .next_event
-            .clone()
-            .or_else(|| self.next_event_rx.recv().unwrap_or(None))?;
-        // Otherwise we want to emit at least one event, so if the next event
-        // is still in the future, we sleep until we can emit it.
-        let mut wallclock_time_now = self.wallclock_time();
+        let next_event = self.next_event_rx.recv().unwrap_or(None);
+
+        if next_event == None {
+            return None;
+        }
+
+        let next_event = next_event.unwrap();
+
+        // If the next event is still in the future then we're getting ahead of
+        // ourselves, so we sleep until we can emit it.
+        let wallclock_time_now = self.wallclock_time();
         if next_event.wallclock_timestamp > wallclock_time_now {
             let millis_to_sleep = next_event.wallclock_timestamp - wallclock_time_now;
             sleep(Duration::from_millis(millis_to_sleep));
-            wallclock_time_now += millis_to_sleep;
         }
-
-        // Collect as many next events as are ready.
-        let mut next_events = vec![next_event];
-        let mut next_event = self.next_event_rx.recv().unwrap_or(None);
-        while next_events.len() < NEXMARK_BATCH_SIZE
-            && next_event
-                .is_some_and(|next_event| next_event.wallclock_timestamp <= wallclock_time_now)
-        {
-            next_events.push(next_event.unwrap());
-            // recv can only error if the sending half of a channel is disconnected.
-            next_event = self.next_event_rx.recv().unwrap_or(None);
-        }
-
-        // Ensure we remember the last event that was generated but not emitted for the
-        // next call.
-        self.next_event = next_event;
-
-        Some(
-            next_events
-                .into_iter()
-                .map(|next_event| (next_event.event, W::one()))
-                .collect(),
-        )
+        Some(next_event.event)
     }
 }
 
@@ -270,35 +242,10 @@ pub mod tests {
         })
         .unwrap();
 
-        let mut source = make_source_with_wallclock_times(0..9, 10);
-        input_handle.append(&mut source.next().unwrap());
+        let source = make_source_with_wallclock_times(0..10, 10);
+        input_handle.append(&mut source.take(10).map(|e| (e, 1)).collect());
 
         circuit.step().unwrap();
-    }
-
-    // With the default rate of 10_000 events per second, or 10 per millisecond,
-    // and then using canned milliseconds for the wallclock time, we can expect
-    // batches of 10 events per call to next.
-    #[test]
-    fn test_next_batched() {
-        let wallclock_time = 0;
-        let mut source = make_source_with_wallclock_times(0..3, 60);
-        let expected_zset_tuples = generate_expected_zset_tuples(wallclock_time, 60);
-
-        assert_eq!(
-            source.next().unwrap(),
-            Vec::from(&expected_zset_tuples[0..10])
-        );
-
-        assert_eq!(
-            source.next().unwrap(),
-            Vec::from(&expected_zset_tuples[10..20])
-        );
-
-        assert_eq!(
-            source.next().unwrap(),
-            Vec::from(&expected_zset_tuples[20..30])
-        );
     }
 
     #[test]
@@ -310,23 +257,26 @@ pub mod tests {
             ..NexmarkConfig::default()
         };
         let receiver = create_generators_for_config::<ThreadRng>(nexmark_config);
-        let mut source = NexmarkSource::<isize, OrdZSet<Event, isize>>::from_next_events(receiver);
+        let source = NexmarkSource::<isize, OrdZSet<Event, isize>>::from_next_events(receiver);
 
         let expected_zset_tuple = generate_expected_zset_tuples(0, 10);
 
         // Until I can use the multi-threaded generators with the StepRng, just compare
         // the event types (effectively the same).
-        for (got, want) in zip(source.next().unwrap(), expected_zset_tuple.into_iter()) {
-            match want.0 {
-                Event::Person(_) => match got.0 {
+        for (got, want) in zip(
+            source.take(10),
+            expected_zset_tuple.into_iter().map(|(e, _)| e),
+        ) {
+            match want {
+                Event::Person(_) => match got {
                     Event::Person(_) => (),
                     _ => panic!("expected person, got {got:?}"),
                 },
-                Event::Auction(_) => match got.0 {
+                Event::Auction(_) => match got {
                     Event::Auction(_) => (),
                     _ => panic!("expected auction, got {got:?}"),
                 },
-                Event::Bid(_) => match got.0 {
+                Event::Bid(_) => match got {
                     Event::Bid(_) => (),
                     _ => panic!("expected bid, got {got:?}"),
                 },
