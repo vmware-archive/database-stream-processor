@@ -91,6 +91,10 @@ pub struct Config {
     /// Queries to run, all by default.
     #[clap(long, env = "NEXMARK_QUERIES", multiple = true)]
     pub query: Vec<String>,
+
+    /// The size of the buffer (channel) to use in the Nexmark Source.
+    #[clap(long, default_value = "1000", env = "NEXMARK_SOURCE_BUFFER_SIZE")]
+    pub source_buffer_size: usize,
 }
 
 /// Implementation of config methods based on the Java implementation at
@@ -122,6 +126,7 @@ impl Default for Config {
             out_of_order_group_size: 1,
             person_proportion: 1,
             query: vec![],
+            source_buffer_size: 1000,
         }
     }
 }

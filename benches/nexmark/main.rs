@@ -75,12 +75,15 @@ fn spawn_dbsp_consumer(
     step_do_rx: mpsc::Receiver<()>,
     step_done_tx: mpsc::SyncSender<StepCompleted>,
 ) -> JoinHandle<()> {
-    thread::spawn(move || {
-        while let Ok(()) = step_do_rx.recv() {
-            dbsp.step().unwrap();
-            step_done_tx.send(StepCompleted::DBSP).unwrap();
-        }
-    })
+    thread::Builder::new()
+        .name("benchmark_consumer".into())
+        .spawn(move || {
+            while let Ok(()) = step_do_rx.recv() {
+                dbsp.step().unwrap();
+                step_done_tx.send(StepCompleted::DBSP).unwrap();
+            }
+        })
+        .unwrap()
 }
 
 fn spawn_source_producer(
@@ -90,44 +93,47 @@ fn spawn_source_producer(
     step_done_tx: mpsc::SyncSender<StepCompleted>,
     source_exhausted_tx: mpsc::SyncSender<InputStats>,
 ) {
-    thread::spawn(move || {
-        let mut source = NexmarkSource::<isize, OrdZSet<Event, isize>>::new(nexmark_config);
-        let mut num_events: u64 = 0;
+    thread::Builder::new()
+        .name("benchmark producer".into())
+        .spawn(move || {
+            let mut source = NexmarkSource::<isize, OrdZSet<Event, isize>>::new(nexmark_config);
+            let mut num_events: u64 = 0;
 
-        // Start iterating by loading up the first batch of input ready for processing,
-        // then waiting for further instructions.
-        let mut multiplier = 1;
-        let mut batch_size = 1000 * multiplier;
+            // Start iterating by loading up the first batch of input ready for processing,
+            // then waiting for further instructions.
+            let mut multiplier = 1;
+            let mut batch_size = 1000 * multiplier;
 
-        // TODO: Update so batch_size is constant (but configurable) so vec below
-        // can be pre-allocated and re-used.
-        loop {
-            let mut tuples: Vec<(Event, isize)> = Vec::with_capacity(batch_size);
-            let mut batch_count = 0;
+            // TODO: Update so batch_size is constant (but configurable) so vec below
+            // can be pre-allocated and re-used.
+            loop {
+                let mut tuples: Vec<(Event, isize)> = Vec::with_capacity(batch_size);
+                let mut batch_count = 0;
 
-            while let Some(event) = source.next() {
-                tuples.push((event, 1));
-                batch_count += 1;
-                if batch_count == batch_size {
+                while let Some(event) = source.next() {
+                    tuples.push((event, 1));
+                    batch_count += 1;
+                    if batch_count == batch_size {
+                        break;
+                    }
+                }
+
+                input_handle.append(&mut tuples);
+                num_events += batch_count as u64;
+
+                step_done_tx.send(StepCompleted::Source).unwrap();
+                // If we're unable to fetch a full batch, then we're done.
+                if batch_count < batch_size {
                     break;
                 }
+                multiplier = step_do_rx.recv().unwrap();
+                batch_size = 1000 * multiplier;
             }
 
-            input_handle.append(&mut tuples);
-            num_events += batch_count as u64;
-
+            source_exhausted_tx.send(InputStats { num_events }).unwrap();
             step_done_tx.send(StepCompleted::Source).unwrap();
-            // If we're unable to fetch a full batch, then we're done.
-            if batch_count < batch_size {
-                break;
-            }
-            multiplier = step_do_rx.recv().unwrap();
-            batch_size = 1000 * multiplier;
-        }
-
-        source_exhausted_tx.send(InputStats { num_events }).unwrap();
-        step_done_tx.send(StepCompleted::Source).unwrap();
-    });
+        })
+        .unwrap();
 }
 
 fn coordinate_input_and_steps(

@@ -35,8 +35,6 @@ pub mod generator;
 pub mod model;
 pub mod queries;
 
-const SOURCE_CHANNEL_BUFFER_SIZE: usize = 2000;
-
 pub struct NexmarkSource<W, C> {
     // TODO(absoludity): Longer-term, it'd be great to extract this to a separate gRPC service that
     // generates and streams the events, so that user benchmarks, such as DBSP, will only need the
@@ -68,6 +66,7 @@ fn create_generators_for_config<R: Rng + Default>(
         .duration_since(SystemTime::UNIX_EPOCH)
         .unwrap()
         .as_millis() as u64;
+    let buffer_size = nexmark_config.source_buffer_size;
     let next_event_rxs: Vec<mpsc::Receiver<Option<NextEvent>>> = (0..nexmark_config
         .num_event_generators)
         .map(|generator_num| {
@@ -79,7 +78,7 @@ fn create_generators_for_config<R: Rng + Default>(
             )
         })
         .map(|generator_config| {
-            let (tx, rx) = mpsc::sync_channel(SOURCE_CHANNEL_BUFFER_SIZE);
+            let (tx, rx) = mpsc::sync_channel(generator_config.nexmark_config.source_buffer_size);
             thread::Builder::new()
                 .name(format!("generator-{}", generator_config.first_event_number))
                 .spawn(move || {
@@ -96,7 +95,7 @@ fn create_generators_for_config<R: Rng + Default>(
 
     // Finally, read from the generators round-robin, sending the ordered
     // events down a single channel buffered.
-    let (next_event_tx, next_event_rx) = mpsc::sync_channel(SOURCE_CHANNEL_BUFFER_SIZE);
+    let (next_event_tx, next_event_rx) = mpsc::sync_channel(buffer_size);
     thread::spawn(move || {
         let mut num_completed_receivers = 0;
         while num_completed_receivers < next_event_rxs.len() {
