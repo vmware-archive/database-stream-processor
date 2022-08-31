@@ -36,6 +36,7 @@ pub mod generator;
 pub mod model;
 pub mod queries;
 
+/// BatchedReceiver abstracts the Receiver interface for channels of VecDeque's.
 pub struct BatchedReceiver<T> {
     next_queue: mpsc::Receiver<VecDeque<T>>,
     current_queue: VecDeque<T>,
@@ -92,7 +93,7 @@ fn create_generators_for_config<R: Rng + Default>(
         .unwrap()
         .as_millis() as u64;
     let buffer_size = nexmark_config.source_buffer_size;
-    let next_event_rxs: Vec<mpsc::Receiver<Option<NextEvent>>> = (0..nexmark_config
+    let mut next_event_rxs: Vec<BatchedReceiver<NextEvent>> = (0..nexmark_config
         .num_event_generators)
         .map(|generator_num| {
             GeneratorConfig::new(
@@ -103,34 +104,40 @@ fn create_generators_for_config<R: Rng + Default>(
             )
         })
         .map(|generator_config| {
-            let (tx, rx) = mpsc::sync_channel(generator_config.nexmark_config.source_buffer_size);
+            let (tx, rx) = mpsc::sync_channel(3);
             thread::Builder::new()
                 .name(format!("generator-{}", generator_config.first_event_number))
                 .spawn(move || {
+                    let capacity = generator_config.nexmark_config.source_buffer_size;
                     let mut generator =
                         NexmarkGenerator::new(generator_config, R::default(), wallclock_base_time);
+                    let mut v = VecDeque::with_capacity(capacity);
                     while let Ok(Some(event)) = generator.next_event() {
-                        tx.send(Some(event)).unwrap();
+                        v.push_back(event);
+                        if v.len() == capacity {
+                            tx.send(v).unwrap();
+                            v = VecDeque::with_capacity(capacity);
+                        }
                     }
+                    tx.send(v).unwrap();
                 })
                 .unwrap();
-            rx
+            BatchedReceiver::new(rx)
         })
         .collect();
 
     // Finally, read from the generators round-robin, sending the ordered
     // events down a single channel buffered.
-    let (next_events_tx, next_events_rx) = mpsc::sync_channel(buffer_size);
-    let next_events_rx = BatchedReceiver::new(next_events_rx);
+    let (next_events_tx, next_events_rx) = mpsc::sync_channel(3);
     thread::Builder::new()
         .name("nexmark collector".into())
         .spawn(move || {
             let mut num_completed_receivers = 0;
             let mut events = VecDeque::<NextEvent>::with_capacity(buffer_size);
             while num_completed_receivers < next_event_rxs.len() {
-                for rx in &next_event_rxs {
+                for rx in &mut next_event_rxs {
                     match rx.recv() {
-                        Ok(Some(e)) => {
+                        Ok(e) => {
                             events.push_back(e);
                             if events.len() == buffer_size {
                                 next_events_tx.send(events).unwrap();
@@ -147,7 +154,7 @@ fn create_generators_for_config<R: Rng + Default>(
         })
         .unwrap();
 
-    next_events_rx
+    BatchedReceiver::new(next_events_rx)
 }
 
 impl<W, C> NexmarkSource<W, C> {
