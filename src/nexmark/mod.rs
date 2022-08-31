@@ -113,11 +113,13 @@ fn create_generators_for_config<R: Rng + Default>(
                         NexmarkGenerator::new(generator_config, R::default(), wallclock_base_time);
                     let mut v = VecDeque::with_capacity(capacity);
                     while let Ok(Some(event)) = generator.next_event() {
-                        v.push_back(event);
+                        // The order here ensures that we never end up sending an empty
+                        // vector.
                         if v.len() == capacity {
                             tx.send(v).unwrap();
                             v = VecDeque::with_capacity(capacity);
                         }
+                        v.push_back(event);
                     }
                     tx.send(v).unwrap();
                 })
@@ -138,11 +140,13 @@ fn create_generators_for_config<R: Rng + Default>(
                 for rx in &mut next_event_rxs {
                     match rx.recv() {
                         Ok(e) => {
-                            events.push_back(e);
+                            // The order here ensures that we never end up sending an empty
+                            // vector.
                             if events.len() == buffer_size {
                                 next_events_tx.send(events).unwrap();
                                 events = VecDeque::<NextEvent>::with_capacity(buffer_size);
                             }
+                            events.push_back(e);
                         }
                         _ => {
                             num_completed_receivers += 1;
