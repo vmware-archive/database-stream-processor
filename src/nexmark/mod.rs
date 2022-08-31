@@ -38,14 +38,14 @@ pub mod queries;
 
 /// BatchedReceiver abstracts the Receiver interface for channels of VecDeque's.
 pub struct BatchedReceiver<T> {
-    next_queue: mpsc::Receiver<VecDeque<T>>,
+    rx: mpsc::Receiver<VecDeque<T>>,
     current_queue: VecDeque<T>,
 }
 
 impl<T> BatchedReceiver<T> {
-    fn new(receiver: mpsc::Receiver<VecDeque<T>>) -> Self {
+    fn new(rx: mpsc::Receiver<VecDeque<T>>) -> Self {
         Self {
-            next_queue: receiver,
+            rx,
             current_queue: VecDeque::new(),
         }
     }
@@ -54,10 +54,51 @@ impl<T> BatchedReceiver<T> {
         match self.current_queue.pop_front() {
             Some(t) => Ok(t),
             None => {
-                self.current_queue = self.next_queue.recv()?;
+                self.current_queue = self.rx.recv()?;
                 Ok(self.current_queue.pop_front().unwrap())
             }
         }
+    }
+}
+
+/// BatchedSender abstracts the Sender interface for channels of VecDeque's.
+pub struct BatchedSender<T> {
+    batch_size: usize,
+    current_queue: VecDeque<T>,
+    tx: mpsc::SyncSender<VecDeque<T>>,
+}
+
+fn batched_channel<T>(batch_size: usize) -> (BatchedSender<T>, BatchedReceiver<T>) {
+    let (tx, rx) = mpsc::sync_channel(3);
+    (
+        BatchedSender {
+            batch_size,
+            current_queue: VecDeque::<T>::with_capacity(batch_size),
+            tx,
+        },
+        BatchedReceiver::new(rx),
+    )
+}
+
+impl<T> BatchedSender<T> {
+    pub fn send(&mut self, t: T) -> Result<(), mpsc::SendError<VecDeque<T>>> {
+        // The order here ensures that we never end up sending an empty
+        // vector.
+        if self.current_queue.len() == self.batch_size {
+            self.tx.send(std::mem::replace(
+                &mut self.current_queue,
+                VecDeque::with_capacity(self.batch_size),
+            ))?;
+        }
+        self.current_queue.push_back(t);
+        Ok(())
+    }
+
+    pub fn flush(&mut self) -> Result<(), mpsc::SendError<VecDeque<T>>> {
+        self.tx.send(std::mem::replace(
+            &mut self.current_queue,
+            VecDeque::with_capacity(self.batch_size),
+        ))
     }
 }
 
@@ -104,61 +145,44 @@ fn create_generators_for_config<R: Rng + Default>(
             )
         })
         .map(|generator_config| {
-            let (tx, rx) = mpsc::sync_channel(3);
+            let (mut tx, rx) = batched_channel(buffer_size);
             thread::Builder::new()
                 .name(format!("generator-{}", generator_config.first_event_number))
                 .spawn(move || {
-                    let capacity = generator_config.nexmark_config.source_buffer_size;
                     let mut generator =
                         NexmarkGenerator::new(generator_config, R::default(), wallclock_base_time);
-                    let mut v = VecDeque::with_capacity(capacity);
                     while let Ok(Some(event)) = generator.next_event() {
-                        // The order here ensures that we never end up sending an empty
-                        // vector.
-                        if v.len() == capacity {
-                            tx.send(v).unwrap();
-                            v = VecDeque::with_capacity(capacity);
-                        }
-                        v.push_back(event);
+                        tx.send(event).unwrap();
                     }
-                    tx.send(v).unwrap();
+                    tx.flush().unwrap();
                 })
                 .unwrap();
-            BatchedReceiver::new(rx)
+            rx
         })
         .collect();
 
     // Finally, read from the generators round-robin, sending the ordered
     // events down a single channel buffered.
-    let (next_events_tx, next_events_rx) = mpsc::sync_channel(3);
+    let (mut next_events_tx, next_events_rx) = batched_channel(buffer_size);
     thread::Builder::new()
         .name("nexmark collector".into())
         .spawn(move || {
             let mut num_completed_receivers = 0;
-            let mut events = VecDeque::<NextEvent>::with_capacity(buffer_size);
             while num_completed_receivers < next_event_rxs.len() {
                 for rx in &mut next_event_rxs {
                     match rx.recv() {
-                        Ok(e) => {
-                            // The order here ensures that we never end up sending an empty
-                            // vector.
-                            if events.len() == buffer_size {
-                                next_events_tx.send(events).unwrap();
-                                events = VecDeque::<NextEvent>::with_capacity(buffer_size);
-                            }
-                            events.push_back(e);
-                        }
+                        Ok(e) => next_events_tx.send(e).unwrap(),
                         _ => {
                             num_completed_receivers += 1;
                         }
                     }
                 }
             }
-            next_events_tx.send(events).unwrap();
+            next_events_tx.flush().unwrap();
         })
         .unwrap();
 
-    BatchedReceiver::new(next_events_rx)
+    next_events_rx
 }
 
 impl<W, C> NexmarkSource<W, C> {
@@ -342,5 +366,25 @@ pub mod tests {
         expected_output
             .into_iter()
             .for_each(|n| assert_eq!(n, batched_receiver.recv().unwrap()))
+    }
+
+    #[rstest]
+    #[case::nine_batched_by_4(4, vec![0, 1, 2, 3, 4, 5, 6, 7, 8], vec![vec![0, 1, 2, 3], vec![4, 5, 6, 7], vec![8]])]
+    #[case::nine_batched_by_3(3, vec![0, 1, 2, 3, 4, 5, 6, 7, 8], vec![vec![0, 1, 2], vec![3, 4, 5], vec![6, 7, 8]])]
+    fn test_batched_sender(
+        #[case] batch_size: usize,
+        #[case] input_vec: Vec<usize>,
+        #[case] expected_vecs: Vec<Vec<usize>>,
+    ) {
+        let (mut tx, rx) = batched_channel(batch_size);
+
+        input_vec.into_iter().for_each(|x| tx.send(x).unwrap());
+        tx.flush().unwrap();
+
+        // Get the non-batched receiver to check the batching.
+        let rx = rx.rx;
+        expected_vecs
+            .into_iter()
+            .for_each(|v| assert_eq!(VecDeque::from(v), rx.recv().unwrap()));
     }
 }
