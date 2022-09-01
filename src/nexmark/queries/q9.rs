@@ -54,43 +54,26 @@ use crate::{
 /// WHERE rownum <= 1;
 /// ```
 
-// TODO: Why does the above Flink version of this query simply output all the
-// fields from the two tables, including duplicating the auction id from both
-// records?
-// Rust's Ord trait is currently implemented for [tuples up to a length of 12 elements only](https://doc.rust-lang.org/std/primitive.tuple.html#trait-implementations-1)
-// so I've reduced it to something sensible, but that changes the output. (Could
-// try a tuple-struct, as [mentioned in a comment to this question](https://stackoverflow.com/questions/59446476/can-ord-be-defined-for-a-tuple-in-rust)).
-// Is it even worth us including these extra queries that weren't in the
-// original Nexmark bench? (Queries 1-8 are from the paper, with only
-// modifications in the flink implementation being the windowing times easier
-// for testing, for example, with Query 8 changing the window from 12 hours to
-// 10 seconds).
-// This query 9, for example, appears to be very similar to query 4, just more
-// memory intensive due to all the fields. Perhaps we should select certain
-// interesting queries - or just do them all for comparison?
-type Q9Stream = Stream<
-    Circuit<()>,
-    OrdZSet<
-        (
-            u64,
-            String,
-            String,
-            usize,
-            // usize, Pull out reserve to limit tuple to 12 elements.
-            u64,
-            u64,
-            u64,
-            // usize, Pull out category to limit tuple to 12 elements.
-            String,
-            // u64, Pull out the duplication of the auction id to limet tuple to 12 elements.
-            u64,
-            usize,
-            u64,
-            String,
-        ),
-        isize,
-    >,
->;
+#[derive(Eq, Clone, Debug, PartialEq, PartialOrd, Ord)]
+pub struct Q9Output(
+    u64,
+    String,
+    String,
+    usize,
+    usize,
+    u64,
+    u64,
+    u64,
+    usize,
+    String,
+    u64,
+    u64,
+    usize,
+    u64,
+    String,
+);
+
+type Q9Stream = Stream<Circuit<()>, OrdZSet<Q9Output, isize>>;
 
 pub fn q9(input: NexmarkStream) -> Q9Stream {
     // Select auctions and index by auction id.
@@ -101,9 +84,11 @@ pub fn q9(input: NexmarkStream) -> Q9Stream {
                 a.item_name.clone(),
                 a.description.clone(),
                 a.initial_bid,
+                a.reserve,
                 a.date_time,
                 a.expires,
                 a.seller,
+                a.category,
                 a.extra.clone(),
             ),
         )),
@@ -125,11 +110,11 @@ pub fn q9(input: NexmarkStream) -> Q9Stream {
                     String,
                     String,
                     usize,
-                    // usize, Pull out reserve to limit tuple to 12 elements.
+                    usize,
                     u64,
                     u64,
                     u64,
-                    // usize, Pull out category to limit tuple to 12 elements.
+                    usize,
                     String,
                 ),
                 (u64, usize, u64, String),
@@ -142,7 +127,17 @@ pub fn q9(input: NexmarkStream) -> Q9Stream {
     let bids_for_auctions: BidsAuctionsJoin = auctions_by_id.join::<(), _, _, _>(
         &bids_by_auction,
         |&auction_id,
-         (a_item_name, a_description, a_initial_bid, a_date_time, a_expires, a_seller, a_extra),
+         (
+            a_item_name,
+            a_description,
+            a_initial_bid,
+            a_reserve,
+            a_date_time,
+            a_expires,
+            a_seller,
+            a_category,
+            a_extra,
+        ),
          (b_bidder, b_price, b_date_time, b_extra)| {
             (
                 (
@@ -150,9 +145,11 @@ pub fn q9(input: NexmarkStream) -> Q9Stream {
                     a_item_name.clone(),
                     a_description.clone(),
                     *a_initial_bid,
+                    *a_reserve,
                     *a_date_time,
                     *a_expires,
                     *a_seller,
+                    *a_category,
                     a_extra.clone(),
                 ),
                 (*b_bidder, *b_price, *b_date_time, b_extra.clone()),
@@ -170,9 +167,11 @@ pub fn q9(input: NexmarkStream) -> Q9Stream {
                 a_item_name,
                 a_description,
                 a_initial_bid,
+                a_reserve,
                 a_date_time,
                 a_expires,
                 a_seller,
+                a_category,
                 a_extra,
             ),
             (b_bidder, b_price, b_date_time, b_extra),
@@ -184,9 +183,11 @@ pub fn q9(input: NexmarkStream) -> Q9Stream {
                         a_item_name.clone(),
                         a_description.clone(),
                         *a_initial_bid,
+                        *a_reserve,
                         *a_date_time,
                         *a_expires,
                         *a_seller,
+                        *a_category,
                         a_extra.clone(),
                     ),
                     // Note that the price of the bid is first in the tuple here to ensure that the
@@ -204,7 +205,18 @@ pub fn q9(input: NexmarkStream) -> Q9Stream {
     type AuctionsWithWinningBids = Stream<
         Circuit<()>,
         OrdIndexedZSet<
-            (u64, String, String, usize, u64, u64, u64, String),
+            (
+                u64,
+                String,
+                String,
+                usize,
+                usize,
+                u64,
+                u64,
+                u64,
+                usize,
+                String,
+            ),
             (usize, u64, u64, String),
             isize,
         >,
@@ -221,22 +233,27 @@ pub fn q9(input: NexmarkStream) -> Q9Stream {
                 a_item_name,
                 a_description,
                 a_initial_bid,
+                a_reserve,
                 a_date_time,
                 a_expires,
                 a_seller,
+                a_category,
                 a_extra,
             ),
             (b_price, b_bidder, b_date_time, b_extra),
         )| {
-            (
+            Q9Output(
                 *auction_id,
                 a_item_name.clone(),
                 a_description.clone(),
                 *a_initial_bid,
+                *a_reserve,
                 *a_date_time,
                 *a_expires,
                 *a_seller,
+                *a_category,
                 a_extra.clone(),
+                *auction_id,
                 *b_bidder,
                 *b_price,
                 *b_date_time,
@@ -354,13 +371,13 @@ mod tests {
 
             let mut expected_output = vec![
                 // First batch has a single auction seller with best bid of 100.
-                zset! { (1, "item-name".into(), "description".into(), 5, 0, 10000, 99, "".into(), 1, 100, 2000, "".into()) => 1 },
+                zset! { Q9Output(1, "item-name".into(), "description".into(), 5, 10, 0, 10000, 99, 1, "".into(), 1, 1, 100, 2000, "".into()) => 1 },
                 // The second batch just updates the best bid for the single auction to 200.
-                zset! { (1, "item-name".into(), "description".into(), 5, 0, 10000, 99, "".into(), 1, 100, 2000, "".into()) => -1, (1, "item-name".into(), "description".into(), 5, 0, 10000, 99, "".into(), 1, 200, 9000, "".into()) => 1 },
+                zset! { Q9Output(1, "item-name".into(), "description".into(), 5, 10, 0, 10000, 99, 1, "".into(), 1, 1, 100, 2000, "".into()) => -1, Q9Output(1, "item-name".into(), "description".into(), 5, 10, 0, 10000, 99, 1, "".into(), 1, 1, 200, 9000, "".into()) => 1 },
                 // The third batch has a bid for the first auction that isn't
                 // higher than the existing bid, so no change there. A (first)
                 // bid for the second auction creates a new addition:
-                zset! { (2, "item-name".into(), "description".into(), 5, 0, 20_000, 101, "".into(), 1, 400, 19_000, "".into()) => 1 },
+                zset! { Q9Output(2, "item-name".into(), "description".into(), 5, 10, 0, 20_000, 101, 1, "".into(), 2, 1, 400, 19_000, "".into()) => 1 },
                 // The last batch just has an invalid (too late) winning bid for
                 // auction 2, so no change.
                 zset! {},
