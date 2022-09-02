@@ -1,6 +1,5 @@
 use super::NexmarkStream;
 use crate::{nexmark::model::Event, operator::FilterMap, Circuit, OrdZSet, Stream};
-use chrono::{TimeZone, Timelike, Utc};
 use rust_decimal::Decimal;
 
 /// Query 14: Calculation (Not in original suite)
@@ -52,6 +51,14 @@ pub struct Q14Output(u64, u64, Decimal, BidTimeType, u64, String, usize);
 
 type Q14Stream = Stream<Circuit<()>, OrdZSet<Q14Output, isize>>;
 
+// This is used because we can't currently use chrono.Utc, which would simply
+// be Utc.timestamp_millis(b.date_time as i64).hour(), as it's waiting on a
+// release to fix a security issue.
+fn hour_for_millis(millis: u64) -> usize {
+    let millis_for_day = millis % (24 * 60 * 60 * 1000);
+    (millis_for_day / (60 * 60 * 1000)) as usize
+}
+
 pub fn q14(input: NexmarkStream) -> Q14Stream {
     input.flat_map(|event| match event {
         Event::Bid(b) => {
@@ -61,7 +68,7 @@ pub fn q14(input: NexmarkStream) -> Q14Stream {
                     b.auction,
                     b.bidder,
                     new_price,
-                    match Utc.timestamp_millis(b.date_time as i64).hour() {
+                    match hour_for_millis(b.date_time) {
                         8..=18 => BidTimeType::Day,
                         20..=23 | 0..=6 => BidTimeType::Night,
                         _ => BidTimeType::Other,
@@ -91,6 +98,7 @@ mod tests {
     #[case::decimal_price_converted_outside_range(1_000_000, 0, "", zset![])]
     #[case::date_time_is_nighttime(2_000_000, 20*60*60*1000 + 1, "", zset![Q14Output(1, 1, Decimal::new(1_816_000_000, 3), BidTimeType::Night, 20*60*60*1000 + 1, String::from(""), 0) => 1])]
     #[case::date_time_is_daytime(2_000_000, 8*60*60*1000 + 1, "", zset![Q14Output(1, 1, Decimal::new(1_816_000_000, 3), BidTimeType::Day, 8*60*60*1000 + 1, String::from(""), 0) => 1])]
+    #[case::date_time_is_daytime_2022(2_000_000, 52*366*24*60*60*1000 + 8*60*60*1000 + 1, "", zset![Q14Output(1, 1, Decimal::new(1_816_000_000, 3), BidTimeType::Day, 52*366*24*60*60*1000 + 8*60*60*1000 + 1, String::from(""), 0) => 1])]
     #[case::date_time_is_othertime(2_000_000, 8*60*60*1000 - 1, "", zset![Q14Output(1, 1, Decimal::new(1_816_000_000, 3), BidTimeType::Other, 8*60*60*1000 - 1, String::from(""), 0) => 1])]
     #[case::counts_cs_in_extra(2_000_000, 0, "cause I can't calculate has four of them.", zset![Q14Output(1, 1, Decimal::new(1_816_000_000, 3), BidTimeType::Night, 0, String::from("cause I can't calculate has four of them."), 4) => 1])]
     fn test_q14(
