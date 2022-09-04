@@ -135,6 +135,12 @@ pub mod tests {
 
         let bid = ng.next_bid(event_id, 1_000_000_000_000);
 
+        // Note: due to usize differences on windows, need to calculate the
+        // size explicitly:
+        let current_size = size_of::<u64>() * 3 + size_of::<usize>();
+        let delta = ((100 - current_size) as f32 * 0.2).round() as usize;
+        let expected_size = 100 - delta - current_size;
+
         assert_eq!(
             Bid {
                 auction: expected_auction_id,
@@ -145,7 +151,7 @@ pub mod tests {
                 date_time: 1_000_000_000_000,
                 // Difference of 100 - 32 = 68, delta of 14 (68*0.2),
                 // so extra 54 chars (32 + 54 = 86 = 100 - delta)
-                extra: (0..54).map(|_| "A").collect::<String>(),
+                extra: (0..expected_size).map(|_| "A").collect::<String>(),
             },
             bid
         );

@@ -155,6 +155,18 @@ mod tests {
 
         let auction = ng.next_auction(0, 0, 0).unwrap();
 
+        // Note: due to usize differences on windows, need to calculate the
+        // size explicitly:
+        let current_size = size_of::<u64>()
+            + 3
+            + 3
+            // (initial_bid, reserve, category)
+            + size_of::<usize>() * 3
+            // seller, expires
+            + size_of::<u64>() * 2;
+        let delta = ((500 - current_size) as f32 * 0.2).round() as usize;
+        let expected_size = 500 - delta - current_size;
+
         assert_eq!(
             Auction {
                 id: FIRST_AUCTION_ID as u64,
@@ -166,9 +178,7 @@ mod tests {
                 expires: 1,
                 seller: 1000,
                 category: 10,
-                // Difference of 500 - 54 = 446, delta of 89 (446*0.2),
-                // so extra 357 chars (54 + 357 = 411 = 500 - delta)
-                extra: (0..357).map(|_| "A").collect::<String>(),
+                extra: (0..expected_size).map(|_| "A").collect::<String>(),
             },
             auction
         );
