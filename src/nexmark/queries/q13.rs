@@ -14,7 +14,7 @@ use csv;
 /// Joins a stream to a bounded side input, modeling basic stream enrichment.
 ///
 /// TODO: use the new "filesystem" connector once FLINK-17397 is done
-/// ```
+/// ```sql
 /// CREATE TABLE side_input (
 ///   key BIGINT,
 ///   `value` VARCHAR
