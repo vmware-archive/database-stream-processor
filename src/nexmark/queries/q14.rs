@@ -63,8 +63,8 @@ pub fn q14(input: NexmarkStream) -> Q14Stream {
     input.flat_map(|event| match event {
         Event::Bid(b) => {
             let new_price = Decimal::new((b.price * 100) as i64, 2) * Decimal::new(908, 3);
-            match usize::try_from(new_price).unwrap() {
-                1_000_000..=50_000_000 => Some(Q14Output(
+            if new_price > Decimal::new(1_000_000, 0) && new_price < Decimal::new(50_000_000, 0) {
+                Some(Q14Output(
                     b.auction,
                     b.bidder,
                     new_price,
@@ -76,8 +76,9 @@ pub fn q14(input: NexmarkStream) -> Q14Stream {
                     b.date_time,
                     b.extra.clone(),
                     b.extra.matches('c').count(),
-                )),
-                _ => None,
+                ))
+            } else {
+                None
             }
         }
         _ => None,
@@ -96,6 +97,7 @@ mod tests {
     #[rstest]
     #[case::decimal_price_converted(2_000_000, 0, "", zset![Q14Output(1, 1, Decimal::new(1_816_000_000, 3), BidTimeType::Night, 0, String::from(""), 0) => 1])]
     #[case::decimal_price_converted_outside_range(1_000_000, 0, "", zset![])]
+    #[case::decimal_price_converted_on_exclusive_boundary(1_000_000, 0, "", zset![])]
     #[case::date_time_is_nighttime(2_000_000, 20*60*60*1000 + 1, "", zset![Q14Output(1, 1, Decimal::new(1_816_000_000, 3), BidTimeType::Night, 20*60*60*1000 + 1, String::from(""), 0) => 1])]
     #[case::date_time_is_daytime(2_000_000, 8*60*60*1000 + 1, "", zset![Q14Output(1, 1, Decimal::new(1_816_000_000, 3), BidTimeType::Day, 8*60*60*1000 + 1, String::from(""), 0) => 1])]
     #[case::date_time_is_daytime_2022(2_000_000, 52*366*24*60*60*1000 + 8*60*60*1000 + 1, "", zset![Q14Output(1, 1, Decimal::new(1_816_000_000, 3), BidTimeType::Day, 52*366*24*60*60*1000 + 8*60*60*1000 + 1, String::from(""), 0) => 1])]
