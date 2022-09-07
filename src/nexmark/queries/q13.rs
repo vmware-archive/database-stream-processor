@@ -1,13 +1,7 @@
 use super::NexmarkStream;
 use crate::{nexmark::model::Event, operator::FilterMap, Circuit, OrdZSet, Stream};
 
-use std::{
-    collections::HashMap,
-    fs::File,
-    io::{BufReader, Read, Result},
-};
-
-use csv;
+use std::time::SystemTime;
 
 /// Query 13: Bounded Side Input Join (Not in original suite)
 ///
@@ -62,36 +56,55 @@ use csv;
 /// simple static file is used for this bounded side-input for the Nexmark tests
 /// and that is also what is tested here.
 
-const SIDE_INPUT_CSV: &str = "benches/nexmark/data/side_input.txt";
-
 type Q13Stream = Stream<Circuit<()>, OrdZSet<(u64, u64, usize, u64, String), isize>>;
 
-fn read_side_input<R: Read>(reader: R) -> Result<HashMap<usize, String>> {
-    let reader = BufReader::new(reader);
-    let mut csv_reader = csv::ReaderBuilder::new()
-        .has_headers(false)
-        .from_reader(reader);
-    let mut hm: HashMap<usize, String> = HashMap::new();
-    for result in csv_reader.deserialize() {
-        let (key, val): (usize, String) = result?;
-        hm.insert(key, val);
-    }
-    Ok(hm)
+type SideInputStream = Stream<Circuit<()>, OrdZSet<(usize, String, u64), isize>>;
+
+fn process_time() -> u64 {
+    SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64
 }
 
-pub fn q13(input: NexmarkStream) -> Q13Stream {
-    let side_input = read_side_input(File::open(SIDE_INPUT_CSV).unwrap()).unwrap();
-
-    input.flat_map(move |event| match event {
+pub fn q13(input: NexmarkStream, side_input: SideInputStream) -> Q13Stream {
+    // Index bids by the modulo value.
+    let bids_by_auction_mod = input.flat_map_index(move |event| match event {
         Event::Bid(b) => Some((
-            b.auction,
-            b.bidder,
-            b.price,
-            b.date_time,
-            side_input[&((b.auction % 10_000) as usize)].clone(),
+            (b.auction % 10_000) as usize,
+            (b.auction, b.bidder, b.price, b.date_time, process_time()),
         )),
         _ => None,
-    })
+    });
+
+    // Index the side_input by the key.
+    let side_input_indexed = side_input.map_index(|(k, v, t)| (*k, (v.clone(), *t)));
+
+    // Join on the key from the side input
+    bids_by_auction_mod
+        .join::<(), _, _, OrdZSet<(u64, u64, usize, u64, String, u64, u64), isize>>(
+            &side_input_indexed,
+            |&_, &(auction, bidder, price, date_time, b_p_time), (input_value, input_p_time)| {
+                (
+                    auction,
+                    bidder,
+                    price,
+                    date_time,
+                    input_value.clone(),
+                    b_p_time,
+                    *input_p_time,
+                )
+            },
+        )
+        .flat_map(
+            |(auction, bidder, price, date_time, input_value, b_p_time, input_p_time)| {
+                if b_p_time >= input_p_time {
+                    Some((*auction, *bidder, *price, *date_time, input_value.clone()))
+                } else {
+                    None
+                }
+            },
+        )
 }
 
 #[cfg(test)]
@@ -101,6 +114,21 @@ mod tests {
         nexmark::{generator::tests::make_bid, model::Bid},
         zset,
     };
+    use csv;
+    use std::{
+        fs::File,
+        io::{BufReader, Read, Result},
+    };
+
+    const SIDE_INPUT_CSV: &str = "benches/nexmark/data/side_input.txt";
+
+    fn read_side_input<R: Read>(reader: R) -> Result<Vec<(usize, String)>> {
+        let reader = BufReader::new(reader);
+        let mut csv_reader = csv::ReaderBuilder::new()
+            .has_headers(false)
+            .from_reader(reader);
+        Ok(csv_reader.deserialize().map(|r| r.unwrap()).collect())
+    }
 
     #[test]
     fn test_q13() {
@@ -122,8 +150,10 @@ mod tests {
         ]]
         .into_iter();
 
-        let (circuit, mut input_handle) = Circuit::build(move |circuit| {
+        let (circuit, (mut input_handle, mut side_input_handle)) = Circuit::build(move |circuit| {
             let (stream, input_handle) = circuit.add_input_zset::<Event, isize>();
+            let (side_stream, side_input_handle) =
+                circuit.add_input_zset::<(usize, String, u64), isize>();
 
             let mut expected_output = vec![zset![
                 (1_005, 1, 99, 0, String::from("1005")) => 1,
@@ -131,14 +161,21 @@ mod tests {
             ]]
             .into_iter();
 
-            let output = q13(stream);
+            let output = q13(stream, side_stream);
 
             output.inspect(move |batch| assert_eq!(batch, &expected_output.next().unwrap()));
 
-            input_handle
+            (input_handle, side_input_handle)
         })
         .unwrap();
 
+        side_input_handle.append(
+            &mut read_side_input(File::open(SIDE_INPUT_CSV).unwrap())
+                .unwrap()
+                .into_iter()
+                .map(|(k, v)| ((k, v, process_time()), 1))
+                .collect(),
+        );
         for mut vec in input_vecs {
             input_handle.append(&mut vec);
             circuit.step().unwrap();
@@ -151,12 +188,13 @@ mod tests {
 
         let got = read_side_input(reader).unwrap();
 
-        for (key, val) in HashMap::<usize, String>::from([
-            (1, String::from("five")),
-            (2, String::from("four")),
-            (3, String::from("three")),
-        ]) {
-            assert_eq!(got[&key], val);
-        }
+        assert_eq!(
+            vec![
+                (1, String::from("five")),
+                (2, String::from("four")),
+                (3, String::from("three")),
+            ],
+            got
+        );
     }
 }
