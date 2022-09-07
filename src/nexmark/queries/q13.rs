@@ -1,7 +1,12 @@
 use super::NexmarkStream;
 use crate::{nexmark::model::Event, operator::FilterMap, Circuit, OrdZSet, Stream};
 
-use std::time::SystemTime;
+use csv;
+use std::{
+    fs::File,
+    io::{BufReader, Read, Result},
+    time::SystemTime,
+};
 
 /// Query 13: Bounded Side Input Join (Not in original suite)
 ///
@@ -60,6 +65,25 @@ type Q13Stream = Stream<Circuit<()>, OrdZSet<(u64, u64, usize, u64, String), isi
 
 type SideInputStream = Stream<Circuit<()>, OrdZSet<(usize, String, u64), isize>>;
 
+const Q13_SIDE_INPUT_CSV: &str = "benches/nexmark/data/side_input.txt";
+
+fn read_side_input<R: Read>(reader: R) -> Result<Vec<(usize, String)>> {
+    let reader = BufReader::new(reader);
+    let mut csv_reader = csv::ReaderBuilder::new()
+        .has_headers(false)
+        .from_reader(reader);
+    Ok(csv_reader.deserialize().map(|r| r.unwrap()).collect())
+}
+
+pub fn q13_side_input() -> Vec<((usize, String, u64), isize)> {
+    let p_time = process_time();
+    read_side_input(File::open(Q13_SIDE_INPUT_CSV).unwrap())
+        .unwrap()
+        .into_iter()
+        .map(|(k, v)| ((k, v, p_time), 1))
+        .collect()
+}
+
 fn process_time() -> u64 {
     SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
@@ -114,21 +138,6 @@ mod tests {
         nexmark::{generator::tests::make_bid, model::Bid},
         zset,
     };
-    use csv;
-    use std::{
-        fs::File,
-        io::{BufReader, Read, Result},
-    };
-
-    const SIDE_INPUT_CSV: &str = "benches/nexmark/data/side_input.txt";
-
-    fn read_side_input<R: Read>(reader: R) -> Result<Vec<(usize, String)>> {
-        let reader = BufReader::new(reader);
-        let mut csv_reader = csv::ReaderBuilder::new()
-            .has_headers(false)
-            .from_reader(reader);
-        Ok(csv_reader.deserialize().map(|r| r.unwrap()).collect())
-    }
 
     #[test]
     fn test_q13() {
@@ -169,13 +178,7 @@ mod tests {
         })
         .unwrap();
 
-        side_input_handle.append(
-            &mut read_side_input(File::open(SIDE_INPUT_CSV).unwrap())
-                .unwrap()
-                .into_iter()
-                .map(|(k, v)| ((k, v, process_time()), 1))
-                .collect(),
-        );
+        side_input_handle.append(&mut q13_side_input());
         for mut vec in input_vecs {
             input_handle.append(&mut vec);
             circuit.step().unwrap();
