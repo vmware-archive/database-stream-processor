@@ -103,8 +103,25 @@ pub fn q15(input: NexmarkStream) -> Q15Stream {
     });
 
     // Not sure of the best way to calculate the various distinct bidders and
-    // auctions. Seems I could maintain a zset for each, adding the bidder/auction,
-    // using distinct?
+    // auctions.
+    // I've initially use HashSets to count each while already dealing
+    // with the bids for the day, but probably should instead use filter operations
+    // like the original.
+    type Accumulator = (
+        usize,
+        usize,
+        usize,
+        usize,
+        HashSet<u64>,
+        HashSet<u64>,
+        HashSet<u64>,
+        HashSet<u64>,
+        HashSet<u64>,
+        HashSet<u64>,
+        HashSet<u64>,
+        HashSet<u64>,
+    );
+
     let bids_per_day = bids_indexed.aggregate::<(), _>(Fold::with_output(
         (
             0,
@@ -133,20 +150,7 @@ pub fn q15(input: NexmarkStream) -> Q15Stream {
             rank1_auctions,
             rank2_auctions,
             rank3_auctions,
-        ): &mut (
-            usize,
-            usize,
-            usize,
-            usize,
-            HashSet<u64>,
-            HashSet<u64>,
-            HashSet<u64>,
-            HashSet<u64>,
-            HashSet<u64>,
-            HashSet<u64>,
-            HashSet<u64>,
-            HashSet<u64>,
-        ),
+        ): &mut Accumulator,
          (auction, price, bidder): &(u64, usize, u64),
          _w| {
             *total_bids += 1;
@@ -179,20 +183,7 @@ pub fn q15(input: NexmarkStream) -> Q15Stream {
             rank1_auctions,
             rank2_auctions,
             rank3_auctions,
-        ): (
-            usize,
-            usize,
-            usize,
-            usize,
-            HashSet<u64>,
-            HashSet<u64>,
-            HashSet<u64>,
-            HashSet<u64>,
-            HashSet<u64>,
-            HashSet<u64>,
-            HashSet<u64>,
-            HashSet<u64>,
-        )| {
+        ): Accumulator| {
             Q15Output {
                 day: String::new(),
                 total_bids,

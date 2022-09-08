@@ -7,7 +7,7 @@ edition = "2021"
 default = ["with-serde"]
 with-serde = ["serde"]
 with-csv = ["csv"]
-with-nexmark = ["cached", "clap", "csv", "rust_decimal", "rand"]
+with-nexmark = ["cached", "clap", "csv", "rust_decimal", "rand", "time"]
 
 [dependencies]
 anyhow = "1.0.57"
@@ -27,6 +27,7 @@ textwrap = "0.15.0"
 fxhash = "0.2"
 ordered-float = "3.0.0"
 rust_decimal = { version = "1.26.1", optional = true }
+time = { version = "0.3.14", features = ["formatting"], optional = true }
 
 # TODO: Remove these dependencies
 rand = { version = "0.8", optional = true }
@@ -51,7 +52,6 @@ clap = { version = "3.2.8", features = ["derive", "env"] }
 reqwest = { version = "0.11.11", features = ["blocking"] }
 ascii_table = "4.0.2"
 num-format = "0.4.0"
-time = { version = "0.3.14", features = ["formatting"] }
 
 [target.'cfg(unix)'.dev-dependencies]
 libc = "0.2.127"
