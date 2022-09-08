@@ -266,6 +266,50 @@ mod tests {
                     }),
                     1,
                 ),
+                (
+                    Event::Bid(Bid {
+                        // One millisecond into Jan 2 1970
+                        date_time: 24 * 60 * 60 * 1000 + 1,
+                        // Rank 3 bid
+                        auction: 3,
+                        bidder: 3,
+                        ..make_bid()
+                    }),
+                    1,
+                ),
+                (
+                    Event::Bid(Bid {
+                        // One millisecond into Jan 3 1970
+                        date_time: 2 * 24 * 60 * 60 * 1000 + 1,
+                        // Rank 3 bid
+                        auction: 3,
+                        bidder: 4,
+                        ..make_bid()
+                    }),
+                    1,
+                ),
+                (
+                    Event::Bid(Bid {
+                        // One millisecond into Jan 4 1970
+                        date_time: 3 * 24 * 60 * 60 * 1000 + 1,
+                        // Rank 3 bid
+                        auction: 3,
+                        bidder: 5,
+                        ..make_bid()
+                    }),
+                    1,
+                ),
+                (
+                    Event::Bid(Bid {
+                        // One millisecond into Jan 5 1970
+                        date_time: 4 * 24 * 60 * 60 * 1000 + 1,
+                        // Rank 3 bid
+                        auction: 3,
+                        bidder: 2,
+                        ..make_bid()
+                    }),
+                    1,
+                ),
             ],
             vec![(
                 Event::Bid(Bid {
@@ -319,6 +363,46 @@ mod tests {
                         rank1_auctions: 1,
                         rank2_auctions: 1,
                         rank3_auctions: 1,
+                        ..Q15Output::default()
+                    } => 1,
+                    Q15Output {
+                        day: String::from("1970-01-02"),
+                        total_bids: 1,
+                        rank1_bids: 1,
+                        total_bidders: 1,
+                        rank1_bidders: 1,
+                        total_auctions: 1,
+                        rank1_auctions: 1,
+                        ..Q15Output::default()
+                    } => 1,
+                    Q15Output {
+                        day: String::from("1970-01-03"),
+                        total_bids: 1,
+                        rank1_bids: 1,
+                        total_bidders: 1,
+                        rank1_bidders: 1,
+                        total_auctions: 1,
+                        rank1_auctions: 1,
+                        ..Q15Output::default()
+                    } => 1,
+                    Q15Output {
+                        day: String::from("1970-01-04"),
+                        total_bids: 1,
+                        rank1_bids: 1,
+                        total_bidders: 1,
+                        rank1_bidders: 1,
+                        total_auctions: 1,
+                        rank1_auctions: 1,
+                        ..Q15Output::default()
+                    } => 1,
+                    Q15Output {
+                        day: String::from("1970-01-05"),
+                        total_bids: 1,
+                        rank1_bids: 1,
+                        total_bidders: 1,
+                        rank1_bidders: 1,
+                        total_auctions: 1,
+                        rank1_auctions: 1,
                         ..Q15Output::default()
                     } => 1,
                 ],
