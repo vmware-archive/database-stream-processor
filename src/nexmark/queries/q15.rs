@@ -1,7 +1,18 @@
 use super::NexmarkStream;
-use crate::{nexmark::model::Event, operator::FilterMap, Circuit, OrdZSet, Stream};
-use std::time::{Duration, SystemTime};
-use time::OffsetDateTime;
+use crate::{
+    nexmark::model::Event,
+    operator::{FilterMap, Fold},
+    Circuit, OrdZSet, Stream,
+};
+use deepsize::DeepSizeOf;
+use std::{
+    collections::HashSet,
+    time::{Duration, SystemTime},
+};
+use time::{
+    format_description::well_known::{iso8601, iso8601::FormattedComponents, Iso8601},
+    OffsetDateTime,
+};
 
 /// Query 15: Bidding Statistics Report (Not in original suite)
 ///
@@ -46,7 +57,7 @@ use time::OffsetDateTime;
 /// GROUP BY DATE_FORMAT(dateTime, 'yyyy-MM-dd');
 /// ```
 
-#[derive(Eq, Clone, Debug, Default, PartialEq, PartialOrd, Ord)]
+#[derive(Eq, Clone, DeepSizeOf, Debug, Default, PartialEq, PartialOrd, Ord)]
 pub struct Q15Output {
     day: String,
     total_bids: usize,
@@ -66,14 +77,143 @@ pub struct Q15Output {
 type Q15Stream = Stream<Circuit<()>, OrdZSet<Q15Output, isize>>;
 
 pub fn q15(input: NexmarkStream) -> Q15Stream {
+    // Dug for a long time to figure out how to use the const generics
+    // for time formats, not well documented in docs themselves, but
+    // great examples in the integration tests:
+    // https://github.com/time-rs/time/blob/6894ec115a8fdb7baf105604bdcc0902dc941e9c/tests/integration/formatting.rs#L118
+    let iso8601_day_format = &Iso8601::<
+        {
+            iso8601::Config::DEFAULT
+                .set_formatted_components(FormattedComponents::Date)
+                .encode()
+        },
+    >;
+
     // Group/index and aggregate by day - keeping only the price, bidder, auction
-    input.flat_map_index(|event| match event {
+    let bids_indexed = input.flat_map_index(|event| match event {
         Event::Bid(b) => {
-            let date_time = SystemTime::UNIX_EPOCH + SystemTime::Duration::from_millis(b.date_time);
-            let day = date_time.into().format("%Y-%m-%d");
-            Some((day, Q15Output::default()))
+            let date_time = SystemTime::UNIX_EPOCH + Duration::from_millis(b.date_time);
+
+            let day = <SystemTime as Into<OffsetDateTime>>::into(date_time)
+                .format(iso8601_day_format)
+                .unwrap();
+            Some((day, (b.auction, b.price, b.bidder)))
         }
         _ => None,
+    });
+
+    // Not sure of the best way to calculate the various distinct bidders and
+    // auctions. Seems I could maintain a zset for each, adding the bidder/auction,
+    // using distinct?
+    let bids_per_day = bids_indexed.aggregate::<(), _>(Fold::with_output(
+        (
+            0,
+            0,
+            0,
+            0,
+            HashSet::new(),
+            HashSet::new(),
+            HashSet::new(),
+            HashSet::new(),
+            HashSet::new(),
+            HashSet::new(),
+            HashSet::new(),
+            HashSet::new(),
+        ),
+        |(
+            total_bids,
+            rank1_bids,
+            rank2_bids,
+            rank3_bids,
+            total_bidders,
+            rank1_bidders,
+            rank2_bidders,
+            rank3_bidders,
+            total_auctions,
+            rank1_auctions,
+            rank2_auctions,
+            rank3_auctions,
+        ): &mut (
+            usize,
+            usize,
+            usize,
+            usize,
+            HashSet<u64>,
+            HashSet<u64>,
+            HashSet<u64>,
+            HashSet<u64>,
+            HashSet<u64>,
+            HashSet<u64>,
+            HashSet<u64>,
+            HashSet<u64>,
+        ),
+         (auction, price, bidder): &(u64, usize, u64),
+         _w| {
+            *total_bids += 1;
+            total_bidders.insert(*bidder);
+            total_auctions.insert(*auction);
+            if *price < 10_000 {
+                *rank1_bids += 1;
+                rank1_bidders.insert(*bidder);
+                rank1_auctions.insert(*auction);
+            } else if *price < 1_000_000 {
+                *rank2_bids += 1;
+                rank2_bidders.insert(*bidder);
+                rank2_auctions.insert(*auction);
+            } else if *price >= 1_000_000 {
+                *rank3_bids += 1;
+                rank3_bidders.insert(*bidder);
+                rank3_auctions.insert(*auction);
+            }
+        },
+        |(
+            total_bids,
+            rank1_bids,
+            rank2_bids,
+            rank3_bids,
+            total_bidders,
+            rank1_bidders,
+            rank2_bidders,
+            rank3_bidders,
+            total_auctions,
+            rank1_auctions,
+            rank2_auctions,
+            rank3_auctions,
+        ): (
+            usize,
+            usize,
+            usize,
+            usize,
+            HashSet<u64>,
+            HashSet<u64>,
+            HashSet<u64>,
+            HashSet<u64>,
+            HashSet<u64>,
+            HashSet<u64>,
+            HashSet<u64>,
+            HashSet<u64>,
+        )| {
+            Q15Output {
+                day: String::new(),
+                total_bids,
+                rank1_bids,
+                rank2_bids,
+                rank3_bids,
+                total_bidders: total_bidders.len(),
+                rank1_bidders: rank1_bidders.len(),
+                rank2_bidders: rank2_bidders.len(),
+                rank3_bidders: rank3_bidders.len(),
+                total_auctions: total_auctions.len(),
+                rank1_auctions: rank1_auctions.len(),
+                rank2_auctions: rank2_auctions.len(),
+                rank3_auctions: rank3_auctions.len(),
+            }
+        },
+    ));
+
+    bids_per_day.map(|(day, output)| Q15Output {
+        day: day.clone(),
+        ..*output
     })
 }
 
@@ -85,12 +225,23 @@ mod tests {
         zset,
     };
 
+    // 52 years with 13 leap years (extra days)
+    const MILLIS_2022_01_01: u64 = (52 * 365 + 13) * 24 * 60 * 60 * 1000;
+
+    // Note: I really would have liked to test each piece of functionality in a
+    // separate unit test, but I can't iterate over a batch to compare just the
+    // fields that would have been of interest to that test, afaict, so comparing
+    // the complete expected output is what I've done as usual. Let me know if
+    // there's a way.
     #[test]
-    fn test_q15_bids() {
+    fn test_q15() {
         let input_vecs = vec![
             vec![(
                 Event::Bid(Bid {
+                    // Right on 1970 epoch
+                    date_time: 0,
                     auction: 1,
+                    bidder: 1,
                     ..make_bid()
                 }),
                 1,
@@ -98,19 +249,37 @@ mod tests {
             vec![
                 (
                     Event::Bid(Bid {
+                        // Six minutes after epoch
+                        date_time: 1000 * 6,
+                        // Rank 2 bid
+                        price: 10_001,
                         auction: 2,
+                        bidder: 1,
                         ..make_bid()
                     }),
                     1,
                 ),
                 (
                     Event::Bid(Bid {
+                        // One millisecond before next day
+                        date_time: 24 * 60 * 60 * 1000 - 1,
+                        // Rank 3 bid
+                        price: 1_000_001,
                         auction: 3,
+                        bidder: 2,
                         ..make_bid()
                     }),
                     1,
                 ),
             ],
+            vec![(
+                Event::Bid(Bid {
+                    date_time: MILLIS_2022_01_01,
+                    auction: 4,
+                    ..make_bid()
+                }),
+                1,
+            )],
         ]
         .into_iter();
 
@@ -122,6 +291,11 @@ mod tests {
                     Q15Output {
                         day: String::from("1970-01-01"),
                         total_bids: 1,
+                        rank1_bids: 1,
+                        total_bidders: 1,
+                        rank1_bidders: 1,
+                        total_auctions: 1,
+                        rank1_auctions: 1,
                         ..Q15Output::default()
                     } => 1,
                 ],
@@ -129,11 +303,39 @@ mod tests {
                     Q15Output {
                         day: String::from("1970-01-01"),
                         total_bids: 1,
+                        rank1_bids: 1,
+                        total_bidders: 1,
+                        rank1_bidders: 1,
+                        total_auctions: 1,
+                        rank1_auctions: 1,
                         ..Q15Output::default()
                     } => -1,
                     Q15Output {
                         day: String::from("1970-01-01"),
                         total_bids: 3,
+                        rank1_bids: 1,
+                        rank2_bids: 1,
+                        rank3_bids: 1,
+                        total_bidders: 2,
+                        rank1_bidders: 1,
+                        rank2_bidders: 1,
+                        rank3_bidders: 1,
+                        total_auctions: 3,
+                        rank1_auctions: 1,
+                        rank2_auctions: 1,
+                        rank3_auctions: 1,
+                        ..Q15Output::default()
+                    } => 1,
+                ],
+                zset![
+                    Q15Output {
+                        day: String::from("2022-01-01"),
+                        total_bids: 1,
+                        rank1_bids: 1,
+                        total_bidders: 1,
+                        rank1_bidders: 1,
+                        total_auctions: 1,
+                        rank1_auctions: 1,
                         ..Q15Output::default()
                     } => 1,
                 ],

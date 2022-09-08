@@ -51,7 +51,7 @@ clap = { version = "3.2.8", features = ["derive", "env"] }
 reqwest = { version = "0.11.11", features = ["blocking"] }
 ascii_table = "4.0.2"
 num-format = "0.4.0"
-time = "0.3.14"
+time = { version = "0.3.14", features = ["formatting"] }
 
 [target.'cfg(unix)'.dev-dependencies]
 libc = "0.2.127"
