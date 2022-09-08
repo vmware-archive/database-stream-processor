@@ -57,7 +57,7 @@ use time::{
 /// GROUP BY DATE_FORMAT(dateTime, 'yyyy-MM-dd');
 /// ```
 
-#[derive(Eq, Clone, DeepSizeOf, Debug, Default, PartialEq, PartialOrd, Ord)]
+#[derive(Eq, Clone, DeepSizeOf, Debug, Default, Hash, PartialEq, PartialOrd, Ord)]
 pub struct Q15Output {
     day: String,
     total_bids: usize,
@@ -213,8 +213,9 @@ mod tests {
     use super::*;
     use crate::{
         nexmark::{generator::tests::make_bid, model::Bid},
-        zset,
+        zset, Runtime,
     };
+    use rstest::rstest;
 
     // 52 years with 13 leap years (extra days)
     const MILLIS_2022_01_01: u64 = (52 * 365 + 13) * 24 * 60 * 60 * 1000;
@@ -224,8 +225,11 @@ mod tests {
     // fields that would have been of interest to that test, afaict, so comparing
     // the complete expected output is what I've done as usual. Let me know if
     // there's a way.
-    #[test]
-    fn test_q15() {
+    #[rstest]
+    #[case::single_threaded(1)]
+    #[case::multi_threaded_2_threads(2)]
+    #[case::multi_threaded_4_threads(4)]
+    fn test_q15(#[case] num_threads: usize) {
         let input_vecs = vec![
             vec![(
                 Event::Bid(Bid {
@@ -274,7 +278,7 @@ mod tests {
         ]
         .into_iter();
 
-        let (circuit, mut input_handle) = Circuit::build(move |circuit| {
+        let (mut dbsp, mut input_handle) = Runtime::init_circuit(num_threads, move |circuit| {
             let (stream, input_handle) = circuit.add_input_zset::<Event, isize>();
 
             let mut expected_output = vec![
@@ -335,7 +339,11 @@ mod tests {
 
             let output = q15(stream);
 
-            output.inspect(move |batch| assert_eq!(batch, &expected_output.next().unwrap()));
+            output.gather(0).inspect(move |batch| {
+                if Runtime::worker_index() == 0 {
+                    assert_eq!(batch, &expected_output.next().unwrap())
+                }
+            });
 
             input_handle
         })
@@ -343,7 +351,7 @@ mod tests {
 
         for mut vec in input_vecs {
             input_handle.append(&mut vec);
-            circuit.step().unwrap();
+            dbsp.step().unwrap();
         }
     }
 }
