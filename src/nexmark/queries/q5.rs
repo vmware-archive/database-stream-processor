@@ -60,8 +60,7 @@ use crate::{
 ///     AuctionBids.num >= MaxBids.maxn;
 /// ```
 
-/// If I am reading Flink docs
-/// (https://nightlies.apache.org/flink/flink-docs-stable/docs/dev/datastream/operators/windows/)
+/// If I am reading [Flink docs](https://nightlies.apache.org/flink/flink-docs-stable/docs/dev/datastream/operators/windows/)
 /// correctly, its default behavior is to trigger computation on
 /// a window once the watermark passes the end of the window. Furthermore, since
 /// the default "lateness" attribute of a stream is 0 the aggregate won't get
@@ -99,10 +98,7 @@ pub fn q5(input: NexmarkStream) -> Q5Stream {
     let windowed_bids: Stream<_, OrdZSet<u64, _>> = bids_by_time.window(&window_bounds);
 
     // Count the number of bids per auction.
-    let auction_counts = windowed_bids.aggregate_linear::<(), _, _>(|&_, &()| -> isize {
-        //println!("key: {:?}, vals: {:?}", key, vals);
-        1
-    });
+    let auction_counts = windowed_bids.aggregate_linear::<(), _, _>(|&_key, &()| -> isize { 1 });
 
     // Find the largest number of bids across all auctions.
     let max_auction_count = auction_counts
@@ -113,7 +109,7 @@ pub fn q5(input: NexmarkStream) -> Q5Stream {
     // Filter out auctions with the largest number of bids.
     // TODO: once the query works, this can be done more efficiently
     // using `apply2`.
-    let auction_by_count = auction_counts.map_index(|(auction, count)| (*count, auction.clone()));
+    let auction_by_count = auction_counts.map_index(|(auction, count)| (*count, *auction));
 
     max_auction_count.join::<(), _, _, _>(&auction_by_count, |max_count, &(), &auction| {
         (auction, *max_count as usize)
@@ -125,117 +121,94 @@ mod tests {
     use super::*;
     use crate::{
         nexmark::{
-            generator::tests::{make_auction, make_bid},
-            model::{Auction, Bid, Event},
+            generator::tests::make_bid,
+            model::{Bid, Event},
         },
-        operator::Generator,
-        zset, Circuit, Stream,
+        zset, Circuit,
     };
+    use rstest::rstest;
 
-    #[test]
-    fn test_q5_windows_from_latest_bid() {
-        let root = Circuit::build(move |circuit| {
-            type Time = usize;
+    #[rstest]
+    // Auction 2 has a single bid at t=18_000, so window is 6_000-16_000, which
+    // leaves auction 1 as the hottest with a single bid (11_000).
+    #[case::latest_bid_determines_window(
+        vec![vec![2_001, 4_000, 11_000]],
+        vec![vec![18_000]],
+        vec![zset! { (1, 1) => 1}] )]
+    // Auction 2's single bid is at 17_000 which leaves the rounded window at
+    // 4_000-14_000, capturing 2 bids from auction 1 only (4_000 and 11_000).
+    #[case::windows_rounded_to_2_s_boundary(
+        vec![vec![2_001, 4_000, 11_000, 15_000]],
+        vec![vec![17_000]],
+        vec![zset! { (1, 2) => 1}] )]
+    // Both auctions have the maximum two bids in the window (0 - 2000)
+    #[case::multiple_auctions_have_same_hotness(
+        vec![vec![2_000, 3_999, 6_000]],
+        vec![vec![2_000, 3_999]],
+        vec![zset! { (1, 2) => 1, (2, 2) => 1}])]
+    // A second batch arrives changing the window to 6_000-16_000, switching
+    // the hottest auction from 1 to 2.
+    #[case::batch_2_updates_hotness_to_new_window(
+        vec![vec![2_000, 4_000, 6_000], vec![18_000]],
+        vec![vec![2_000, 4_000, 8_000, 10_000], vec![]],
+        vec![zset! {(1, 3) => 1}, zset! {(2, 2) => 1, (1, 3) => -1}])]
+    fn test_q5(
+        #[case] auction1_batches: Vec<Vec<u64>>,
+        #[case] auction2_batches: Vec<Vec<u64>>,
+        #[case] expected_zsets: Vec<OrdZSet<(u64, usize), isize>>,
+    ) {
+        // Just ensure we don't get a false positive with zip only including
+        // part of the input data. We could instead directly import zip_eq?
+        assert_eq!(
+            auction1_batches.len(),
+            auction2_batches.len(),
+            "Input batches for auction 1 and 2 must have the same length."
+        );
+        let input_vecs =
+            auction1_batches
+                .into_iter()
+                .zip(auction2_batches)
+                .map(|(a1_batch, a2_batch)| {
+                    a1_batch
+                        .into_iter()
+                        .map(|date_time| {
+                            (
+                                Event::Bid(Bid {
+                                    auction: 1,
+                                    date_time,
+                                    ..make_bid()
+                                }),
+                                1,
+                            )
+                        })
+                        .chain(a2_batch.into_iter().map(|date_time| {
+                            (
+                                Event::Bid(Bid {
+                                    auction: 2,
+                                    date_time,
+                                    ..make_bid()
+                                }),
+                                1,
+                            )
+                        }))
+                        .collect()
+                });
 
-            let mut source = vec![zset! {
-                Event::Auction(Auction {
-                    id: 1,
-                    ..make_auction()
-                }) => 1,
-                // This bid should not be included in the aggregate for the
-                // first batch, as it's earlier than 12000 - 10000.
-                Event::Bid(Bid {
-                    auction: 1,
-                    date_time: 1000,
-                    ..make_bid()
-                }) => 1,
-                Event::Bid(Bid {
-                    auction: 1,
-                    date_time: 2000,
-                    ..make_bid()
-                }) => 1,
-                Event::Bid(Bid {
-                    auction: 1,
-                    date_time: 12000,
-                    ..make_bid()
-                }) => 1,
-            }]
-            .into_iter();
-            let input: Stream<_, OrdZSet<Event, isize>> =
-                circuit.add_source(Generator::new(move || source.next().unwrap()));
+        let (circuit, mut input_handle) = Circuit::build(move |circuit| {
+            let (stream, input_handle) = circuit.add_input_zset::<Event, isize>();
 
-            let mut expected_output = vec![zset! { (1, 2) => 1 }].into_iter();
+            let output = q5(stream);
 
-            let output = q5(input);
-
+            let mut expected_output = expected_zsets.into_iter();
             output.inspect(move |batch| assert_eq!(batch, &expected_output.next().unwrap()));
+
+            input_handle
         })
-        .unwrap()
-        .0;
+        .unwrap();
 
-        for _ in 0..1 {
-            root.step().unwrap();
-        }
-    }
-
-    #[test]
-    fn test_q5_contains_hottest_auctions() {
-        let root = Circuit::build(move |circuit| {
-            type Time = usize;
-
-            let mut source = vec![zset! {
-                Event::Auction(Auction {
-                    id: 1,
-                    ..make_auction()
-                }) => 1,
-                Event::Auction(Auction {
-                    id: 2,
-                    ..make_auction()
-                }) => 1,
-                Event::Auction(Auction {
-                    id: 3,
-                    ..make_auction()
-                }) => 1,
-                Event::Bid(Bid {
-                    auction: 1,
-                    date_time: 1000,
-                    price: 80,
-                    ..make_bid()
-                }) => 1,
-                Event::Bid(Bid {
-                    auction: 1,
-                    date_time: 2000,
-                    price: 80,
-                    ..make_bid()
-                }) => 1,
-                Event::Bid(Bid {
-                    auction: 1,
-                    date_time: 3000,
-                    ..make_bid()
-                }) => 1,
-                Event::Bid(Bid {
-                    auction: 2,
-                    date_time: 2000,
-                    price: 100,
-                    ..make_bid()
-                }) => 1,
-            }]
-            .into_iter();
-
-            let mut expected_output = vec![zset! { (1, 3) => 1, (2, 1) => 1 }].into_iter();
-
-            let input: Stream<_, OrdZSet<Event, isize>> =
-                circuit.add_source(Generator::new(move || source.next().unwrap()));
-
-            let output = q5(input);
-
-            output.inspect(move |batch| assert_eq!(batch, &expected_output.next().unwrap()));
-        })
-        .unwrap()
-        .0;
-
-        for _ in 0..1 {
-            root.step().unwrap();
+        for mut vec in input_vecs {
+            input_handle.append(&mut vec);
+            circuit.step().unwrap();
         }
     }
 }
