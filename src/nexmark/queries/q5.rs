@@ -17,7 +17,7 @@ use crate::{
 ///
 /// From [Nexmark q5.sql](https://github.com/nexmark/nexmark/blob/v0.2.0/nexmark-flink/src/main/resources/queries/q5.sql):
 ///
-/// ```
+/// ```sql
 /// CREATE TABLE discard_sink (
 ///   auction  BIGINT,
 ///   num  BIGINT
