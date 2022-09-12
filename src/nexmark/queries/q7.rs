@@ -130,6 +130,10 @@ mod tests {
                 (1, 1, 1_000_000, 21_000, String::new()) => 1,
             }],
     )]
+    #[case::multiple_max_bids_latest_wins(
+        vec![vec![(11_000, 90), (14_000, 90), (16_000, 90), (21_000, 1_000_000), (32_000, 1_000_000)]],
+        vec![zset! {(1, 1, 90, 16_000, String::new()) => 1}],
+    )]
     fn test_q7(
         #[case] input_batches: Vec<Vec<(u64, usize)>>,
         #[case] expected_zsets: Vec<OrdZSet<(u64, u64, usize, u64, String), isize>>,
