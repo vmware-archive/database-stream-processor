@@ -36,8 +36,8 @@ use crate::{
 /// WHERE B.dateTime BETWEEN B1.dateTime  - INTERVAL '10' SECOND AND B1.dateTime;
 /// ```
 
-type Q7Stream = Stream<Circuit<()>, OrdZSet<(u64, u64, usize, u64, String), isize>>;
 type Q7Output = (u64, u64, usize, u64, String);
+type Q7Stream = Stream<Circuit<()>, OrdZSet<Q7Output, isize>>;
 
 const TUMBLE_SECONDS: u64 = 10;
 
