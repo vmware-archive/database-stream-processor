@@ -1,7 +1,7 @@
 use super::NexmarkStream;
 use crate::{
     nexmark::model::Event,
-    operator::{FilterMap, Max},
+    operator::{FilterMap, Min},
     Circuit, OrdIndexedZSet, OrdZSet, Stream,
 };
 
@@ -69,16 +69,26 @@ pub fn q7(input: NexmarkStream) -> Q7Stream {
 
     // Only consider bids within the current window.
     let windowed_bids: Stream<_, OrdZSet<Q7Output, _>> = bids_by_time.window(&window_bounds);
+    let bids_by_price = windowed_bids.map_index(|(auction, bidder, price, date_time, extra)| {
+        (
+            *price,
+            (*auction, *bidder, *price, *date_time, extra.clone()),
+        )
+    });
 
     // Find the maximum bid across all bids.
     windowed_bids
-        .map_index(|(auction, bidder, price, date_time, extra)| {
-            ((), (*price, *date_time, *auction, *bidder, extra.clone()))
+        .map_index(|(_auction, _bidder, price, _date_time, _extra)| {
+            // Negate price, so we can use the more efficient `Min` aggregate
+            // instead of `Max`.
+            // TODO: we can go back to using `Max` once we have an efficient implementation
+            // using reverse cursors.
+            ((), -(*price as isize))
         })
-        .aggregate::<(), _>(Max)
-        .map(|((), (price, date_time, auction, bidder, extra))| {
-            (*auction, *bidder, *price, *date_time, extra.clone())
-        })
+        .aggregate::<(), _>(Min)
+        .map(|((), price)| ((-*price) as usize))
+        // Find _all_ bids with computed max price.
+        .join::<(), _, _, _>(&bids_by_price, |_price, &(), tuple| tuple.clone())
 }
 
 #[cfg(test)]
@@ -130,9 +140,9 @@ mod tests {
                 (1, 1, 1_000_000, 21_000, String::new()) => 1,
             }],
     )]
-    #[case::multiple_max_bids_latest_wins(
+    #[case::multiple_max_bids(
         vec![vec![(11_000, 90), (14_000, 90), (16_000, 90), (21_000, 1_000_000), (32_000, 1_000_000)]],
-        vec![zset! {(1, 1, 90, 16_000, String::new()) => 1}],
+        vec![zset! {(1, 1, 90, 11_000, String::new()) => 1, (1, 1, 90, 14_000, String::new()) => 1, (1, 1, 90, 16_000, String::new()) => 1}],
     )]
     fn test_q7(
         #[case] input_batches: Vec<Vec<(u64, usize)>>,
