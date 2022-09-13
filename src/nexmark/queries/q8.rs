@@ -1,5 +1,9 @@
 use super::NexmarkStream;
-use crate::{nexmark::model::Event, operator::FilterMap, Circuit, OrdIndexedZSet, OrdZSet, Stream};
+use crate::{
+    nexmark::model::{Event, ImmString},
+    operator::FilterMap,
+    Circuit, OrdIndexedZSet, OrdZSet, Stream,
+};
 
 ///
 /// Query 8: Monitor New Users
@@ -39,17 +43,16 @@ use crate::{nexmark::model::Event, operator::FilterMap, Circuit, OrdIndexedZSet,
 /// ON P.id = A.seller AND P.starttime = A.starttime AND P.endtime = A.endtime;
 /// ```
 
-type Q8Stream = Stream<Circuit<()>, OrdZSet<(u64, String, u64), isize>>;
+type Q8Stream = Stream<Circuit<()>, OrdZSet<(u64, ImmString, u64), isize>>;
 
 const TUMBLE_SECONDS: u64 = 10;
 
 pub fn q8(input: NexmarkStream) -> Q8Stream {
     // People indexed by the date they entered the system.
-    let people_by_time: Stream<_, OrdIndexedZSet<u64, (u64, (String, u64)), _>> = input
-        .flat_map_index(|event| match event {
-            Event::Person(p) => Some((p.date_time, (p.id, (p.name.clone(), p.date_time)))),
-            _ => None,
-        });
+    let people_by_time = input.flat_map_index(|event| match event {
+        Event::Person(p) => Some((p.date_time, (p.id, (p.name.clone(), p.date_time)))),
+        _ => None,
+    });
 
     // Auctions indexed by the date they were created.
     let auctions_by_time: Stream<_, OrdIndexedZSet<u64, u64, _>> =
@@ -76,9 +79,8 @@ pub fn q8(input: NexmarkStream) -> Q8Stream {
     // exactly once as we do here.
     // TODO: need to include the window lower bound in the output ordzset here so it
     // can be returned below in the output.
-    let windowed_people: Stream<_, OrdZSet<(u64, (String, u64)), _>> =
-        people_by_time.window(&window_bounds);
-    let windowed_auctions: Stream<_, OrdZSet<u64, _>> = auctions_by_time.window(&window_bounds);
+    let windowed_people = people_by_time.window(&window_bounds);
+    let windowed_auctions = auctions_by_time.window(&window_bounds);
 
     let people_by_id = windowed_people.index();
 
@@ -110,10 +112,10 @@ mod tests {
     // in the next.
     #[case::people_with_auction(
         vec![vec![
-            (1, String::from("James Potter"), 9_000),
-            (2, String::from("Lily Potter"), 12_000),
-            (3, String::from("Harry Potter"), 15_000),
-            (4, String::from("Albus D"), 18_000)]],
+            (1, ImmString::from("James Potter".to_string()), 9_000),
+            (2, ImmString::from("Lily Potter".to_string()), 12_000),
+            (3, ImmString::from("Harry Potter".to_string()), 15_000),
+            (4, ImmString::from("Albus D".to_string()), 18_000)]],
         vec![vec![
             (1, 11_000),
             (2, 15_000),
@@ -121,8 +123,8 @@ mod tests {
             (4, 21_000),
             (99, 32_000)]],
         vec![zset! {
-            (2, String::from("Lily Potter"), 10_000) => 1,
-            (3, String::from("Harry Potter"), 10_000) => 1,
+            (2, String::from("Lily Potter").into(), 10_000) => 1,
+            (3, String::from("Harry Potter").into(), 10_000) => 1,
         }],
     )]
     // In this case, both persons 1 and 2 are added in the 10-20 window,
@@ -132,10 +134,10 @@ mod tests {
     #[case::multiple_batches(
         vec![
             vec![
-                (1, String::from("James Potter"), 10_000),
-                (2, String::from("Lily Potter"), 12_000),
+                (1, String::from("James Potter").into(), 10_000),
+                (2, String::from("Lily Potter").into(), 12_000),
             ],
-            vec![(3, String::from("Harry Potter"), 22_000)],
+            vec![(3, String::from("Harry Potter").into(), 22_000)],
             vec![],
         ],
         vec![
@@ -147,18 +149,18 @@ mod tests {
             vec![(101, 42_000)]
         ],
         vec![zset! {}, zset! {
-            (1, String::from("James Potter"), 10_000) => 1,
-            (2, String::from("Lily Potter"), 10_000) => 1,
+            (1, String::from("James Potter").into(), 10_000) => 1,
+            (2, String::from("Lily Potter").into(), 10_000) => 1,
         }, zset! {
-            (1, String::from("James Potter"), 10_000) => -1,
-            (2, String::from("Lily Potter"), 10_000) => -1,
-            (3, String::from("Harry Potter"), 20_000) => 1,
+            (1, String::from("James Potter").into(), 10_000) => -1,
+            (2, String::from("Lily Potter").into(), 10_000) => -1,
+            (3, String::from("Harry Potter").into(), 20_000) => 1,
         }]
     )]
     fn test_q8(
-        #[case] input_people_batches: Vec<Vec<(u64, String, u64)>>,
+        #[case] input_people_batches: Vec<Vec<(u64, ImmString, u64)>>,
         #[case] input_auction_batches: Vec<Vec<(u64, u64)>>,
-        #[case] expected_zsets: Vec<OrdZSet<(u64, String, u64), isize>>,
+        #[case] expected_zsets: Vec<OrdZSet<(u64, ImmString, u64), isize>>,
     ) {
         // Just ensure we don't get a false positive with zip only including
         // part of the input data. We could instead directly import zip_eq?
