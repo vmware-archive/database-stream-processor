@@ -75,15 +75,14 @@ pub fn q8(input: NexmarkStream) -> Q8Stream {
     // Only consider people and auctions within the current window.
     // Similar to queries 5 and 6, this differs in semantics from the SQL which
     // reads as though it calculates all the windows, but as per the comment in
-    // q5.rs, based on the Flink docs, it is aggregates within each window
+    // q5.rs, based on the Flink docs, it is aggregated within each window
     // exactly once as we do here.
-    // TODO: need to include the window lower bound in the output ordzset here so it
-    // can be returned below in the output.
     let windowed_people = people_by_time.window(&window_bounds);
     let windowed_auctions = auctions_by_time.window(&window_bounds);
 
     let people_by_id = windowed_people.index();
 
+    // Re-calculate the window start-time to include in the output.
     people_by_id.join::<(), _, _, _>(&windowed_auctions, |&p_id, (p_name, p_date_time), ()| {
         (
             p_id,
