@@ -45,9 +45,9 @@ const TUMBLE_SECONDS: u64 = 10;
 
 pub fn q8(input: NexmarkStream) -> Q8Stream {
     // People indexed by the date they entered the system.
-    let people_by_time: Stream<_, OrdIndexedZSet<u64, (u64, String), _>> =
-        input.flat_map_index(|event| match event {
-            Event::Person(p) => Some((p.date_time, (p.id, p.name.clone()))),
+    let people_by_time: Stream<_, OrdIndexedZSet<u64, (u64, (String, u64)), _>> = input
+        .flat_map_index(|event| match event {
+            Event::Person(p) => Some((p.date_time, (p.id, (p.name.clone(), p.date_time)))),
             _ => None,
         });
 
@@ -76,17 +76,18 @@ pub fn q8(input: NexmarkStream) -> Q8Stream {
     // exactly once as we do here.
     // TODO: need to include the window lower bound in the output ordzset here so it
     // can be returned below in the output.
-    let windowed_people: Stream<_, OrdZSet<(u64, String), _>> =
+    let windowed_people: Stream<_, OrdZSet<(u64, (String, u64)), _>> =
         people_by_time.window(&window_bounds);
     let windowed_auctions: Stream<_, OrdZSet<u64, _>> = auctions_by_time.window(&window_bounds);
 
     let people_by_id = windowed_people.index();
-    let auctions_by_seller_id = windowed_auctions.map_index(|&a_seller| (a_seller, ()));
 
-    people_by_id.join::<(), _, _, _>(&auctions_by_seller_id, |&p_id, p_name, _| {
-        // TODO: How to return the lower bound of the window at this point, rather than
-        // the date_time of the person.
-        (p_id, p_name.clone(), 0)
+    people_by_id.join::<(), _, _, _>(&windowed_auctions, |&p_id, (p_name, p_date_time), ()| {
+        (
+            p_id,
+            p_name.clone(),
+            *p_date_time - (*p_date_time % (TUMBLE_SECONDS * 1000)),
+        )
     })
 }
 
