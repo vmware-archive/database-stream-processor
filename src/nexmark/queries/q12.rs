@@ -41,23 +41,13 @@ fn window_for_process_time(ptime: u64) -> (u64, u64) {
 // This function enables us to test the q12 functionality without using the
 // actual process time, while the actual q12 function below uses the real
 // process time.
-// TODO: I originally planned to pass a FnMut closure for process_time that
-// just emits a new u64 each time it is called, but can't do this as the
-// closure of `flat_map_index` is Fn not FnMut, and would need to capture the
-// process_time closure. So right now, it's quite ugly: to avoid an `FnMut`,
-// I'm instead passing an optional vector of times with the assumption that
-// those times are indexed by the bid.auction.
-// There must be a better way without resorting to interior mutability? Anyway,
-// it works for the tests and is only used in the tests.
-fn q12_for_process_time(input: NexmarkStream, process_times: Option<Vec<u64>>) -> Q12Stream {
+fn q12_for_process_time<F>(input: NexmarkStream, process_time: F) -> Q12Stream
+where
+    F: Fn() -> u64 + 'static,
+{
     let bids_by_bidder_window = input.flat_map_index(move |event| match event {
-        // TODO: Can I call process_time() just once per batch, rather than for every Bid? How?
         Event::Bid(b) => {
-            let t = match &process_times {
-                Some(v) => v[b.auction as usize],
-                None => process_time(),
-            };
-            let (starttime, endtime) = window_for_process_time(t);
+            let (starttime, endtime) = window_for_process_time(process_time());
             Some(((b.bidder, starttime, endtime), ()))
         }
         _ => None,
@@ -69,7 +59,7 @@ fn q12_for_process_time(input: NexmarkStream, process_times: Option<Vec<u64>>) -
 }
 
 pub fn q12(input: NexmarkStream) -> Q12Stream {
-    q12_for_process_time(input, None)
+    q12_for_process_time(input, process_time)
 }
 
 #[cfg(test)]
@@ -83,10 +73,11 @@ mod tests {
         zset, Circuit,
     };
     use rstest::rstest;
+    use std::cell::RefCell;
 
     #[rstest]
     #[case::one_bidder_single_window(
-        vec![vec![(1, 0), (1, 1), (1, 2), (1, 3)], vec![(1, 4), (1, 5)]],
+        vec![vec![(1, 1), (1, 2), (1, 99), (1, 25)], vec![(1, 16), (1, 2)]],
         vec![3_000, 4_000, 5_000, 6_000, 7_000, 8_000],
         vec![
             zset! {(1, 4, 0, 10_000) => 1},
@@ -94,7 +85,7 @@ mod tests {
         ],
     )]
     #[case::one_bidder_multiple_windows(
-        vec![vec![(1, 0), (1, 1), (1, 2), (1, 3)], vec![(1, 4), (1, 5)]],
+        vec![vec![(1, 99), (1, 63), (1, 2), (1, 45)], vec![(1, 29), (1, 21)]],
         vec![3_000, 4_000, 5_000, 6_000, 11_000, 12_000],
         vec![
             zset! {(1, 4, 0, 10_000) => 1},
@@ -102,8 +93,8 @@ mod tests {
         ],
     )]
     #[case::multiple_bidders_multiple_windows(
-        vec![vec![(1, 0), (1, 1), (1, 2), (1, 3), (2, 5), (2, 6)], vec![(1, 7), (1, 8)]],
-        vec![3_000, 4_000, 5_000, 6_000, 7_000, 8_000, 9_000, 11_000, 12_000],
+        vec![vec![(1, 12), (1, 102), (1, 22), (1, 79), (2, 16), (2, 81)], vec![(1, 49), (1, 77)]],
+        vec![3_000, 4_000, 5_000, 6_000, 7_000, 8_000, 11_000, 12_000],
         vec![
             zset! {(1, 4, 0, 10_000) => 1, (2, 2, 0, 10_000) => 1},
             zset! {(1, 2, 10_000, 20_000) => 1},
@@ -130,10 +121,13 @@ mod tests {
                 .collect()
         });
 
+        let proc_time_iter = RefCell::new(proc_times.into_iter());
+        let process_time = move || -> u64 { proc_time_iter.borrow_mut().next().unwrap() };
+
         let (circuit, mut input_handle) = Circuit::build(move |circuit| {
             let (stream, input_handle) = circuit.add_input_zset::<Event, isize>();
 
-            let output = q12_for_process_time(stream, Some(proc_times));
+            let output = q12_for_process_time(stream, process_time);
 
             let mut expected_output = expected_zsets.into_iter();
             output.inspect(move |batch| assert_eq!(batch, &expected_output.next().unwrap()));
