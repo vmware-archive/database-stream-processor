@@ -1,10 +1,11 @@
 use super::NexmarkStream;
 use crate::{
-    nexmark::model::{Event, ImmString},
+    nexmark::model::Event,
     operator::{FilterMap, Max},
     Circuit, OrdIndexedZSet, OrdZSet, Stream,
 };
-use deepsize::DeepSizeOf;
+use arcstr::ArcStr;
+use size_of::SizeOf;
 use std::{
     hash::Hash,
     time::{Duration, SystemTime},
@@ -67,11 +68,11 @@ use time::{
 /// GROUP BY channel, DATE_FORMAT(dateTime, 'yyyy-MM-dd');
 /// ```
 
-#[derive(Eq, Clone, DeepSizeOf, Debug, Default, PartialEq, PartialOrd, Ord, Hash)]
+#[derive(Eq, Clone, Debug, Default, Hash, PartialEq, PartialOrd, Ord, SizeOf)]
 pub struct Q16Output {
-    channel: ImmString,
-    day: ImmString,
-    minute: ImmString,
+    channel: ArcStr,
+    day: ArcStr,
+    minute: ArcStr,
     total_bids: usize,
     rank1_bids: usize,
     rank2_bids: usize,
@@ -90,7 +91,7 @@ type OrdinalDate = (i32, u16);
 
 type Q16Stream = Stream<Circuit<()>, OrdZSet<Q16Output, isize>>;
 
-#[derive(Clone, Debug, DeepSizeOf, Default, Eq, Hash, PartialEq, PartialOrd, Ord)]
+#[derive(Clone, Debug, Default, Eq, Hash, PartialEq, PartialOrd, Ord, SizeOf)]
 pub struct Q16Intermediate1(
     isize,
     (u8, u8),
@@ -105,7 +106,7 @@ pub struct Q16Intermediate1(
     isize,
 );
 
-#[derive(Clone, Debug, DeepSizeOf, Default, Eq, Hash, PartialEq, PartialOrd, Ord)]
+#[derive(Clone, Debug, Default, Eq, Hash, PartialEq, PartialOrd, Ord, SizeOf)]
 pub struct Q16Intermediate2(
     isize,
     (u8, u8),
@@ -233,7 +234,7 @@ pub fn q16(input: NexmarkStream) -> Q16Stream {
         .index();
 
     // Compute bids per channel per day.
-    let count_total_bids: Stream<_, OrdIndexedZSet<(ImmString, OrdinalDate), isize, _>> = bids
+    let count_total_bids: Stream<_, OrdIndexedZSet<(ArcStr, OrdinalDate), isize, _>> = bids
         .index()
         .aggregate_linear::<(), _, _>(|_, _| -> isize { 1 });
     let max_minutes = bids
@@ -241,37 +242,34 @@ pub fn q16(input: NexmarkStream) -> Q16Stream {
             ((channel.clone(), *day), *mins)
         })
         .aggregate::<(), _>(Max);
-    let count_rank1_bids: Stream<_, OrdIndexedZSet<(ImmString, OrdinalDate), isize, _>> =
-        rank1_bids
-            .index()
-            .aggregate_linear::<(), _, _>(|_, _| -> isize { 1 });
-    let count_rank2_bids: Stream<_, OrdIndexedZSet<(ImmString, OrdinalDate), isize, _>> =
-        rank2_bids
-            .index()
-            .aggregate_linear::<(), _, _>(|_, _| -> isize { 1 });
-    let count_rank3_bids: Stream<_, OrdIndexedZSet<(ImmString, OrdinalDate), isize, _>> =
-        rank3_bids
-            .index()
-            .aggregate_linear::<(), _, _>(|_, _| -> isize { 1 });
+    let count_rank1_bids: Stream<_, OrdIndexedZSet<(ArcStr, OrdinalDate), isize, _>> = rank1_bids
+        .index()
+        .aggregate_linear::<(), _, _>(|_, _| -> isize { 1 });
+    let count_rank2_bids: Stream<_, OrdIndexedZSet<(ArcStr, OrdinalDate), isize, _>> = rank2_bids
+        .index()
+        .aggregate_linear::<(), _, _>(|_, _| -> isize { 1 });
+    let count_rank3_bids: Stream<_, OrdIndexedZSet<(ArcStr, OrdinalDate), isize, _>> = rank3_bids
+        .index()
+        .aggregate_linear::<(), _, _>(|_, _| -> isize { 1 });
 
     // Count unique bidders per channel per day.
-    let count_total_bidders: Stream<_, OrdIndexedZSet<(ImmString, OrdinalDate), isize, _>> =
+    let count_total_bidders: Stream<_, OrdIndexedZSet<(ArcStr, OrdinalDate), isize, _>> =
         distinct_bidder.aggregate_linear::<(), _, _>(|_, _| -> isize { 1 });
-    let count_rank1_bidders: Stream<_, OrdIndexedZSet<(ImmString, OrdinalDate), isize, _>> =
+    let count_rank1_bidders: Stream<_, OrdIndexedZSet<(ArcStr, OrdinalDate), isize, _>> =
         rank1_distinct_bidder.aggregate_linear::<(), _, _>(|_, _| -> isize { 1 });
-    let count_rank2_bidders: Stream<_, OrdIndexedZSet<(ImmString, OrdinalDate), isize, _>> =
+    let count_rank2_bidders: Stream<_, OrdIndexedZSet<(ArcStr, OrdinalDate), isize, _>> =
         rank2_distinct_bidder.aggregate_linear::<(), _, _>(|_, _| -> isize { 1 });
-    let count_rank3_bidders: Stream<_, OrdIndexedZSet<(ImmString, OrdinalDate), isize, _>> =
+    let count_rank3_bidders: Stream<_, OrdIndexedZSet<(ArcStr, OrdinalDate), isize, _>> =
         rank3_distinct_bidder.aggregate_linear::<(), _, _>(|_, _| -> isize { 1 });
 
     // Count unique auctions per channel per day.
-    let count_total_auctions: Stream<_, OrdIndexedZSet<(ImmString, OrdinalDate), isize, _>> =
+    let count_total_auctions: Stream<_, OrdIndexedZSet<(ArcStr, OrdinalDate), isize, _>> =
         distinct_auction.aggregate_linear::<(), _, _>(|_, _| -> isize { 1 });
-    let count_rank1_auctions: Stream<_, OrdIndexedZSet<(ImmString, OrdinalDate), isize, _>> =
+    let count_rank1_auctions: Stream<_, OrdIndexedZSet<(ArcStr, OrdinalDate), isize, _>> =
         rank1_distinct_auction.aggregate_linear::<(), _, _>(|_, _| -> isize { 1 });
-    let count_rank2_auctions: Stream<_, OrdIndexedZSet<(ImmString, OrdinalDate), isize, _>> =
+    let count_rank2_auctions: Stream<_, OrdIndexedZSet<(ArcStr, OrdinalDate), isize, _>> =
         rank2_distinct_auction.aggregate_linear::<(), _, _>(|_, _| -> isize { 1 });
-    let count_rank3_auctions: Stream<_, OrdIndexedZSet<(ImmString, OrdinalDate), isize, _>> =
+    let count_rank3_auctions: Stream<_, OrdIndexedZSet<(ArcStr, OrdinalDate), isize, _>> =
         rank3_distinct_auction.aggregate_linear::<(), _, _>(|_, _| -> isize { 1 });
 
     // The following abomination simply joins all aggregates computed above into a
