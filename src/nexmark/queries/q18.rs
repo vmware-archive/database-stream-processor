@@ -1,7 +1,7 @@
 use super::NexmarkStream;
 use crate::{
     nexmark::model::{Bid, Event},
-    operator::{FilterMap, Max},
+    operator::{FilterMap, Fold},
     Circuit, OrdZSet, Stream,
 };
 
@@ -35,21 +35,17 @@ type Q18Stream = Stream<Circuit<()>, OrdZSet<Bid, isize>>;
 
 pub fn q18(input: NexmarkStream) -> Q18Stream {
     let bids_by_auction_bidder = input.flat_map_index(|event| match event {
-        Event::Bid(b) => Some(((b.auction, b.bidder), b.date_time)),
+        Event::Bid(b) => Some(((b.auction, b.bidder), b.clone())),
         _ => None,
     });
 
-    let latest_bid_per_auction_bidder = bids_by_auction_bidder
-        .aggregate::<(), _>(Max)
-        .map(|(&(auction, bidder), &date_time)| ((auction, bidder, date_time), ()))
-        .index();
-
-    input
-        .flat_map_index(|event| match event {
-            Event::Bid(b) => Some(((b.auction, b.bidder, b.date_time), b.clone())),
-            _ => None,
-        })
-        .join::<(), _, _, _>(&latest_bid_per_auction_bidder, |_, bid, _| bid.clone())
+    bids_by_auction_bidder
+        .aggregate::<(), _>(Fold::new(Bid::default(), |top: &mut Bid, val: &Bid, _w| {
+            if val.date_time > top.date_time {
+                *top = val.clone();
+            }
+        }))
+        .map(|((_, _), bid)| bid.clone())
 }
 
 #[cfg(test)]
