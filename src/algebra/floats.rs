@@ -1,5 +1,6 @@
 use crate::algebra::{HasOne, HasZero};
 use ordered_float::OrderedFloat;
+use serde::{Deserialize, Serialize};
 use size_of::SizeOf;
 use std::{
     fmt::{self, Debug, Display},
@@ -11,7 +12,7 @@ macro_rules! float {
     ($($outer:ident($inner:ident)),* $(,)?) => {
         $(
             #[doc = concat!("A wrapper around [`", stringify!($inner), "`] that allows using it as a DBSP weight")]
-            #[derive(Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, SizeOf)]
+            #[derive(Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, SizeOf, Serialize, Deserialize)]
             #[repr(transparent)]
             #[size_of(skip_all)]
             pub struct $outer(OrderedFloat<$inner>);
