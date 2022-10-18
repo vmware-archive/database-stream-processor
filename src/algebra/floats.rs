@@ -367,13 +367,9 @@ macro_rules! float {
             impl FromStr for $outer {
                 type Err = ParseFloatError;
 
-                #[rustfmt::skip]
                 #[inline]
                 fn from_str(src: &str) -> Result<$outer, ParseFloatError> {
-                    match $inner::from_str(src) {
-                        Err(x) => Err(x),
-                        Ok(x) => Ok($outer::new(x)),
-                    }
+                    $inner::from_str(src).map($outer::new)
                 }
             }
         )*
