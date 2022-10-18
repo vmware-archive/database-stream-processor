@@ -57,7 +57,7 @@ fn main() {
             personal_network::personal_network(person, &events)
                 .gather(0)
                 .inspect(move |network| {
-                    if iteration > 1000 && !network.is_empty() {
+                    if iteration > 100 && !network.is_empty() {
                         let mut cursor = network.cursor();
                         while cursor.key_valid() {
                             if cursor.val_valid() {
