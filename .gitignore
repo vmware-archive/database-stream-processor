@@ -27,3 +27,4 @@ lcov.info
 
 benches/galen_data/
 benches/ldbc-graphalytics-data/
+benches/gdelt-data/
