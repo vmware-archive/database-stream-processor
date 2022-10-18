@@ -4,7 +4,9 @@ use size_of::SizeOf;
 use std::{
     fmt::{self, Debug, Display},
     iter::{Product, Sum},
+    num::ParseFloatError,
     ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Sub, SubAssign},
+    str::FromStr,
 };
 
 #[cfg(feature = "with-serde")]
@@ -361,6 +363,19 @@ macro_rules! float {
                     Display::fmt(&self.0.0, f)
                 }
             }
+
+            impl FromStr for $outer {
+                type Err = ParseFloatError;
+
+                #[rustfmt::skip]
+                #[inline]
+                fn from_str(src: &str) -> Result<$outer, ParseFloatError> {
+                    match $inner::from_str(src) {
+                        Err(x) => Err(x),
+                        Ok(x) => Ok($outer::new(x)),
+                    }
+                }
+            }
         )*
     };
 }
@@ -383,4 +398,11 @@ impl From<F64> for F32 {
     fn from(float: F64) -> Self {
         Self::new(float.into_inner() as f32)
     }
+}
+
+#[test]
+fn fromstr() {
+    assert_eq!(Ok(F32::new(10.0)), F32::from_str("10"));
+    assert_eq!(Ok(F64::new(-10.0)), F64::from_str("-10"));
+    assert!(F32::from_str("what").is_err());
 }
