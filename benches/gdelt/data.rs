@@ -59,7 +59,7 @@
 use arcstr::ArcStr;
 use csv::{ReaderBuilder, Trim};
 use dbsp::CollectionHandle;
-use hashbrown::{HashMap, HashSet};
+use hashbrown::HashSet;
 use size_of::SizeOf;
 use std::{
     cmp::Ordering,
@@ -68,6 +68,7 @@ use std::{
     io::{BufReader, BufWriter},
     path::Path,
 };
+use xxhash_rust::xxh3::Xxh3Builder;
 use zip::ZipArchive;
 
 const DATA_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/benches/gdelt-data");
@@ -128,7 +129,7 @@ pub fn get_master_file() -> File {
     File::open(master_path).unwrap()
 }
 
-pub fn get_gkg_file(url: &str) -> File {
+pub fn get_gkg_file(url: &str) -> Option<File> {
     let name = url.strip_prefix(GDELT_URL).unwrap();
     let zip_path = Path::new(DATA_PATH).join(name);
     let path = zip_path.with_extension("");
@@ -143,16 +144,20 @@ pub fn get_gkg_file(url: &str) -> File {
         }
 
         // Extract the zip file to the data directory
-        let success = ZipArchive::new(BufReader::new(File::open(&zip_path).unwrap()))
-            .and_then(|archive| archive.extract(DATA_PATH))
-            .is_ok();
+        let failed = ZipArchive::new(BufReader::new(File::open(&zip_path).unwrap()))
+            .and_then(|mut archive| archive.extract(DATA_PATH))
+            .is_err();
 
         // Delete the zip file now that we've extracted it
         let _ = fs::remove_file(zip_path);
+
+        if failed {
+            return None;
+        }
     }
 
     // Open the data file
-    File::open(path).unwrap()
+    Some(File::open(path).unwrap())
 }
 
 pub fn parse_personal_network_gkg(
@@ -182,7 +187,11 @@ pub fn parse_personal_network_gkg(
                             if person.is_empty() {
                                 None
                             } else {
-                                Some(interner.get_or_insert_with(person, || ArcStr::from(person)))
+                                Some(
+                                    interner
+                                        .get_or_insert_with(person, |person| ArcStr::from(person))
+                                        .clone(),
+                                )
                             }
                         })
                         .collect();

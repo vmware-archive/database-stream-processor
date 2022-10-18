@@ -163,6 +163,6 @@ pub fn personal_network(
                 .map(|b| ((a.clone(), b.clone()), ()))
                 .collect::<Vec<_>>()
         })
-        // TODO: Is there a thing to do than integration?
+        // TODO: Is there a better thing to do other than integration?
         .integrate()
 }

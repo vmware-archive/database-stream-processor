@@ -8,13 +8,14 @@ use dbsp::{
     trace::{BatchReader, Cursor},
     Circuit, Runtime,
 };
-use hashbrown::{HashMap, HashSet};
+use hashbrown::HashSet;
 use std::{
     cmp::Reverse,
     io::{BufRead, BufReader, Write},
     panic::{self, AssertUnwindSafe},
     sync::atomic::{AtomicBool, Ordering},
 };
+use xxhash_rust::xxh3::Xxh3Builder;
 
 static FINISHED: AtomicBool = AtomicBool::new(false);
 
@@ -28,7 +29,7 @@ fn main() {
             //     .inspect(|network| {
             //         if !network.is_empty() {
             //             let mut mentions = Vec::with_capacity(10);
-
+            //
             //             let mut cursor = network.cursor();
             //             while cursor.key_valid() {
             //                 if cursor.val_valid() {
@@ -36,9 +37,9 @@ fn main() {
             //                 }
             //                 cursor.step_key();
             //             }
-
+            //
             //             mentions.sort_by_key(|&(_, mentions)| Reverse(mentions));
-
+            //
             //             println!("Mentions:");
             //             for (person, mentions) in mentions {
             //                 println!(
@@ -111,9 +112,10 @@ fn main() {
 
                 let mut interner = HashSet::with_capacity_and_hasher(4096, Xxh3Builder::new());
                 for url in file_urls {
-                    let file = get_gkg_file(&url);
-                    parse_personal_network_gkg(&mut handle, &mut interner, file);
-                    root.step().unwrap();
+                    if let Some(file) = get_gkg_file(&url) {
+                        parse_personal_network_gkg(&mut handle, &mut interner, file);
+                        root.step().unwrap();
+                    }
                 }
             }));
 
