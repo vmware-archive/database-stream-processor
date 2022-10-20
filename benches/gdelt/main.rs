@@ -28,6 +28,10 @@ struct Args {
     #[clap(long)]
     threads: Option<NonZeroUsize>,
 
+    /// The number of 15-minute batches to ingest
+    #[clap(long, default_value = "20")]
+    batches: NonZeroUsize,
+
     // When running with `cargo bench` the binary gets the `--bench` flag, so we
     // have to parse and ignore it so clap doesn't get angry
     #[doc(hidden)]
@@ -42,8 +46,9 @@ fn main() {
         .or_else(|| thread::available_parallelism().ok())
         .map(NonZeroUsize::get)
         .unwrap_or(1);
+    let batches = args.batches.get();
 
-    Runtime::run(threads, || {
+    Runtime::run(threads, move || {
         let (root, mut handle) = Circuit::build(|circuit| {
             let (events, handle) = circuit.add_input_zset();
 
@@ -117,10 +122,9 @@ fn main() {
                     map
                 };
 
-                let max_batches = 10;
                 let mut ingested = 0;
                 for url in file_urls {
-                    if ingested > max_batches {
+                    if ingested >= batches {
                         break;
                     }
 
@@ -132,7 +136,7 @@ fn main() {
                             file,
                         );
 
-                        println!("ingesting batch {}/{max_batches}", ingested + 1);
+                        println!("ingesting batch {}/{batches}", ingested + 1);
                         root.step().unwrap();
 
                         ingested += 1;
@@ -145,8 +149,10 @@ fn main() {
                 panic::resume_unwind(panic);
             }
         } else {
-            while !FINISHED.load(Ordering::Acquire) {
+            let mut current_batch = 0;
+            while !FINISHED.load(Ordering::Acquire) && current_batch < batches {
                 root.step().unwrap();
+                current_batch += 1;
             }
         }
     })
