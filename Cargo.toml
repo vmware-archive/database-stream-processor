@@ -30,7 +30,7 @@ __gdelt = ["size-of/arcstr"]
 [dependencies]
 num = "0.4.0"
 anyhow = "1.0.57"
-size-of = { version = "0.1.2", features = ["time-std"] }
+size-of = { version = "0.1.2", features = ["ahash", "hashbrown", "time-std"] }
 petgraph = "0.6.0"
 typedmap = { version = "0.3.0", features = ["dashmap"] }
 crossbeam-utils = "0.8.6"

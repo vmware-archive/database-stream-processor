@@ -25,7 +25,7 @@ use std::{
     slice::SliceIndex,
 };
 
-/// A layer of unordered values.
+/// A layer of ordered values
 #[derive(Debug, Clone, Eq, PartialEq, SizeOf)]
 pub struct OrderedColumnLeaf<K, R> {
     // Invariant: keys.len == diffs.len
@@ -58,10 +58,13 @@ impl<K, R> OrderedColumnLeaf<K, R> {
     }
 
     /// Get the length of the current leaf
-    #[allow(dead_code)]
-    pub(crate) fn len(&self) -> usize {
+    pub fn len(&self) -> usize {
         unsafe { self.assume_invariants() }
         self.keys.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 
     /// Get mutable references to the current leaf's keys and differences
@@ -70,14 +73,25 @@ impl<K, R> OrderedColumnLeaf<K, R> {
         (&mut self.keys, &mut self.diffs)
     }
 
+    /// Get a reference to the current leaf's key values
+    pub fn keys(&self) -> &[K] {
+        unsafe { self.assume_invariants() }
+        &self.keys
+    }
+
     /// Get a mutable reference to the current leaf's key values
-    pub(crate) fn keys_mut(&mut self) -> &mut [K] {
+    pub fn keys_mut(&mut self) -> &mut [K] {
         unsafe { self.assume_invariants() }
         &mut self.keys
     }
 
+    /// Get a reference to the current leaf's key values
+    pub fn diffs(&self) -> &[R] {
+        unsafe { self.assume_invariants() }
+        &self.diffs
+    }
+
     /// Get a mutable reference to the current leaf's difference values
-    #[doc(hidden)]
     pub fn diffs_mut(&mut self) -> &mut [R] {
         unsafe { self.assume_invariants() }
         &mut self.diffs
@@ -91,7 +105,7 @@ impl<K, R> OrderedColumnLeaf<K, R> {
         unsafe { self.assume_invariants() }
     }
 
-    /// Assume the invariants of the current builder
+    /// Assume the invariants of the current leaf
     ///
     /// # Safety
     ///
@@ -154,17 +168,14 @@ where
     type MergeBuilder = OrderedColumnLeafBuilder<K, R>;
     type TupleBuilder = UnorderedColumnLeafBuilder<K, R>;
 
-    #[inline]
     fn keys(&self) -> usize {
         self.len()
     }
 
-    #[inline]
     fn tuples(&self) -> usize {
         self.len()
     }
 
-    #[inline]
     fn cursor_from(&self, lower: usize, upper: usize) -> Self::Cursor<'_> {
         unsafe { self.assume_invariants() }
         ColumnLeafCursor::new(lower, self, (lower, upper))
@@ -274,13 +285,13 @@ where
 
     #[inline]
     fn num_entries_shallow(&self) -> usize {
-        self.keys()
+        self.len()
     }
 
     #[inline]
     fn num_entries_deep(&self) -> usize {
         // FIXME: Doesn't take element sizes into account
-        self.keys()
+        self.len()
     }
 }
 

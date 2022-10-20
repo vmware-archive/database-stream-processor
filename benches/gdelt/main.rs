@@ -1,63 +1,59 @@
 mod data;
 mod personal_network;
 
-use crate::data::{
-    get_gkg_file, get_master_file, parse_personal_network_gkg, GDELT_URL, GKG_SUFFIX,
-};
+use crate::data::{get_gkg_file, get_master_file, parse_personal_network_gkg, GKG_SUFFIX};
+use arcstr::literal;
+use clap::Parser;
 use dbsp::{
     trace::{BatchReader, Cursor},
     Circuit, Runtime,
 };
-use hashbrown::HashSet;
+use hashbrown::{HashMap, HashSet};
 use std::{
     cmp::Reverse,
     io::{BufRead, BufReader, Write},
+    num::NonZeroUsize,
     panic::{self, AssertUnwindSafe},
     sync::atomic::{AtomicBool, Ordering},
+    thread,
 };
 use xxhash_rust::xxh3::Xxh3Builder;
 
 static FINISHED: AtomicBool = AtomicBool::new(false);
 
+#[derive(Debug, Clone, Parser)]
+struct Args {
+    /// The number of threads to use for the dataflow, defaults to the
+    /// number of cores the current machine has
+    #[clap(long)]
+    threads: Option<NonZeroUsize>,
+
+    // When running with `cargo bench` the binary gets the `--bench` flag, so we
+    // have to parse and ignore it so clap doesn't get angry
+    #[doc(hidden)]
+    #[clap(long = "bench", hide = true)]
+    __bench: bool,
+}
+
 fn main() {
-    Runtime::run(4, || {
+    let args = Args::parse();
+    let threads = args
+        .threads
+        .or_else(|| thread::available_parallelism().ok())
+        .map(NonZeroUsize::get)
+        .unwrap_or(1);
+
+    Runtime::run(threads, || {
         let (root, mut handle) = Circuit::build(|circuit| {
             let (events, handle) = circuit.add_input_zset();
 
-            // personal_network::mentioned_people(&events)
-            //     .gather(0)
-            //     .inspect(|network| {
-            //         if !network.is_empty() {
-            //             let mut mentions = Vec::with_capacity(10);
-            //
-            //             let mut cursor = network.cursor();
-            //             while cursor.key_valid() {
-            //                 if cursor.val_valid() {
-            //                     mentions.push((cursor.key().clone(), cursor.weight()));
-            //                 }
-            //                 cursor.step_key();
-            //             }
-            //
-            //             mentions.sort_by_key(|&(_, mentions)| Reverse(mentions));
-            //
-            //             println!("Mentions:");
-            //             for (person, mentions) in mentions {
-            //                 println!(
-            //                     "- {person} (mentioned {mentions} time{})",
-            //                     if mentions == 1 { "" } else { "s" },
-            //                 );
-            //             }
-            //         }
-            //     });
-
-            let person = arcstr::literal!("barack obama");
+            let person = literal!("joe biden");
             let mut network_buf = Vec::with_capacity(4096);
-            let mut iteration = 0;
 
-            personal_network::personal_network(person, &events)
+            personal_network::personal_network(person, None, &events)
                 .gather(0)
                 .inspect(move |network| {
-                    if iteration > 100 && !network.is_empty() {
+                    if !network.is_empty() {
                         let mut cursor = network.cursor();
                         while cursor.key_valid() {
                             if cursor.val_valid() {
@@ -82,8 +78,6 @@ fn main() {
                             stdout.flush().unwrap();
                         }
                     }
-
-                    iteration += 1;
                 });
 
             handle
@@ -98,23 +92,50 @@ fn main() {
                         let line = line.unwrap();
                         line.ends_with(GKG_SUFFIX)
                             .then(|| line.split(' ').last().unwrap().to_owned())
-                            .filter(|url| {
-                                let date = url
-                                    .strip_prefix(GDELT_URL)
-                                    .unwrap()
-                                    .strip_suffix(GKG_SUFFIX)
-                                    .unwrap()
-                                    .parse::<u64>()
-                                    .unwrap();
-                                (20150302000000..20150304000000).contains(&date)
-                            })
                     });
 
                 let mut interner = HashSet::with_capacity_and_hasher(4096, Xxh3Builder::new());
+                let normalizations = {
+                    // I have no idea why gdelt does this sometimes, but it does
+                    let normals = [
+                        ("a harry truman", literal!("harry truman")),
+                        ("a ronald reagan", literal!("ronald reagan")),
+                        ("a lyndon johnson", literal!("lyndon johnson")),
+                        ("a sanatan dharam", literal!("sanatan dharam")),
+                        ("b richard nixon", literal!("richard nixon")),
+                        ("b dwight eisenhower", literal!("dwight eisenhower")),
+                        ("c george w bush", literal!("george w bush")),
+                        ("c gerald ford", literal!("gerald ford")),
+                        ("c john f kennedy", literal!("john f kennedy")),
+                        // I can't even begin to explain this one
+                        ("obama jeb bush", literal!("jeb bush")),
+                    ];
+
+                    let mut map =
+                        HashMap::with_capacity_and_hasher(normals.len(), Xxh3Builder::new());
+                    map.extend(normals);
+                    map
+                };
+
+                let max_batches = 10;
+                let mut ingested = 0;
                 for url in file_urls {
+                    if ingested > max_batches {
+                        break;
+                    }
+
                     if let Some(file) = get_gkg_file(&url) {
-                        parse_personal_network_gkg(&mut handle, &mut interner, file);
+                        parse_personal_network_gkg(
+                            &mut handle,
+                            &mut interner,
+                            &normalizations,
+                            file,
+                        );
+
+                        println!("ingesting batch {}/{max_batches}", ingested + 1);
                         root.step().unwrap();
+
+                        ingested += 1;
                     }
                 }
             }));

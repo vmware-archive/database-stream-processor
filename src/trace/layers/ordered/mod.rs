@@ -483,7 +483,6 @@ where
 {
     type Item = (K, L::Item);
 
-    #[inline]
     fn new() -> Self {
         Self {
             keys: Vec::new(),
@@ -492,7 +491,6 @@ where
         }
     }
 
-    #[inline]
     fn with_capacity(cap: usize) -> Self {
         let mut offs = Vec::with_capacity(cap + 1);
         offs.push(O::zero());
@@ -504,12 +502,16 @@ where
         }
     }
 
-    #[inline]
+    fn reserve_tuples(&mut self, additional: usize) {
+        self.keys.reserve(additional);
+        self.offs.reserve(additional);
+        self.vals.reserve_tuples(additional);
+    }
+
     fn tuples(&self) -> usize {
         self.vals.tuples()
     }
 
-    #[inline]
     fn push_tuple(&mut self, (key, val): (K, L::Item)) {
         // if first element, prior element finish, or different element, need to push
         // and maybe punctuate.
@@ -572,7 +574,6 @@ where
 {
     type Item = (K, L::Item);
 
-    #[inline]
     fn new() -> Self {
         Self {
             vals: Vec::new(),
@@ -580,22 +581,30 @@ where
         }
     }
 
-    #[inline]
-    fn with_capacity(cap: usize) -> Self {
+    fn with_capacity(capacity: usize) -> Self {
         Self {
-            vals: Vec::with_capacity(cap),
+            vals: Vec::with_capacity(capacity),
             _phantom: PhantomData,
         }
     }
 
-    #[inline]
+    fn reserve_tuples(&mut self, additional: usize) {
+        self.vals.reserve(additional);
+    }
+
     fn tuples(&self) -> usize {
         self.vals.len()
     }
 
-    #[inline]
     fn push_tuple(&mut self, kv: Self::Item) {
         self.vals.push(kv);
+    }
+
+    fn extend_tuples<I>(&mut self, tuples: I)
+    where
+        I: IntoIterator<Item = Self::Item>,
+    {
+        self.vals.extend(tuples);
     }
 }
 
