@@ -13,10 +13,10 @@ use std::marker::PhantomData;
 /// no clever management of these sets otherwise.
 #[derive(Debug)]
 pub struct CursorList<'s, K, V, T, R, C: Cursor<'s, K, V, T, R>> {
-    _phantom: PhantomData<(K, V, T, R, &'s ())>,
     cursors: Vec<C>,
     min_key: Vec<usize>,
     min_val: Vec<usize>,
+    __type: PhantomData<&'s (K, V, T, R)>,
 }
 
 impl<'s, K, V, T, R, C: Cursor<'s, K, V, T, R>> CursorList<'s, K, V, T, R, C>
@@ -26,11 +26,11 @@ where
 {
     /// Creates a new cursor list from pre-existing cursors.
     pub fn new(cursors: Vec<C>) -> Self {
-        let mut result = CursorList {
-            _phantom: PhantomData,
+        let mut result = Self {
             cursors,
             min_key: Vec::new(),
             min_val: Vec::new(),
+            __type: PhantomData,
         };
 
         result.minimize_keys();

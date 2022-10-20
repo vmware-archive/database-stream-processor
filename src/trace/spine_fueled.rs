@@ -1023,8 +1023,7 @@ where
                 let begin_merge = <B as Batch>::begin_merge(&batch1, &batch2);
                 MergeVariant::InProgress(batch1, batch2, begin_merge)
             }
-            (None, Some(x)) => MergeVariant::Complete(Some(x)),
-            (Some(x), None) => MergeVariant::Complete(Some(x)),
+            (batch @ Some(_), None) | (None, batch @ Some(_)) => MergeVariant::Complete(batch),
             (None, None) => MergeVariant::Complete(None),
         };
 

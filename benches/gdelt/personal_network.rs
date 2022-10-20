@@ -23,6 +23,7 @@
 
 use crate::data::PersonalNetworkGkgEntry;
 use arcstr::ArcStr;
+use bitvec::vec::BitVec;
 use dbsp::{
     algebra::{IndexedZSet, MulByRef, ZRingValue},
     circuit::{
@@ -276,6 +277,7 @@ where
 
 struct SpineProbes<'a, K, V, R> {
     probes: Vec<HashedKVBatchProbe<'a, K, V, R>>,
+    contains_key: BitVec,
     current: usize,
 }
 
@@ -312,18 +314,22 @@ where
             }
         }
 
-        Self { probes, current: 0 }
+        let contains_key = BitVec::repeat(false, probes.len());
+
+        Self {
+            probes,
+            contains_key,
+            current: 0,
+        }
     }
 
     fn probe_key(&mut self, key: &K) -> bool {
-        self.current = 0;
-
-        let mut found = false;
-        for probe in &mut self.probes {
-            found |= probe.probe_key(key);
+        for (idx, probe) in self.probes.iter_mut().enumerate() {
+            self.contains_key.set(idx, probe.probe_key(key));
         }
+        self.current = self.contains_key.first_one().unwrap_or(self.probes.len());
 
-        found
+        self.contains_key.any()
     }
 
     fn val_valid(&self) -> bool {
@@ -342,8 +348,15 @@ where
         if self.current < self.probes.len() {
             self.probes[self.current].step_val();
 
-            while self.current < self.probes.len() && !self.probes[self.current].val_valid() {
-                self.current += 1;
+            if !self.probes[self.current].val_valid() {
+                self.current = self
+                    .contains_key
+                    .iter()
+                    .enumerate()
+                    .skip(self.current)
+                    .filter_map(|(idx, contains_key)| contains_key.then_some(idx))
+                    .next()
+                    .unwrap_or(self.probes.len());
             }
         }
     }
@@ -404,7 +417,6 @@ where
         if let Some(offset) = self.batch.keys.get(key).copied() {
             self.current = self.batch.offsets[offset];
             self.end = self.batch.offsets[offset + 1];
-
             true
         } else {
             false
