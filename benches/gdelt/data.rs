@@ -66,7 +66,6 @@ use std::{
     fs::{self, File},
     hash::{Hash, Hasher},
     io::{BufReader, BufWriter, Write},
-    ops::Not,
     path::Path,
 };
 use xxhash_rust::xxh3::Xxh3Builder;
@@ -198,7 +197,8 @@ pub fn parse_personal_network_gkg(
     handle: &mut CollectionHandle<PersonalNetworkGkgEntry, i32>,
     interner: &mut HashSet<ArcStr, Xxh3Builder>,
     // Sometimes gdelt extracts weird stuff so we have to correct it
-    normalizations: &HashMap<&'static str, ArcStr, Xxh3Builder>,
+    normalizations: &HashMap<&'static str, &'static [ArcStr], Xxh3Builder>,
+    invalid: &HashSet<&'static str, Xxh3Builder>,
     file: File,
 ) {
     let reader = ReaderBuilder::new()
@@ -214,25 +214,23 @@ pub fn parse_personal_network_gkg(
     for record in reader.flatten() {
         if let Some(id) = record.get(0).map(ArcStr::from) {
             if let Some(date) = record.get(1).and_then(|date| date.parse().ok()) {
-                if let Some(people) = record.get(11) {
-                    let mut people: Vec<_> = people
-                        .to_lowercase()
-                        .split(';')
-                        .flat_map(|person| {
-                            let person = person.trim();
+                if let Some(people_record) = record.get(11) {
+                    let mut people = Vec::new();
 
-                            person.is_empty().not().then(|| {
-                                normalizations
-                                    .get(person)
-                                    .unwrap_or_else(|| {
-                                        interner.get_or_insert_with(person, |person| {
-                                            ArcStr::from(person)
-                                        })
-                                    })
-                                    .clone()
-                            })
-                        })
-                        .collect();
+                    for person in people_record.to_lowercase().split(';').map(str::trim) {
+                        if !person.is_empty() && !invalid.contains(person) {
+                            if let Some(normals) = normalizations.get(person) {
+                                people.extend(normals.iter().cloned());
+                            } else {
+                                people.push(
+                                    interner
+                                        .get_or_insert_with(person, |person| ArcStr::from(person))
+                                        .clone(),
+                                );
+                            }
+                        }
+                    }
+
                     people.sort();
                     people.dedup();
 

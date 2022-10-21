@@ -85,14 +85,14 @@ pub fn personal_network(
 
     // TODO: Hashjoin is much more optimal for joining strings
     let expected =
-        flattened.join_generic::<(), _, _, OrdZSet<_, _>, _>(&forward_events, |_, a, people| {
+        flattened.join_generic::<(), _, _, OrdZSet<_, _>, _>(&forward_events, |_id, a, people| {
             people
                 .iter()
                 .filter_map(|b| (a < b).then(|| ((a.clone(), b.clone()), ())))
                 .collect::<Vec<_>>()
         });
 
-    let hashjoined = hashjoin(&flattened, &forward_events, |_, a, people| {
+    let hashjoined = hashjoin(&flattened, &forward_events, |_id, a, people| {
         people
             .iter()
             .filter_map(|b| (a < b).then(|| ((a.clone(), b.clone()), ())))
@@ -234,8 +234,6 @@ where
     fn eval(&mut self, index: &I, trace: &Spine<HashedKVBatch<I::Key, V, I::R>>) -> Z {
         self.empty_input = index.is_empty();
 
-        dbg!(&trace.merging);
-
         let mut index_cursor = index.cursor();
         let mut trace_probe = SpineProbes::new(trace);
 
@@ -328,7 +326,6 @@ where
             self.contains_key.set(idx, probe.probe_key(key));
         }
         self.current = self.contains_key.first_one().unwrap_or(self.probes.len());
-
         self.contains_key.any()
     }
 
@@ -415,8 +412,9 @@ where
 {
     fn probe_key(&mut self, key: &K) -> bool {
         if let Some(offset) = self.batch.keys.get(key).copied() {
-            self.current = self.batch.offsets[offset];
+            self.start = self.batch.offsets[offset];
             self.end = self.batch.offsets[offset + 1];
+            self.current = self.start;
             true
         } else {
             false
@@ -431,7 +429,6 @@ struct HashedKVBatch<K, V, R> {
     // FIXME: `SizeOf for Xxh3Builder`
     // Invariant: Each offset within `keys` and each offset within keys +1 are valid indices into
     // `offsets`
-    #[size_of(skip)]
     keys: HashMap<K, usize, Xxh3Builder>,
     // Invariant: Each offset within `offsets` is a valid index into `values`
     offsets: Vec<usize>,
@@ -723,8 +720,6 @@ impl<'a, V, R> ValueConsumer<'a, V, R, ()> for HashedValueConsumer<'a, V, R> {
 
 #[derive(Debug, SizeOf)]
 struct HashedKVBuilder<K, V, R> {
-    // FIXME: ???
-    #[size_of(skip)]
     pairs: HashMap<K, Vec<(V, R)>, Xxh3Builder>,
 }
 

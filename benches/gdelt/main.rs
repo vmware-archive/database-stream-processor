@@ -2,7 +2,7 @@ mod data;
 mod personal_network;
 
 use crate::data::{get_gkg_file, get_master_file, parse_personal_network_gkg, GKG_SUFFIX};
-use arcstr::literal;
+use arcstr::{literal, ArcStr};
 use clap::Parser;
 use dbsp::{
     trace::{BatchReader, Cursor},
@@ -101,25 +101,57 @@ fn main() {
 
                 let mut interner = HashSet::with_capacity_and_hasher(4096, Xxh3Builder::new());
                 let normalizations = {
-                    // I have no idea why gdelt does this sometimes, but it does
-                    let normals = [
-                        ("a harry truman", literal!("harry truman")),
-                        ("a ronald reagan", literal!("ronald reagan")),
-                        ("a lyndon johnson", literal!("lyndon johnson")),
-                        ("a sanatan dharam", literal!("sanatan dharam")),
-                        ("b richard nixon", literal!("richard nixon")),
-                        ("b dwight eisenhower", literal!("dwight eisenhower")),
-                        ("c george w bush", literal!("george w bush")),
-                        ("c gerald ford", literal!("gerald ford")),
-                        ("c john f kennedy", literal!("john f kennedy")),
+                    const JOE_BIDEN: ArcStr = literal!("joe biden");
+                    const NORMALS: &[(&str, &[ArcStr])] = &[
+                        ("a los angeles", &[literal!("los angeles")]),
+                        ("a harry truman", &[literal!("harry truman")]),
+                        ("a ronald reagan", &[literal!("ronald reagan")]),
+                        ("a lyndon johnson", &[literal!("lyndon johnson")]),
+                        ("a sanatan dharam", &[literal!("sanatan dharam")]),
+                        ("b richard nixon", &[literal!("richard nixon")]),
+                        ("b dwight eisenhower", &[literal!("dwight eisenhower")]),
+                        ("c george w bush", &[literal!("george w bush")]),
+                        ("c gerald ford", &[literal!("gerald ford")]),
+                        ("c john f kennedy", &[literal!("john f kennedy")]),
                         // I can't even begin to explain this one
-                        ("obama jeb bush", literal!("jeb bush")),
+                        ("obama jeb bush", &[literal!("jeb bush")]),
+                        (
+                            "brandon morse thebrandonmorse",
+                            &[literal!("brandon morse")],
+                        ),
+                        ("lady michelle obama", &[literal!("michelle obama")]),
+                        ("jo biden", &[JOE_BIDEN]),
+                        ("joseph robinette biden jr", &[JOE_BIDEN]),
+                        ("brad thor bradthor", &[literal!("brad thor")]),
+                        ("hilary clinton", &[literal!("hillary clinton")]),
+                        (
+                            "sherlockian a sherlock holmes",
+                            &[literal!("sherlock holmes")],
+                        ),
+                        ("america larry pratt", &[literal!("larry pratt")]),
+                        ("cullen hawkins sircullen", &[literal!("cullen hawkins")]),
+                        (
+                            "leslie knope joe biden",
+                            &[literal!("leslie knope"), JOE_BIDEN],
+                        ),
                     ];
+                    // Add the static normals to the interner, might as well reuse them
+                    interner.extend(NORMALS.iter().flat_map(|&(_, person)| person).cloned());
 
                     let mut map =
-                        HashMap::with_capacity_and_hasher(normals.len(), Xxh3Builder::new());
-                    map.extend(normals);
+                        HashMap::with_capacity_and_hasher(NORMALS.len(), Xxh3Builder::new());
+                    map.extend(NORMALS);
                     map
+                };
+
+                // Invalid "people" that aren't really people
+                let invalid = {
+                    let invalid = ["whitehouse cvesummit"];
+
+                    let mut set =
+                        HashSet::with_capacity_and_hasher(invalid.len(), Xxh3Builder::new());
+                    set.extend(invalid.into_iter());
+                    set
                 };
 
                 let mut ingested = 0;
@@ -133,6 +165,7 @@ fn main() {
                             &mut handle,
                             &mut interner,
                             &normalizations,
+                            &invalid,
                             file,
                         );
 
