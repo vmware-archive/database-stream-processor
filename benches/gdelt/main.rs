@@ -10,12 +10,14 @@ use dbsp::{
 };
 use hashbrown::{HashMap, HashSet};
 use std::{
+    cell::Cell,
     cmp::Reverse,
     io::{BufRead, BufReader, Write},
     num::NonZeroUsize,
     panic::{self, AssertUnwindSafe},
     sync::atomic::{AtomicBool, Ordering},
     thread,
+    time::Instant,
 };
 use xxhash_rust::xxh3::Xxh3Builder;
 
@@ -32,11 +34,19 @@ struct Args {
     #[clap(long, default_value = "20")]
     batches: NonZeroUsize,
 
+    /// If set, limits the number of returned results to the given amount
+    #[clap(long)]
+    topk: Option<NonZeroUsize>,
+
     // When running with `cargo bench` the binary gets the `--bench` flag, so we
     // have to parse and ignore it so clap doesn't get angry
     #[doc(hidden)]
     #[clap(long = "bench", hide = true)]
     __bench: bool,
+}
+
+thread_local! {
+    static CURRENT_BATCH: Cell<usize> = const { Cell::new(0) };
 }
 
 fn main() {
@@ -53,12 +63,14 @@ fn main() {
             let (events, handle) = circuit.add_input_zset();
 
             let person = literal!("joe biden");
-            let mut network_buf = Vec::with_capacity(4096);
+            // let mut network_buf = Vec::with_capacity(4096);
 
-            personal_network::personal_network(person, None, &events)
+            personal_network::personal_network(person, None, &events);
+            /*
                 .gather(0)
                 .inspect(move |network| {
-                    if !network.is_empty() {
+                    if !network.is_empty() && CURRENT_BATCH.with(|batch| batch.get() + 1 == batches)
+                    {
                         let mut cursor = network.cursor();
                         while cursor.key_valid() {
                             if cursor.val_valid() {
@@ -70,11 +82,24 @@ fn main() {
                         }
 
                         if !network_buf.is_empty() {
-                            network_buf.sort_unstable_by_key(|&(.., count)| Reverse(count));
+                            let total_connections = network_buf.len();
+                            network_buf.sort_unstable_by(
+                                |(source1, target1, mentions1), (source2, target2, mentions2)| {
+                                    Reverse(mentions1)
+                                        .cmp(&Reverse(mentions2))
+                                        .then_with(|| source1.cmp(source2))
+                                        .then_with(|| target1.cmp(target2))
+                                },
+                            );
+
+                            if let Some(topk) = args.topk.map(NonZeroUsize::get) {
+                                network_buf.truncate(topk);
+                            }
 
                             let mut stdout = std::io::stdout().lock();
 
-                            writeln!(stdout, "Network:").unwrap();
+                            writeln!(stdout, "Network ({total_connections} total connections):")
+                                .unwrap();
                             for (source, target, count) in network_buf.drain(..) {
                                 writeln!(stdout, "- {source}, {target}, {count}").unwrap();
                             }
@@ -84,6 +109,7 @@ fn main() {
                         }
                     }
                 });
+            */
 
             handle
         })
@@ -101,8 +127,7 @@ fn main() {
 
                 let mut interner = HashSet::with_capacity_and_hasher(4096, Xxh3Builder::new());
                 let normalizations = {
-                    const JOE_BIDEN: ArcStr = literal!("joe biden");
-                    const NORMALS: &[(&str, &[ArcStr])] = &[
+                    static NORMALS: &[(&str, &[ArcStr])] = &[
                         ("a los angeles", &[literal!("los angeles")]),
                         ("a harry truman", &[literal!("harry truman")]),
                         ("a ronald reagan", &[literal!("ronald reagan")]),
@@ -120,10 +145,11 @@ fn main() {
                             &[literal!("brandon morse")],
                         ),
                         ("lady michelle obama", &[literal!("michelle obama")]),
-                        ("jo biden", &[JOE_BIDEN]),
-                        ("joseph robinette biden jr", &[JOE_BIDEN]),
+                        ("jo biden", &[literal!("joe biden")]),
+                        ("joseph robinette biden jr", &[literal!("joe biden")]),
                         ("brad thor bradthor", &[literal!("brad thor")]),
                         ("hilary clinton", &[literal!("hillary clinton")]),
+                        ("hillary rodham clinton", &[literal!("hillary clinton")]),
                         (
                             "sherlockian a sherlock holmes",
                             &[literal!("sherlock holmes")],
@@ -132,8 +158,9 @@ fn main() {
                         ("cullen hawkins sircullen", &[literal!("cullen hawkins")]),
                         (
                             "leslie knope joe biden",
-                            &[literal!("leslie knope"), JOE_BIDEN],
+                            &[literal!("leslie knope"), literal!("joe biden")],
                         ),
+                        ("jacquelyn martin europe", &[literal!("jacquelyn martin")]),
                     ];
                     // Add the static normals to the interner, might as well reuse them
                     interner.extend(NORMALS.iter().flat_map(|&(_, person)| person).cloned());
@@ -146,7 +173,9 @@ fn main() {
 
                 // Invalid "people" that aren't really people
                 let invalid = {
-                    let invalid = ["whitehouse cvesummit"];
+                    // On one hand, "krispy kreme klub" is most definitely not a person. On the
+                    // other hand, it's kinda funny to see it pop up in the graph
+                    let invalid = ["whitehouse cvesummit", "islam obama"];
 
                     let mut set =
                         HashSet::with_capacity_and_hasher(invalid.len(), Xxh3Builder::new());
@@ -154,9 +183,9 @@ fn main() {
                     set
                 };
 
-                let mut ingested = 0;
                 for url in file_urls {
-                    if ingested >= batches {
+                    let current_batch = CURRENT_BATCH.with(|batch| batch.get());
+                    if current_batch >= batches {
                         break;
                     }
 
@@ -169,10 +198,16 @@ fn main() {
                             file,
                         );
 
-                        println!("ingesting batch {}/{batches}", ingested + 1);
+                        let start = Instant::now();
                         root.step().unwrap();
 
-                        ingested += 1;
+                        let elapsed = start.elapsed();
+                        println!(
+                            "ingested batch {}/{batches} in {elapsed:#?}",
+                            current_batch + 1,
+                        );
+
+                        CURRENT_BATCH.with(|batch| batch.set(batch.get() + 1));
                     }
                 }
             }));
@@ -183,7 +218,7 @@ fn main() {
             }
         } else {
             let mut current_batch = 0;
-            while !FINISHED.load(Ordering::Acquire) && current_batch < batches {
+            while current_batch < batches && !FINISHED.load(Ordering::Acquire) {
                 root.step().unwrap();
                 current_batch += 1;
             }

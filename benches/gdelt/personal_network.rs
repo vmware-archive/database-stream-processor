@@ -83,42 +83,41 @@ pub fn personal_network(
         })
         .index();
 
-    // TODO: Hashjoin is much more optimal for joining strings
-    let expected =
-        flattened.join_generic::<(), _, _, OrdZSet<_, _>, _>(&forward_events, |_id, a, people| {
-            people
-                .iter()
-                .filter_map(|b| (a < b).then(|| ((a.clone(), b.clone()), ())))
-                .collect::<Vec<_>>()
-        });
+    // let joined =
+    //     flattened.join_generic::<(), _, _, OrdZSet<_, _>, _>(&forward_events,
+    // |_id, a, people| {         people
+    //             .iter()
+    //             .filter_map(|b| (a < b).then(|| ((a.clone(), b.clone()), ())))
+    //             .collect::<Vec<_>>()
+    //     });
 
-    let hashjoined = hashjoin(&flattened, &forward_events, |_id, a, people| {
+    let joined = hashjoin(&flattened, &forward_events, |_id, a, people| {
         people
             .iter()
             .filter_map(|b| (a < b).then(|| ((a.clone(), b.clone()), ())))
             .collect::<Vec<_>>()
     });
 
-    expected.minus(&hashjoined).gather(0).inspect(|errors| {
-        let mut cursor = errors.cursor();
-        while cursor.key_valid() {
-            let mentions = cursor.weight();
-            let (source, target) = cursor.key();
-            println!(
-                "error, {}: {source}, {target}, {mentions}",
-                if mentions.is_positive() {
-                    "missing"
-                } else {
-                    "added"
-                },
-            );
-            cursor.step_key();
-        }
-    });
+    // expected.minus(&hashjoined).gather(0).inspect(|errors| {
+    //     let mut cursor = errors.cursor();
+    //     while cursor.key_valid() {
+    //         let mentions = cursor.weight();
+    //         let (source, target) = cursor.key();
+    //         println!(
+    //             "error, {}: {source}, {target}, {mentions}",
+    //             if mentions.is_positive() {
+    //                 "missing"
+    //             } else {
+    //                 "added"
+    //             },
+    //         );
+    //         cursor.step_key();
+    //     }
+    // });
 
     // TODO: topk 250
     // TODO: Is there a better thing to do other than integration?
-    hashjoined.integrate()
+    joined.integrate()
 }
 
 // TODO: Hash collections/traces
@@ -359,7 +358,8 @@ where
     }
 
     fn rewind_vals(&mut self) {
-        self.current = 0;
+        self.current = self.contains_key.first_one().unwrap_or(self.probes.len());
+
         for probe in &mut self.probes {
             probe.rewind_vals();
         }
