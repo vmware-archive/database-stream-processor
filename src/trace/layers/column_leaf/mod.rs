@@ -67,6 +67,11 @@ impl<K, R> OrderedColumnLeaf<K, R> {
         self.len() == 0
     }
 
+    unsafe fn set_len(&mut self, length: usize) {
+        self.keys.set_len(length);
+        self.diffs.set_len(length);
+    }
+
     /// Get mutable references to the current leaf's keys and differences
     pub(crate) fn columns_mut(&mut self) -> (&mut [K], &mut [R]) {
         unsafe { self.assume_invariants() }
@@ -125,6 +130,136 @@ impl<K, R> OrderedColumnLeaf<K, R> {
             keys: cast_uninit_vec(self.keys),
             diffs: cast_uninit_vec(self.diffs),
         }
+    }
+
+    pub fn retain<F>(&mut self, mut retain: F)
+    where
+        F: FnMut(&K, &R) -> bool,
+    {
+        let original_len = self.len();
+        // Avoid double drop if the drop guard is not executed,
+        // since we may make some holes during the process.
+        unsafe { self.set_len(0) };
+
+        // Vec: [Kept, Kept, Hole, Hole, Hole, Hole, Unchecked, Unchecked]
+        //      |<-              processed len   ->| ^- next to check
+        //                  |<-  deleted cnt     ->|
+        //      |<-              original_len                          ->|
+        // Kept: Elements which predicate returns true on.
+        // Hole: Moved or dropped element slot.
+        // Unchecked: Unchecked valid elements.
+        //
+        // This drop guard will be invoked when predicate or `drop` of element panicked.
+        // It shifts unchecked elements to cover holes and `set_len` to the correct
+        // length. In cases when predicate and `drop` never panick, it will be
+        // optimized out.
+        struct BackshiftOnDrop<'a, K, R> {
+            keys: &'a mut Vec<K>,
+            diffs: &'a mut Vec<R>,
+            processed_len: usize,
+            deleted_cnt: usize,
+            original_len: usize,
+        }
+
+        impl<K, R> Drop for BackshiftOnDrop<'_, K, R> {
+            fn drop(&mut self) {
+                if self.deleted_cnt > 0 {
+                    let trailing = self.original_len - self.processed_len;
+                    let processed = self.processed_len - self.deleted_cnt;
+
+                    // SAFETY: Trailing unchecked items must be valid since we never touch them.
+                    unsafe {
+                        ptr::copy(
+                            self.keys.as_ptr().add(self.processed_len),
+                            self.keys.as_mut_ptr().add(processed),
+                            trailing,
+                        );
+
+                        ptr::copy(
+                            self.diffs.as_ptr().add(self.processed_len),
+                            self.diffs.as_mut_ptr().add(processed),
+                            trailing,
+                        );
+                    }
+                }
+
+                // SAFETY: After filling holes, all items are in contiguous memory.
+                unsafe {
+                    let final_len = self.original_len - self.deleted_cnt;
+                    self.keys.set_len(final_len);
+                    self.diffs.set_len(final_len);
+                }
+            }
+        }
+
+        let mut shifter = BackshiftOnDrop {
+            keys: &mut self.keys,
+            diffs: &mut self.diffs,
+            processed_len: 0,
+            deleted_cnt: 0,
+            original_len,
+        };
+
+        fn process_loop<F, K, R, const DELETED: bool>(
+            original_len: usize,
+            retain: &mut F,
+            shifter: &mut BackshiftOnDrop<'_, K, R>,
+        ) where
+            F: FnMut(&K, &R) -> bool,
+        {
+            while shifter.processed_len != original_len {
+                // SAFETY: Unchecked element must be valid.
+                let current_key =
+                    unsafe { &mut *shifter.keys.as_mut_ptr().add(shifter.processed_len) };
+                let current_diff =
+                    unsafe { &mut *shifter.diffs.as_mut_ptr().add(shifter.processed_len) };
+
+                if !retain(current_key, current_diff) {
+                    // Advance early to avoid double drop if `drop_in_place` panicked.
+                    shifter.processed_len += 1;
+                    shifter.deleted_cnt += 1;
+
+                    // SAFETY: We never touch these elements again after they're dropped.
+                    unsafe {
+                        ptr::drop_in_place(current_key);
+                        ptr::drop_in_place(current_diff);
+                    }
+
+                    // We already advanced the counter.
+                    if DELETED {
+                        continue;
+                    } else {
+                        break;
+                    }
+                }
+
+                if DELETED {
+                    // SAFETY: `deleted_cnt` > 0, so the hole slot must not overlap with current
+                    // element. We use copy for move, and never touch this
+                    // element again.
+                    unsafe {
+                        let hole_offset = shifter.processed_len - shifter.deleted_cnt;
+
+                        let key_hole = shifter.keys.as_mut_ptr().add(hole_offset);
+                        ptr::copy_nonoverlapping(current_key, key_hole, 1);
+
+                        let diff_hole = shifter.diffs.as_mut_ptr().add(hole_offset);
+                        ptr::copy_nonoverlapping(current_diff, diff_hole, 1);
+                    }
+                }
+
+                shifter.processed_len += 1;
+            }
+        }
+
+        // Stage 1: Nothing was deleted.
+        process_loop::<F, K, R, false>(original_len, &mut retain, &mut shifter);
+
+        // Stage 2: Some elements were deleted.
+        process_loop::<F, K, R, true>(original_len, &mut retain, &mut shifter);
+
+        // All item are processed. This can be optimized to `set_len` by LLVM.
+        drop(shifter);
     }
 }
 

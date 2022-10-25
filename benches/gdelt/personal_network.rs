@@ -73,15 +73,13 @@ pub fn personal_network(
 
     let forward_events =
         relevant_events.index_with(|entry| (entry.id.clone(), entry.people.clone()));
-    let flattened = relevant_events
-        .flat_map(|event| {
-            event
-                .people
-                .iter()
-                .map(|person| (event.id.clone(), person.clone()))
-                .collect::<Vec<_>>()
-        })
-        .index();
+    let flattened = relevant_events.flat_map_index(|event| {
+        event
+            .people
+            .iter()
+            .map(|person| (event.id.clone(), person.clone()))
+            .collect::<Vec<_>>()
+    });
 
     // let joined =
     //     flattened.join_generic::<(), _, _, OrdZSet<_, _>, _>(&forward_events,
@@ -509,10 +507,12 @@ where
         (key, value)
     }
 
-    fn from_keys(_time: Self::Time, inputs: Vec<(Self::Key, Self::R)>) -> Self
+    fn from_keys(_time: Self::Time, mut inputs: Vec<(Self::Key, Self::R)>) -> Self
     where
         Self::Val: From<()>,
     {
+        consolidation::consolidate(&mut inputs);
+
         let mut keys = HashMap::with_capacity_and_hasher(inputs.len(), Xxh3Builder::new());
         let mut values = UnorderedLeafBuilder::with_capacity(inputs.len());
         let mut offsets = Vec::with_capacity(inputs.len() + 1);

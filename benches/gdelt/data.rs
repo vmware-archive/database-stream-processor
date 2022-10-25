@@ -200,7 +200,8 @@ pub fn parse_personal_network_gkg(
     normalizations: &HashMap<&'static str, &'static [ArcStr], Xxh3Builder>,
     invalid: &HashSet<&'static str, Xxh3Builder>,
     file: File,
-) {
+) -> usize {
+    let mut records = 0;
     let reader = ReaderBuilder::new()
         .flexible(true)
         .trim(Trim::All)
@@ -236,8 +237,11 @@ pub fn parse_personal_network_gkg(
 
                     let entry = PersonalNetworkGkgEntry { id, date, people };
                     handle.push(entry, 1);
+                    records += 1;
                 }
             }
         }
     }
+
+    records
 }

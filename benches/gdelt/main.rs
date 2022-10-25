@@ -1,3 +1,5 @@
+#![feature(closure_lifetime_binder)]
+
 mod data;
 mod personal_network;
 
@@ -33,6 +35,11 @@ struct Args {
     /// The number of 15-minute batches to ingest
     #[clap(long, default_value = "20")]
     batches: NonZeroUsize,
+
+    /// The number of 15-minute batches to aggregate together for each dataflow
+    /// epoch
+    #[clap(long, default_value = "1")]
+    aggregate_batches: NonZeroUsize,
 
     /// If set, limits the number of returned results to the given amount
     #[clap(long)]
@@ -117,7 +124,7 @@ fn main() {
 
         if Runtime::worker_index() == 0 {
             let result = panic::catch_unwind(AssertUnwindSafe(|| {
-                let file_urls = BufReader::new(get_master_file())
+                let mut file_urls = BufReader::new(get_master_file())
                     .lines()
                     .filter_map(|line| {
                         let line = line.unwrap();
@@ -183,32 +190,43 @@ fn main() {
                     set
                 };
 
-                for url in file_urls {
-                    let current_batch = CURRENT_BATCH.with(|batch| batch.get());
-                    if current_batch >= batches {
-                        break;
+                while CURRENT_BATCH.with(|batch| batch.get() < args.batches.get()) {
+                    let (mut aggregate, mut records) = (0, 0);
+                    loop {
+                        if aggregate >= args.aggregate_batches.get() {
+                            break;
+                        }
+
+                        if let Some(url) = file_urls.next() {
+                            if let Some(file) = get_gkg_file(&url) {
+                                records += parse_personal_network_gkg(
+                                    &mut handle,
+                                    &mut interner,
+                                    &normalizations,
+                                    &invalid,
+                                    file,
+                                );
+
+                                aggregate += 1;
+                                CURRENT_BATCH.with(|batch| batch.set(batch.get() + 1));
+                            }
+                        } else {
+                            break;
+                        }
                     }
 
-                    if let Some(file) = get_gkg_file(&url) {
-                        parse_personal_network_gkg(
-                            &mut handle,
-                            &mut interner,
-                            &normalizations,
-                            &invalid,
-                            file,
-                        );
+                    let start = Instant::now();
+                    root.step().unwrap();
 
-                        let start = Instant::now();
-                        root.step().unwrap();
-
-                        let elapsed = start.elapsed();
-                        println!(
-                            "ingested batch {}/{batches} in {elapsed:#?}",
-                            current_batch + 1,
-                        );
-
-                        CURRENT_BATCH.with(|batch| batch.set(batch.get() + 1));
-                    }
+                    let elapsed = start.elapsed();
+                    let current = CURRENT_BATCH.with(|batch| batch.get());
+                    println!(
+                        "ingested batch{} {}..{}/{batches} ({records} record{}) in {elapsed:#?}",
+                        if aggregate == 1 { "" } else { "es" },
+                        current - aggregate,
+                        current,
+                        if records == 1 { "" } else { "s" },
+                    );
                 }
             }));
 

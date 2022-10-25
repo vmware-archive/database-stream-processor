@@ -25,8 +25,25 @@ use std::{
 /// An immutable collection of `(key, weight)` pairs without timing information.
 #[derive(Debug, Clone, Eq, PartialEq, SizeOf)]
 pub struct OrdZSet<K, R> {
-    /// Where all the dataz is.
+    #[doc(hidden)]
     pub layer: OrderedColumnLeaf<K, R>,
+}
+
+impl<K, R> OrdZSet<K, R> {
+    pub fn len(&self) -> usize {
+        self.layer.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.layer.is_empty()
+    }
+
+    pub fn retain<F>(&mut self, retain: F)
+    where
+        F: FnMut(&K, &R) -> bool,
+    {
+        self.layer.retain(retain);
+    }
 }
 
 impl<K, R> Display for OrdZSet<K, R>
