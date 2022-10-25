@@ -115,15 +115,23 @@ impl Hash for PersonalNetworkGkgEntry {
 // TODO: Probably want to check via `If-Modified-Since` header if the master
 // file list has been updated since the last time we downloaded it since it
 // likely has
-pub fn get_master_file() -> File {
+pub fn get_master_file(update: bool) -> File {
     fs::create_dir_all(DATA_PATH).unwrap();
 
     let master_path = Path::new(DATA_PATH).join("masterfilelist.txt");
-    if !master_path.exists() {
+    if update || !master_path.exists() {
+        print!(
+            "{} master file list... ",
+            if update { "updating" } else { "downloading" },
+        );
+        std::io::stdout().flush().unwrap();
+
         reqwest::blocking::get(MASTER_LIST)
             .unwrap()
             .copy_to(&mut BufWriter::new(File::create(&master_path).unwrap()))
             .unwrap();
+
+        println!("done");
     }
 
     File::open(master_path).unwrap()

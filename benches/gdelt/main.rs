@@ -45,6 +45,9 @@ struct Args {
     #[clap(long)]
     topk: Option<NonZeroUsize>,
 
+    #[clap(long)]
+    update_master_list: bool,
+
     // When running with `cargo bench` the binary gets the `--bench` flag, so we
     // have to parse and ignore it so clap doesn't get angry
     #[doc(hidden)]
@@ -124,10 +127,11 @@ fn main() {
 
         if Runtime::worker_index() == 0 {
             let result = panic::catch_unwind(AssertUnwindSafe(|| {
-                let mut file_urls = BufReader::new(get_master_file())
+                let mut file_urls = BufReader::new(get_master_file(args.update_master_list))
                     .lines()
                     .filter_map(|line| {
                         let line = line.unwrap();
+                        let line = line.trim();
                         line.ends_with(GKG_SUFFIX)
                             .then(|| line.split(' ').last().unwrap().to_owned())
                     });
@@ -190,7 +194,8 @@ fn main() {
                     set
                 };
 
-                while CURRENT_BATCH.with(|batch| batch.get() < args.batches.get()) {
+                let mut are_remaining_urls = true;
+                while CURRENT_BATCH.with(|batch| batch.get() < args.batches.get()) && are_remaining_urls {
                     let (mut aggregate, mut records) = (0, 0);
                     loop {
                         if aggregate >= args.aggregate_batches.get() {
@@ -211,6 +216,7 @@ fn main() {
                                 CURRENT_BATCH.with(|batch| batch.set(batch.get() + 1));
                             }
                         } else {
+                            are_remaining_urls = false;
                             break;
                         }
                     }
@@ -220,13 +226,21 @@ fn main() {
 
                     let elapsed = start.elapsed();
                     let current = CURRENT_BATCH.with(|batch| batch.get());
-                    println!(
-                        "ingested batch{} {}..{}/{batches} ({records} record{}) in {elapsed:#?}",
-                        if aggregate == 1 { "" } else { "es" },
-                        current - aggregate,
-                        current,
-                        if records == 1 { "" } else { "s" },
-                    );
+                    if args.aggregate_batches.get() == 1 {
+                        println!(
+                            "ingested batch {}/{batches} ({records} record{}) in {elapsed:#?}",
+                            current,
+                            if records == 1 { "" } else { "s" },
+                        );
+                    } else {
+                        println!(
+                            "ingested batch{} {}..{}/{batches} ({records} record{}) in {elapsed:#?}",
+                            if aggregate == 1 { "" } else { "es" },
+                            current - aggregate,
+                            current,
+                            if records == 1 { "" } else { "s" },
+                        );
+                    }
                 }
             }));
 

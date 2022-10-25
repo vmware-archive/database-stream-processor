@@ -35,23 +35,22 @@ use dbsp::{
     time::AntichainRef,
     trace::{
         consolidation,
-        layers::{Builder as LayerBuilder, TupleBuilder},
+        layers::{
+            column_leaf::{OrderedColumnLeaf, OrderedColumnLeafBuilder},
+            ordered::OrderedBuilder,
+            Builder as LayerBuilder, MergeBuilder, OrdOffset, TupleBuilder,
+        },
         spine_fueled::{MergeState, MergeVariant, Spine},
-        unordered::{UnorderedLeaf, UnorderedLeafBuilder},
         Batch, BatchReader, Batcher, Builder, Consumer, Cursor, Merger, ValueConsumer,
     },
     Circuit, DBData, DBWeight, NumEntries, OrdIndexedZSet, OrdZSet, Stream,
 };
-use hashbrown::{
-    hash_map::{Entry, RawEntryMut},
-    HashMap,
-};
+use hashbrown::HashMap;
 use size_of::SizeOf;
 use std::{
     borrow::Cow,
-    cmp::max,
+    cmp::min,
     fmt::{self, Debug},
-    hash::Hash,
     marker::PhantomData,
     ops::Range,
     panic::Location,
@@ -81,6 +80,13 @@ pub fn personal_network(
             .collect::<Vec<_>>()
     });
 
+    let joined = hashjoin(&flattened, &forward_events, |_id, a, people| {
+        people
+            .iter()
+            .filter_map(|b| (a < b).then(|| ((a.clone(), b.clone()), ())))
+            .collect::<Vec<_>>()
+    });
+
     // let joined =
     //     flattened.join_generic::<(), _, _, OrdZSet<_, _>, _>(&forward_events,
     // |_id, a, people| {         people
@@ -89,14 +95,7 @@ pub fn personal_network(
     //             .collect::<Vec<_>>()
     //     });
 
-    let joined = hashjoin(&flattened, &forward_events, |_id, a, people| {
-        people
-            .iter()
-            .filter_map(|b| (a < b).then(|| ((a.clone(), b.clone()), ())))
-            .collect::<Vec<_>>()
-    });
-
-    // expected.minus(&hashjoined).gather(0).inspect(|errors| {
+    // expected.minus(&joined).gather(0).inspect(|errors| {
     //     let mut cursor = errors.cursor();
     //     while cursor.key_valid() {
     //         let mentions = cursor.weight();
@@ -270,8 +269,8 @@ where
     }
 }
 
-struct SpineProbes<'a, K, V, R> {
-    probes: Vec<HashedKVBatchProbe<'a, K, V, R>>,
+struct SpineProbes<'a, K, V, R, O = usize> {
+    probes: Vec<HashedKVBatchProbe<'a, K, V, R, O>>,
     contains_key: BitVec,
     current: usize,
 }
@@ -364,15 +363,15 @@ where
     }
 }
 
-struct HashedKVBatchProbe<'a, K, V, R> {
-    batch: &'a HashedKVBatch<K, V, R>,
+struct HashedKVBatchProbe<'a, K, V, R, O> {
+    batch: &'a HashedKVBatch<K, V, R, O>,
     current: usize,
     start: usize,
     end: usize,
 }
 
-impl<'a, K, V, R> HashedKVBatchProbe<'a, K, V, R> {
-    const fn new(batch: &'a HashedKVBatch<K, V, R>) -> Self {
+impl<'a, K, V, R, O> HashedKVBatchProbe<'a, K, V, R, O> {
+    const fn new(batch: &'a HashedKVBatch<K, V, R, O>) -> Self {
         Self {
             batch,
             current: 0,
@@ -400,18 +399,17 @@ impl<'a, K, V, R> HashedKVBatchProbe<'a, K, V, R> {
     fn rewind_vals(&mut self) {
         self.current = self.start;
     }
-}
 
-impl<'a, K, V, R> HashedKVBatchProbe<'a, K, V, R>
-where
-    K: DBData,
-    V: DBData,
-    R: DBWeight,
-{
-    fn probe_key(&mut self, key: &K) -> bool {
-        if let Some(offset) = self.batch.keys.get(key).copied() {
-            self.start = self.batch.offsets[offset];
-            self.end = self.batch.offsets[offset + 1];
+    fn probe_key(&mut self, key: &K) -> bool
+    where
+        K: DBData,
+        V: DBData,
+        R: DBWeight,
+        O: OrdOffset,
+    {
+        if let Some(offset) = self.batch.keys.get(key).copied().map(OrdOffset::into_usize) {
+            self.start = self.batch.offsets[offset].into_usize();
+            self.end = self.batch.offsets[offset + 1].into_usize();
             self.current = self.start;
             true
         } else {
@@ -423,49 +421,79 @@ where
 // TODO: We can use an `O: OrdOffset` instead of the `usize` offsets we
 // currently use
 #[derive(Clone, SizeOf)]
-struct HashedKVBatch<K, V, R> {
-    // FIXME: `SizeOf for Xxh3Builder`
+struct HashedKVBatch<K, V, R, O = usize> {
     // Invariant: Each offset within `keys` and each offset within keys +1 are valid indices into
     // `offsets`
-    keys: HashMap<K, usize, Xxh3Builder>,
+    keys: HashMap<K, O, Xxh3Builder>,
     // Invariant: Each offset within `offsets` is a valid index into `values`
-    offsets: Vec<usize>,
+    offsets: Vec<O>,
     // The value+diff pairs associated with any given key can be fetched with
     // `values[offsets[keys[&key]]..offsets[keys[&key] + 1]]`
-    values: UnorderedLeaf<V, R>,
+    values: OrderedColumnLeaf<V, R>,
 }
 
-impl<K, V, R> HashedKVBatch<K, V, R> {
-    fn probe(&self) -> HashedKVBatchProbe<'_, K, V, R> {
+impl<K, V, R, O> HashedKVBatch<K, V, R, O> {
+    fn probe(&self) -> HashedKVBatchProbe<'_, K, V, R, O> {
         HashedKVBatchProbe::new(self)
+    }
+
+    fn from_builder(builder: OrderedBuilder<K, OrderedColumnLeafBuilder<V, R>, O>) -> Self
+    where
+        K: DBData,
+        V: DBData,
+        R: DBWeight,
+        O: OrdOffset,
+    {
+        // Finish the ordered layer and break it down to its components
+        let (layer_keys, offsets, values) = builder.done().into_parts();
+
+        // Within the OrderedLayer (and transitively within `layer_keys`) the start of a
+        // key's value range is implicit in the key's index in the vec. However, since
+        // we want to do hash lookups here we store our keys within a `HashMap` which
+        // doesn't allow us to store the offsets implicitly, so we have to store that
+        // start offset within the HashMap
+        let mut keys = HashMap::with_capacity_and_hasher(layer_keys.len(), Xxh3Builder::new());
+        for (idx, key) in layer_keys.into_iter().enumerate() {
+            debug_assert!(!keys.contains_key(&key));
+            debug_assert!(offsets.len() > idx);
+            keys.insert_unique_unchecked(key, O::from_usize(idx));
+        }
+
+        Self {
+            keys,
+            offsets,
+            values,
+        }
     }
 }
 
-impl<K, V, R> NumEntries for HashedKVBatch<K, V, R> {
+impl<K, V, R, O> NumEntries for HashedKVBatch<K, V, R, O> {
     const CONST_NUM_ENTRIES: Option<usize> = None;
 
     fn num_entries_shallow(&self) -> usize {
         self.keys.len()
     }
 
+    // FIXME: Unsure what this method really does
     fn num_entries_deep(&self) -> usize {
         self.values.len()
     }
 }
 
-impl<K, V, R> BatchReader for HashedKVBatch<K, V, R>
+impl<K, V, R, O> BatchReader for HashedKVBatch<K, V, R, O>
 where
     K: DBData,
     V: DBData,
     R: DBWeight,
+    O: OrdOffset,
 {
     type Key = K;
     type Val = V;
     type Time = ();
     type R = R;
 
-    type Cursor<'a> = HashedKVCursor<'a, K, V, R>;
-    type Consumer = HashedKVConsumer<K, V, R>;
+    type Cursor<'a> = HashedKVCursor<'a, K, V, R, O>;
+    type Consumer = HashedKVConsumer<K, V, R, O>;
 
     fn cursor(&self) -> Self::Cursor<'_> {
         todo!()
@@ -492,16 +520,17 @@ where
     }
 }
 
-impl<K, V, R> Batch for HashedKVBatch<K, V, R>
+impl<K, V, R, O> Batch for HashedKVBatch<K, V, R, O>
 where
     K: DBData,
     V: DBData,
     R: DBWeight,
+    O: OrdOffset,
 {
     type Item = (K, V);
-    type Batcher = HashedKVBuilder<K, V, R>;
-    type Builder = HashedKVBuilder<K, V, R>;
-    type Merger = HashedKVBuilder<K, V, R>;
+    type Batcher = HashedKVBatcher<K, V, R, O>;
+    type Builder = HashedKVBuilder<K, V, R, O>;
+    type Merger = HashedKVMerger<K, V, R, O>;
 
     fn item_from(key: Self::Key, value: Self::Val) -> Self::Item {
         (key, value)
@@ -514,22 +543,26 @@ where
         consolidation::consolidate(&mut inputs);
 
         let mut keys = HashMap::with_capacity_and_hasher(inputs.len(), Xxh3Builder::new());
-        let mut values = UnorderedLeafBuilder::with_capacity(inputs.len());
+        let mut values =
+            <OrderedColumnLeafBuilder<_, _> as TupleBuilder>::with_capacity(inputs.len());
         let mut offsets = Vec::with_capacity(inputs.len() + 1);
-        offsets.push(0);
+        offsets.push(O::zero());
 
         for (key, diff) in inputs {
-            if !diff.is_zero() {
-                // Push the value+diff pair
-                values.push_tuple((Self::Val::from(()), diff));
+            debug_assert!(
+                !diff.is_zero(),
+                "consolidation should take care of zeroed weights",
+            );
 
-                // Add the key and the offset of the start of its value range to the keys map
-                debug_assert!(!keys.contains_key(&key));
-                keys.insert_unique_unchecked(key, offsets.len() - 1);
+            // Push the value+diff pair
+            values.push_tuple((Self::Val::from(()), diff));
 
-                // Record the end of the current key's values in offsets
-                offsets.push(values.boundary());
-            }
+            // Add the key and the offset of the start of its value range to the keys map
+            debug_assert!(!keys.contains_key(&key));
+            keys.insert_unique_unchecked(key, O::from_usize(offsets.len() - 1));
+
+            // Record the end of the current key's values in offsets
+            offsets.push(O::from_usize(values.boundary()));
         }
 
         Self {
@@ -542,28 +575,31 @@ where
     fn recede_to(&mut self, _frontier: &Self::Time) {}
 }
 
-impl<K, V, R> Debug for HashedKVBatch<K, V, R>
+impl<K, V, R, O> Debug for HashedKVBatch<K, V, R, O>
 where
     K: Debug,
     V: Debug,
     R: Debug,
+    O: OrdOffset + Debug,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        struct KVBatch<'a, K, V, R>(&'a HashedKVBatch<K, V, R>);
+        struct KVBatch<'a, K, V, R, O>(&'a HashedKVBatch<K, V, R, O>);
 
-        impl<K, V, R> Debug for KVBatch<'_, K, V, R>
+        impl<K, V, R, O> Debug for KVBatch<'_, K, V, R, O>
         where
             K: Debug,
             V: Debug,
             R: Debug,
+            O: OrdOffset + Debug,
         {
             fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 let batch = self.0;
 
                 let mut map = f.debug_map();
                 for (key, &offset) in batch.keys.iter() {
-                    let start = batch.offsets[offset];
-                    let end = batch.offsets[offset + 1];
+                    let offset = offset.into_usize();
+                    let start = batch.offsets[offset].into_usize();
+                    let end = batch.offsets[offset + 1].into_usize();
 
                     map.entry(
                         key,
@@ -596,11 +632,11 @@ where
     }
 }
 
-struct HashedKVCursor<'a, K, V, R> {
-    __type: PhantomData<&'a (K, V, R)>,
+struct HashedKVCursor<'a, K, V, R, O> {
+    __type: PhantomData<&'a (K, V, R, O)>,
 }
 
-impl<'a, K, V, R> Cursor<'a, K, V, (), R> for HashedKVCursor<'a, K, V, R> {
+impl<'a, K, V, R, O> Cursor<'a, K, V, (), R> for HashedKVCursor<'a, K, V, R, O> {
     fn key_valid(&self) -> bool {
         todo!()
     }
@@ -671,11 +707,11 @@ impl<'a, K, V, R> Cursor<'a, K, V, (), R> for HashedKVCursor<'a, K, V, R> {
     }
 }
 
-struct HashedKVConsumer<K, V, R> {
-    __type: PhantomData<(K, V, R)>,
+struct HashedKVConsumer<K, V, R, O> {
+    __type: PhantomData<*const (K, V, R, O)>,
 }
 
-impl<K, V, R> Consumer<K, V, R, ()> for HashedKVConsumer<K, V, R> {
+impl<K, V, R, O> Consumer<K, V, R, ()> for HashedKVConsumer<K, V, R, O> {
     type ValueConsumer<'a> = HashedValueConsumer<'a, V, R>
     where
         Self: 'a;
@@ -718,170 +754,187 @@ impl<'a, V, R> ValueConsumer<'a, V, R, ()> for HashedValueConsumer<'a, V, R> {
     }
 }
 
-#[derive(Debug, SizeOf)]
-struct HashedKVBuilder<K, V, R> {
-    pairs: HashMap<K, Vec<(V, R)>, Xxh3Builder>,
+type RawKVBuilder<K, V, R, O> = OrderedBuilder<K, OrderedColumnLeafBuilder<V, R>, O>;
+
+#[derive(SizeOf)]
+struct HashedKVBuilder<K, V, R, O = usize>
+where
+    K: Ord,
+    O: OrdOffset,
+{
+    builder: RawKVBuilder<K, V, R, O>,
 }
 
-impl<K, V, R> HashedKVBuilder<K, V, R> {
-    // TODO: Once we're confident in this code we can remove pretty much all of the
-    // bounds checks
-    fn append_batch(&mut self, batch: &HashedKVBatch<K, V, R>)
-    where
-        K: Hash + Eq + Clone,
-        V: Clone,
-        R: Clone,
-    {
-        for (key, &offset) in &batch.keys {
-            let value_start = batch.offsets[offset];
-            let value_end = batch.offsets[offset + 1];
-            let key_values = value_end - value_start;
-
-            assert!(value_start <= value_end && value_end <= batch.values.len());
-            match self.pairs.raw_entry_mut().from_key(key) {
-                RawEntryMut::Occupied(mut occupied) => {
-                    let values = occupied.get_mut();
-                    values.reserve(key_values);
-
-                    for idx in value_start..value_end {
-                        values.push((
-                            batch.values.keys()[idx].clone(),
-                            batch.values.diffs()[idx].clone(),
-                        ));
-                    }
-                }
-
-                RawEntryMut::Vacant(vacant) => {
-                    let (_, values) = vacant.insert(key.clone(), Vec::with_capacity(key_values));
-
-                    for idx in value_start..value_end {
-                        values.push((
-                            batch.values.keys()[idx].clone(),
-                            batch.values.diffs()[idx].clone(),
-                        ));
-                    }
-                }
-            }
-        }
-    }
-}
-
-impl<K, V, R> Builder<(K, V), (), R, HashedKVBatch<K, V, R>> for HashedKVBuilder<K, V, R>
+impl<K, V, R, O> Builder<(K, V), (), R, HashedKVBatch<K, V, R, O>> for HashedKVBuilder<K, V, R, O>
 where
     K: DBData,
     V: DBData,
     R: DBWeight,
+    O: OrdOffset,
 {
     fn new_builder(_time: ()) -> Self {
         Self {
-            pairs: HashMap::with_hasher(Xxh3Builder::new()),
+            builder: RawKVBuilder::new(),
         }
     }
 
     fn with_capacity(_time: (), capacity: usize) -> Self {
         Self {
-            pairs: HashMap::with_capacity_and_hasher(capacity, Xxh3Builder::new()),
+            builder: <RawKVBuilder<_, _, _, _> as TupleBuilder>::with_capacity(capacity),
         }
     }
 
     fn push(&mut self, ((key, value), diff): ((K, V), R)) {
-        match self.pairs.entry(key) {
-            Entry::Occupied(mut entry) => entry.get_mut().push((value, diff)),
-            Entry::Vacant(entry) => {
-                entry.insert(vec![(value, diff)]);
-            }
-        }
+        self.builder.push_tuple((key, (value, diff)));
     }
 
     fn reserve(&mut self, additional: usize) {
-        self.pairs.reserve(additional);
+        self.builder.reserve(additional);
     }
 
-    fn done(self) -> HashedKVBatch<K, V, R> {
-        let mut keys = HashMap::with_capacity_and_hasher(self.pairs.len(), Xxh3Builder::new());
-        let mut values = UnorderedLeafBuilder::with_capacity(self.pairs.len());
-        let mut offsets = Vec::with_capacity(keys.len() + 1);
-        offsets.push(0);
-
-        for (key, mut key_values) in self.pairs {
-            // Consolidate the values of each key
-            consolidation::consolidate(&mut key_values);
-
-            // If any values are actually produced for the given key, create the entry
-            if !key_values.is_empty() {
-                // Add the key's values to the values leaf
-                values.extend_tuples(key_values);
-
-                // Add the key and the offset of the start of its value range to the keys map
-                debug_assert!(!keys.contains_key(&key));
-                keys.insert_unique_unchecked(key, offsets.len() - 1);
-
-                // Record the end of the current key's values in offsets
-                offsets.push(values.boundary());
-            }
-        }
-
-        HashedKVBatch {
-            keys,
-            offsets,
-            values: values.done(),
-        }
+    fn done(self) -> HashedKVBatch<K, V, R, O> {
+        HashedKVBatch::from_builder(self.builder)
     }
 }
 
-impl<K, V, R> Batcher<(K, V), (), R, HashedKVBatch<K, V, R>> for HashedKVBuilder<K, V, R>
+#[derive(SizeOf)]
+struct HashedKVBatcher<K, V, R, O> {
+    // TODO: We can take advantage of sorted runs by merging them together instead of lumping them
+    // into the unsorted masses
+    values: Vec<(K, (V, R))>,
+    __type: PhantomData<*const O>,
+}
+
+impl<K, V, R, O> Batcher<(K, V), (), R, HashedKVBatch<K, V, R, O>> for HashedKVBatcher<K, V, R, O>
 where
     K: DBData,
     V: DBData,
     R: DBWeight,
+    O: OrdOffset,
 {
-    fn new_batcher(time: ()) -> Self {
-        Self::new_builder(time)
+    fn new_batcher(_time: ()) -> Self {
+        Self {
+            values: Vec::new(),
+            __type: PhantomData,
+        }
     }
 
     fn push_batch(&mut self, batch: &mut Vec<((K, V), R)>) {
-        self.extend(batch.drain(..));
+        self.values.extend(
+            batch
+                .drain(..)
+                .map(|((key, value), diff)| (key, (value, diff))),
+        );
     }
 
+    // FIXME: We can save consolidated runs outright and merge them into other
+    // sorted runs, should be more efficient
     fn push_consolidated_batch(&mut self, batch: &mut Vec<((K, V), R)>) {
-        self.extend(batch.drain(..));
+        self.push_batch(batch);
     }
 
     fn tuples(&self) -> usize {
-        self.pairs.values().map(Vec::len).sum()
+        self.values.len()
     }
 
-    fn seal(self) -> HashedKVBatch<K, V, R> {
-        Builder::done(self)
+    fn seal(mut self) -> HashedKVBatch<K, V, R, O> {
+        self.values
+            .sort_unstable_by(|(key1, _), (key2, _)| key1.cmp(key2));
+
+        let mut builder = HashedKVBuilder::<K, V, R, O>::with_capacity((), self.values.len());
+        for (key, (value, diff)) in self.values {
+            builder.push(((key, value), diff));
+        }
+
+        builder.done()
     }
 }
 
-impl<K, V, R> Merger<K, V, (), R, HashedKVBatch<K, V, R>> for HashedKVBuilder<K, V, R>
+#[derive(Clone, Copy, SizeOf)]
+enum Side {
+    Left,
+    Right,
+}
+
+#[derive(SizeOf)]
+struct HashedKVMerger<K, V, R, O = usize>
+where
+    K: Ord,
+    O: OrdOffset,
+{
+    keys: Vec<(K, O, Side)>,
+    builder: RawKVBuilder<K, V, R, O>,
+}
+
+// FIXME: This is less than ideal, I really dislike cloning the keys
+impl<K, V, R, O> Merger<K, V, (), R, HashedKVBatch<K, V, R, O>> for HashedKVMerger<K, V, R, O>
 where
     K: DBData,
     V: DBData,
     R: DBWeight,
+    O: OrdOffset,
 {
-    fn new_merger(left: &HashedKVBatch<K, V, R>, right: &HashedKVBatch<K, V, R>) -> Self {
-        Self::with_capacity((), left.key_count() + right.key_count())
+    fn new_merger(left: &HashedKVBatch<K, V, R, O>, right: &HashedKVBatch<K, V, R, O>) -> Self {
+        let mut keys = Vec::with_capacity(left.keys.len() + right.keys.len());
+        keys.extend(
+            left.keys
+                .iter()
+                .map(|(key, &offset)| (key.clone(), offset, Side::Left)),
+        );
+        keys.extend(
+            right
+                .keys
+                .iter()
+                .map(|(key, &offset)| (key.clone(), offset, Side::Right)),
+        );
+        keys.sort_unstable_by(|(key1, ..), (key2, ..)| key1.cmp(key2));
+
+        Self {
+            keys,
+            builder: <RawKVBuilder<K, V, R, O> as TupleBuilder>::with_capacity(
+                left.values.len() + right.values.len(),
+            ),
+        }
     }
 
     fn work(
         &mut self,
-        left: &HashedKVBatch<K, V, R>,
-        right: &HashedKVBatch<K, V, R>,
+        left: &HashedKVBatch<K, V, R, O>,
+        right: &HashedKVBatch<K, V, R, O>,
         fuel: &mut isize,
     ) {
-        self.reserve(left.key_count() + right.key_count());
-        self.append_batch(left);
-        self.append_batch(right);
+        if *fuel <= 0 {
+            return;
+        }
 
-        // FIXME: Not really sure what I'm doing here tbh, I currently just kinda
-        // instantly finish all merges which is somewhat sub-optimal
-        *fuel = max(*fuel - self.pairs.len() as isize, 1);
+        let consumed = min(self.keys.len(), *fuel as usize);
+        *fuel -= consumed as isize;
+
+        for (key, offset, side) in self.keys.drain(..consumed) {
+            let batch = match side {
+                Side::Left => left,
+                Side::Right => right,
+            };
+
+            let offset = offset.into_usize();
+            let start = batch.offsets[offset].into_usize();
+            let end = batch.offsets[offset + 1].into_usize();
+
+            // TODO: Technically start should always be less than end, we shouldn't ever
+            // have empty value runs paired with a key
+            debug_assert!(start <= end && end <= batch.values.len());
+            self.builder.with_key(key.clone(), |mut values| {
+                for idx in start..end {
+                    values.push((
+                        batch.values.keys()[idx].clone(),
+                        batch.values.diffs()[idx].clone(),
+                    ));
+                }
+            });
+        }
     }
 
-    fn done(self) -> HashedKVBatch<K, V, R> {
-        Builder::done(self)
+    fn done(self) -> HashedKVBatch<K, V, R, O> {
+        HashedKVBatch::from_builder(self.builder)
     }
 }
