@@ -3,7 +3,7 @@ use crate::{
     time::{Antichain, AntichainRef},
     trace::{
         layers::{
-            column_leaf::{OrderedColumnLeaf, OrderedColumnLeafBuilder},
+            column_layer::{ColumnLayer, ColumnLayerBuilder},
             ordered::{OrderedBuilder, OrderedCursor, OrderedLayer},
             Builder as TrieBuilder, Cursor as TrieCursor, MergeBuilder, OrdOffset, Trie,
             TupleBuilder,
@@ -20,7 +20,7 @@ use std::{
 };
 
 pub type OrdValBatchLayer<K, V, T, R, O> =
-    OrderedLayer<K, OrderedLayer<V, OrderedColumnLeaf<T, R>, O>, O>;
+    OrderedLayer<K, OrderedLayer<V, ColumnLayer<T, R>, O>, O>;
 
 /// An immutable collection of update tuples, from a contiguous interval of
 /// logical times.
@@ -394,7 +394,7 @@ where
     R: MonoidValue,
     O: OrdOffset,
 {
-    cursor: OrderedCursor<'s, K, O, OrderedLayer<V, OrderedColumnLeaf<T, R>, O>>,
+    cursor: OrderedCursor<'s, K, O, OrderedLayer<V, ColumnLayer<T, R>, O>>,
 }
 
 impl<'s, K, V, T, R, O> Cursor<'s, K, V, T, R> for OrdValCursor<'s, K, V, T, R, O>
@@ -408,30 +408,45 @@ where
     fn key(&self) -> &K {
         self.cursor.key()
     }
+
     fn val(&self) -> &V {
         self.cursor.child.key()
     }
-    fn map_times<L: FnMut(&T, &R)>(&mut self, mut logic: L) {
+
+    fn fold_times<F, U>(&mut self, mut init: U, mut fold: F) -> U
+    where
+        F: FnMut(U, &T, &R) -> U,
+    {
         self.cursor.child.child.rewind();
         while self.cursor.child.child.valid() {
-            logic(
+            init = fold(
+                init,
                 self.cursor.child.child.current_key(),
                 self.cursor.child.child.current_diff(),
             );
             self.cursor.child.child.step();
         }
+
+        init
     }
-    fn map_times_through<L: FnMut(&T, &R)>(&mut self, mut logic: L, upper: &T) {
+
+    fn fold_times_through<F, U>(&mut self, upper: &T, mut init: U, mut fold: F) -> U
+    where
+        F: FnMut(U, &T, &R) -> U,
+    {
         self.cursor.child.child.rewind();
         while self.cursor.child.child.valid() {
             if self.cursor.child.child.key().0.less_equal(upper) {
-                logic(
+                init = fold(
+                    init,
                     self.cursor.child.child.current_key(),
                     self.cursor.child.child.current_diff(),
                 );
             }
             self.cursor.child.child.step();
         }
+
+        init
     }
 
     fn weight(&mut self) -> R
@@ -478,7 +493,7 @@ where
 }
 
 type RawOrdValBuilder<K, V, T, R, O> =
-    OrderedBuilder<K, OrderedBuilder<V, OrderedColumnLeafBuilder<T, R>, O>, O>;
+    OrderedBuilder<K, OrderedBuilder<V, ColumnLayerBuilder<T, R>, O>, O>;
 
 /// A builder for creating layers from unsorted update tuples.
 #[derive(SizeOf)]

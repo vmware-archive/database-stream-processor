@@ -58,11 +58,29 @@ pub trait Cursor<'s, K, V, T, R> {
 
     /// Applies `logic` to each pair of time and difference. Intended for
     /// mutation of the closure's scope.
-    fn map_times<L: FnMut(&T, &R)>(&mut self, logic: L);
+    fn map_times<L>(&mut self, mut logic: L)
+    where
+        L: FnMut(&T, &R),
+    {
+        self.fold_times((), |(), time, diff| logic(time, diff));
+    }
+
+    fn fold_times<F, U>(&mut self, init: U, fold: F) -> U
+    where
+        F: FnMut(U, &T, &R) -> U;
 
     /// Applies `logic` to each pair of time and difference, restricted
     /// to times `t <= upper`.
-    fn map_times_through<L: FnMut(&T, &R)>(&mut self, logic: L, upper: &T);
+    fn map_times_through<L>(&mut self, upper: &T, mut logic: L)
+    where
+        L: FnMut(&T, &R),
+    {
+        self.fold_times_through(upper, (), |(), time, diff| logic(time, diff));
+    }
+
+    fn fold_times_through<F, U>(&mut self, upper: &T, init: U, fold: F) -> U
+    where
+        F: FnMut(U, &T, &R) -> U;
 
     /// Returns the weight associated with the current key/value pair.
     ///
@@ -71,9 +89,7 @@ pub trait Cursor<'s, K, V, T, R> {
     /// is more convenient (and potentially more efficient) than using
     /// [`Self::map_times`] to iterate over a single value.
     ///
-    /// # Panics
-    ///
-    /// Panics if not `self.key_valid() && self.val_valid()`.
+    /// If the current key and value are not valid, behavior is unspecified
     fn weight(&mut self) -> R
     where
         T: PartialEq<()>;
@@ -117,6 +133,61 @@ pub trait Cursor<'s, K, V, T, R> {
 
     /// Rewinds the cursor to the first value for current key.
     fn rewind_vals(&mut self);
+}
+
+/// A cursor for traversing unordered values
+pub trait UnorderedCursor<'a, K, T, V, R> {
+    /// Indicates if the current key is valid.
+    ///
+    /// A value of `false` indicates that the cursor has exhausted all keys.
+    fn key_valid(&self) -> bool;
+
+    /// Indicates if the current value is valid.
+    ///
+    /// A value of `false` indicates that the cursor has exhausted all values
+    /// for this key.
+    fn val_valid(&self) -> bool;
+
+    /// A reference to the current key. Panics if invalid.
+    fn key(&self) -> &K;
+
+    /// A reference to the current value. Panics if invalid.
+    fn value(&self) -> &V;
+
+    /// Returns a reference to the current key, if valid.
+    fn get_key(&self) -> Option<&K> {
+        self.key_valid().then(|| self.key())
+    }
+
+    /// Returns a reference to the current value, if valid.
+    fn get_val(&self) -> Option<&V> {
+        self.val_valid().then(|| self.value())
+    }
+
+    /// Returns the weight associated with the current key/value pair.
+    ///
+    /// This method is only defined for cursors with unit timestamp type
+    /// (`T=()`), which contain exactly one weight per key/value pair.  It
+    /// is more convenient (and potentially more efficient) than using
+    /// [`Self::map_times`] to iterate over a single value.
+    ///
+    /// If the current key and value are not valid, behavior is unspecified
+    fn weight(&mut self) -> R
+    where
+        T: PartialEq<()>;
+
+    /// Applies `logic` to each pair of time and difference. Intended for
+    /// mutation of the closure's scope.
+    fn map_times<L>(&mut self, mut logic: L)
+    where
+        L: FnMut(&T, &R),
+    {
+        self.fold_times((), |(), time, diff| logic(time, diff));
+    }
+
+    fn fold_times<F, U>(&mut self, init: U, fold: F) -> U
+    where
+        F: FnMut(U, &T, &R) -> U;
 }
 
 /// A cursor for taking ownership of ordered `(K, V, R, T)` tuples

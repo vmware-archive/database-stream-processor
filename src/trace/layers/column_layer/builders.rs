@@ -2,9 +2,7 @@ use crate::{
     algebra::{AddAssignByRef, HasZero},
     trace::{
         consolidation::consolidate_from,
-        layers::{
-            advance, column_leaf::OrderedColumnLeaf, Builder, MergeBuilder, Trie, TupleBuilder,
-        },
+        layers::{advance, column_layer::ColumnLayer, Builder, MergeBuilder, Trie, TupleBuilder},
     },
     utils::assume,
 };
@@ -16,15 +14,14 @@ use std::{
 
 /// A builder for ordered values
 #[derive(SizeOf)]
-pub struct OrderedColumnLeafBuilder<K, R> {
+pub struct ColumnLayerBuilder<K, R> {
     // Invariant: `keys.len() == diffs.len()`
     keys: Vec<K>,
     diffs: Vec<R>,
 }
 
-impl<K, R> OrderedColumnLeafBuilder<K, R> {
+impl<K, R> ColumnLayerBuilder<K, R> {
     /// Get the length of the current builder
-    #[inline]
     pub(crate) fn len(&self) -> usize {
         unsafe { self.assume_invariants() }
         self.keys.len()
@@ -35,49 +32,44 @@ impl<K, R> OrderedColumnLeafBuilder<K, R> {
     /// # Safety
     ///
     /// Requires that `keys` and `diffs` have the exact same length
-    #[inline]
     unsafe fn assume_invariants(&self) {
         assume(self.keys.len() == self.diffs.len())
     }
 }
 
-impl<K, R> Builder for OrderedColumnLeafBuilder<K, R>
+impl<K, R> Builder for ColumnLayerBuilder<K, R>
 where
     K: Ord + Clone,
     R: Eq + HasZero + AddAssign + AddAssignByRef + Clone,
 {
-    type Trie = OrderedColumnLeaf<K, R>;
+    type Trie = ColumnLayer<K, R>;
 
-    #[inline]
     fn boundary(&mut self) -> usize {
         unsafe { self.assume_invariants() }
         self.keys.len()
     }
 
-    #[inline]
     fn done(self) -> Self::Trie {
         unsafe { self.assume_invariants() }
 
         // TODO: Should we call `.shrink_to_fit()` here?
-        OrderedColumnLeaf {
+        ColumnLayer {
             keys: self.keys,
             diffs: self.diffs,
         }
     }
 }
 
-impl<K, R> MergeBuilder for OrderedColumnLeafBuilder<K, R>
+impl<K, R> MergeBuilder for ColumnLayerBuilder<K, R>
 where
     K: Ord + Clone,
     R: Eq + HasZero + AddAssign + AddAssignByRef + Clone,
 {
-    #[inline]
     fn with_capacity(left: &Self::Trie, right: &Self::Trie) -> Self {
-        let capacity = left.keys() + right.keys();
+        let capacity = Trie::keys(left) + Trie::keys(right);
         Self::with_key_capacity(capacity)
     }
 
-    #[inline]
     fn with_key_capacity(capacity: usize) -> Self {
         Self {
             keys: Vec::with_capacity(capacity),
@@ -85,7 +77,6 @@ where
         }
     }
 
-    #[inline]
     fn reserve(&mut self, additional: usize) {
         unsafe { self.assume_invariants() }
         self.keys.reserve(additional);
@@ -93,7 +84,6 @@ where
         unsafe { self.assume_invariants() }
     }
 
-    #[inline]
     fn copy_range(&mut self, other: &Self::Trie, lower: usize, upper: usize) {
         unsafe {
             self.assume_invariants();
@@ -179,14 +169,13 @@ where
     }
 }
 
-impl<K, R> TupleBuilder for OrderedColumnLeafBuilder<K, R>
+impl<K, R> TupleBuilder for ColumnLayerBuilder<K, R>
 where
     K: Ord + Clone,
     R: Eq + HasZero + AddAssign + AddAssignByRef + Clone,
 {
     type Item = (K, R);
 
-    #[inline]
     fn new() -> Self {
         Self {
             keys: Vec::new(),
@@ -194,7 +183,6 @@ where
         }
     }
 
-    #[inline]
     fn with_capacity(capacity: usize) -> Self {
         Self {
             keys: Vec::with_capacity(capacity),
@@ -202,13 +190,16 @@ where
         }
     }
 
-    #[inline]
+    fn reserve_tuples(&mut self, additional: usize) {
+        self.keys.reserve(additional);
+        self.diffs.reserve(additional);
+    }
+
     fn tuples(&self) -> usize {
         unsafe { self.assume_invariants() }
         self.keys.len()
     }
 
-    #[inline]
     fn push_tuple(&mut self, (key, diff): (K, R)) {
         // if cfg!(debug_assertions) && !self.keys.is_empty() {
         //     debug_assert!(
@@ -227,13 +218,13 @@ where
 
 /// A builder for unordered values
 #[derive(Debug, Clone, SizeOf)]
-pub struct UnorderedColumnLeafBuilder<K, R> {
+pub struct UnorderedColumnLayerBuilder<K, R> {
     tuples: Vec<(K, R)>,
     boundary: usize,
 }
 
-impl<K, R> UnorderedColumnLeafBuilder<K, R> {
-    /// Create a new `UnorderedColumnLeafBuilder`
+impl<K, R> UnorderedColumnLayerBuilder<K, R> {
+    /// Create a new `UnorderedColumnLayerBuilder`
     pub const fn new() -> Self {
         Self {
             tuples: Vec::new(),
@@ -242,18 +233,17 @@ impl<K, R> UnorderedColumnLeafBuilder<K, R> {
     }
 
     /// Get the length of the current builder
-    #[inline]
     pub(crate) fn len(&self) -> usize {
         self.tuples.len()
     }
 }
 
-impl<K, R> Builder for UnorderedColumnLeafBuilder<K, R>
+impl<K, R> Builder for UnorderedColumnLayerBuilder<K, R>
 where
     K: Ord + Clone,
     R: HasZero + AddAssign + AddAssignByRef + Eq + Clone,
 {
-    type Trie = OrderedColumnLeaf<K, R>;
+    type Trie = ColumnLayer<K, R>;
 
     fn boundary(&mut self) -> usize {
         consolidate_from(&mut self.tuples, self.boundary);
@@ -266,18 +256,17 @@ where
 
         let (keys, diffs) = self.tuples.into_iter().unzip();
         // TODO: The indices buffer is dropped here, can we reuse it for other builders?
-        OrderedColumnLeaf { keys, diffs }
+        ColumnLayer { keys, diffs }
     }
 }
 
-impl<K, R> TupleBuilder for UnorderedColumnLeafBuilder<K, R>
+impl<K, R> TupleBuilder for UnorderedColumnLayerBuilder<K, R>
 where
     K: Ord + Clone,
     R: HasZero + AddAssign + AddAssignByRef + Eq + Clone,
 {
     type Item = (K, R);
 
-    #[inline]
     fn new() -> Self {
         Self {
             tuples: Vec::new(),
@@ -285,7 +274,6 @@ where
         }
     }
 
-    #[inline]
     fn with_capacity(capacity: usize) -> Self {
         Self {
             tuples: Vec::with_capacity(capacity),
@@ -293,18 +281,27 @@ where
         }
     }
 
-    #[inline]
+    fn reserve_tuples(&mut self, additional: usize) {
+        self.tuples.reserve(additional);
+    }
+
     fn tuples(&self) -> usize {
         self.len()
     }
 
-    #[inline]
     fn push_tuple(&mut self, tuple: (K, R)) {
         self.tuples.push(tuple);
     }
+
+    fn extend_tuples<I>(&mut self, tuples: I)
+    where
+        I: IntoIterator<Item = Self::Item>,
+    {
+        self.tuples.extend(tuples);
+    }
 }
 
-impl<K, R> Default for UnorderedColumnLeafBuilder<K, R> {
+impl<K, R> Default for UnorderedColumnLayerBuilder<K, R> {
     fn default() -> Self {
         Self::new()
     }

@@ -3,9 +3,9 @@ use crate::{
     time::AntichainRef,
     trace::{
         layers::{
-            column_leaf::{
-                ColumnLeafConsumer, ColumnLeafCursor, ColumnLeafValues, OrderedColumnLeaf,
-                OrderedColumnLeafBuilder,
+            column_layer::{
+                ColumnLayer, ColumnLayerBuilder, ColumnLayerConsumer, ColumnLayerCursor,
+                ColumnLayerValues,
             },
             Builder as TrieBuilder, Cursor as TrieCursor, MergeBuilder, Trie, TupleBuilder,
         },
@@ -25,8 +25,25 @@ use std::{
 /// An immutable collection of `(key, weight)` pairs without timing information.
 #[derive(Debug, Clone, Eq, PartialEq, SizeOf)]
 pub struct OrdZSet<K, R> {
-    /// Where all the dataz is.
-    pub layer: OrderedColumnLeaf<K, R>,
+    #[doc(hidden)]
+    pub layer: ColumnLayer<K, R>,
+}
+
+impl<K, R> OrdZSet<K, R> {
+    pub fn len(&self) -> usize {
+        self.layer.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.layer.is_empty()
+    }
+
+    pub fn retain<F>(&mut self, retain: F)
+    where
+        F: FnMut(&K, &R) -> bool,
+    {
+        self.layer.retain(retain);
+    }
 }
 
 impl<K, R> Display for OrdZSet<K, R>
@@ -43,14 +60,14 @@ where
     }
 }
 
-impl<K, R> From<OrderedColumnLeaf<K, R>> for OrdZSet<K, R> {
-    fn from(layer: OrderedColumnLeaf<K, R>) -> Self {
+impl<K, R> From<ColumnLayer<K, R>> for OrdZSet<K, R> {
+    fn from(layer: ColumnLayer<K, R>) -> Self {
         Self { layer }
     }
 }
 
-impl<K, R> From<OrderedColumnLeaf<K, R>> for Rc<OrdZSet<K, R>> {
-    fn from(layer: OrderedColumnLeaf<K, R>) -> Self {
+impl<K, R> From<ColumnLayer<K, R>> for Rc<OrdZSet<K, R>> {
+    fn from(layer: ColumnLayer<K, R>) -> Self {
         Rc::new(From::from(layer))
     }
 }
@@ -60,7 +77,7 @@ where
     K: DBData,
     R: DBWeight,
 {
-    const CONST_NUM_ENTRIES: Option<usize> = <OrderedColumnLeaf<K, R>>::CONST_NUM_ENTRIES;
+    const CONST_NUM_ENTRIES: Option<usize> = <ColumnLayer<K, R>>::CONST_NUM_ENTRIES;
 
     fn num_entries_shallow(&self) -> usize {
         self.layer.num_entries_shallow()
@@ -74,7 +91,7 @@ where
 impl<K, R> Default for OrdZSet<K, R> {
     fn default() -> Self {
         Self {
-            layer: OrderedColumnLeaf::empty(),
+            layer: ColumnLayer::empty(),
         }
     }
 }
@@ -175,13 +192,13 @@ where
     #[inline]
     fn consumer(self) -> Self::Consumer {
         OrdZSetConsumer {
-            consumer: ColumnLeafConsumer::from(self.layer),
+            consumer: ColumnLayerConsumer::from(self.layer),
         }
     }
 
     #[inline]
     fn key_count(&self) -> usize {
-        self.layer.keys()
+        Trie::keys(&self.layer)
     }
 
     #[inline]
@@ -226,7 +243,7 @@ where
 
     fn empty(_time: Self::Time) -> Self {
         Self {
-            layer: OrderedColumnLeaf::empty(),
+            layer: ColumnLayer::empty(),
         }
     }
 }
@@ -239,7 +256,7 @@ where
     R: DBWeight,
 {
     // result that we are currently assembling.
-    result: <OrderedColumnLeaf<K, R> as Trie>::MergeBuilder,
+    result: <ColumnLayer<K, R> as Trie>::MergeBuilder,
 }
 
 impl<K, R> Merger<K, (), (), R, OrdZSet<K, R>> for OrdZSetMerger<K, R>
@@ -250,11 +267,10 @@ where
 {
     fn new_merger(batch1: &OrdZSet<K, R>, batch2: &OrdZSet<K, R>) -> Self {
         Self {
-            result:
-                <<OrderedColumnLeaf<K, R> as Trie>::MergeBuilder as MergeBuilder>::with_capacity(
-                    &batch1.layer,
-                    &batch2.layer,
-                ),
+            result: <<ColumnLayer<K, R> as Trie>::MergeBuilder as MergeBuilder>::with_capacity(
+                &batch1.layer,
+                &batch2.layer,
+            ),
         }
     }
 
@@ -280,7 +296,7 @@ where
     R: DBWeight,
 {
     valid: bool,
-    cursor: ColumnLeafCursor<'s, K, R>,
+    cursor: ColumnLayerCursor<'s, K, R>,
 }
 
 impl<'s, K, R> Cursor<'s, K, (), (), R> for OrdZSetCursor<'s, K, R>
@@ -288,70 +304,65 @@ where
     K: DBData,
     R: DBWeight,
 {
-    #[inline]
     fn key(&self) -> &K {
         self.cursor.current_key()
     }
 
-    #[inline]
     fn val(&self) -> &() {
         &()
     }
 
-    #[inline]
-    fn map_times<L: FnMut(&(), &R)>(&mut self, mut logic: L) {
+    fn fold_times<F, U>(&mut self, init: U, mut fold: F) -> U
+    where
+        F: FnMut(U, &(), &R) -> U,
+    {
         if self.cursor.valid() {
-            logic(&(), self.cursor.current_diff());
+            fold(init, &(), self.cursor.current_diff())
+        } else {
+            init
         }
     }
 
-    #[inline]
-    fn map_times_through<L: FnMut(&(), &R)>(&mut self, logic: L, _upper: &()) {
-        self.map_times(logic)
+    fn fold_times_through<F, U>(&mut self, _upper: &(), init: U, fold: F) -> U
+    where
+        F: FnMut(U, &(), &R) -> U,
+    {
+        self.fold_times(init, fold)
     }
 
-    #[inline]
     fn weight(&mut self) -> R {
         debug_assert!(&self.cursor.valid());
         self.cursor.current_diff().clone()
     }
 
-    #[inline]
     fn key_valid(&self) -> bool {
         self.cursor.valid()
     }
 
-    #[inline]
     fn val_valid(&self) -> bool {
         self.valid
     }
 
-    #[inline]
     fn step_key(&mut self) {
         self.cursor.step();
         self.valid = true;
     }
 
-    #[inline]
     fn seek_key(&mut self, key: &K) {
         self.cursor.seek_key(key);
         self.valid = true;
     }
 
-    #[inline]
     fn last_key(&mut self) -> Option<&K> {
         self.cursor.last_key().map(|(k, _)| k)
     }
 
-    #[inline]
     fn step_val(&mut self) {
         self.valid = false;
     }
 
-    #[inline]
     fn seek_val(&mut self, _val: &()) {}
 
-    #[inline]
     fn seek_val_with<P>(&mut self, predicate: P)
     where
         P: Fn(&()) -> bool + Clone,
@@ -361,13 +372,11 @@ where
         }
     }
 
-    #[inline]
     fn rewind_keys(&mut self) {
         self.cursor.rewind();
         self.valid = true;
     }
 
-    #[inline]
     fn rewind_vals(&mut self) {
         self.valid = true;
     }
@@ -380,7 +389,7 @@ where
     K: Ord,
     R: DBWeight,
 {
-    builder: OrderedColumnLeafBuilder<K, R>,
+    builder: ColumnLayerBuilder<K, R>,
 }
 
 impl<K, R> Builder<K, (), R, OrdZSet<K, R>> for OrdZSetBuilder<K, R>
@@ -392,14 +401,14 @@ where
     #[inline]
     fn new_builder(_time: ()) -> Self {
         Self {
-            builder: OrderedColumnLeafBuilder::new(),
+            builder: ColumnLayerBuilder::new(),
         }
     }
 
     #[inline]
     fn with_capacity(_time: (), capacity: usize) -> Self {
         Self {
-            builder: <OrderedColumnLeafBuilder<K, R> as TupleBuilder>::with_capacity(capacity),
+            builder: <ColumnLayerBuilder<K, R> as TupleBuilder>::with_capacity(capacity),
         }
     }
 
@@ -423,7 +432,7 @@ where
 
 #[derive(Debug, SizeOf)]
 pub struct OrdZSetConsumer<K, R> {
-    consumer: ColumnLeafConsumer<K, R>,
+    consumer: ColumnLayerConsumer<K, R>,
 }
 
 impl<K, R> Consumer<K, (), R, ()> for OrdZSetConsumer<K, R> {
@@ -454,7 +463,7 @@ impl<K, R> Consumer<K, (), R, ()> for OrdZSetConsumer<K, R> {
 
 #[derive(Debug)]
 pub struct OrdZSetValueConsumer<'a, K, R> {
-    values: ColumnLeafValues<'a, K, R>,
+    values: ColumnLayerValues<'a, K, R>,
 }
 
 impl<'a, K, R> ValueConsumer<'a, (), R, ()> for OrdZSetValueConsumer<'a, K, R> {
