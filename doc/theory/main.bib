@@ -1,3 +1,4 @@
+@string{ICDE =   "International Conference on Data Engineering (ICDE)"},
 @string{PPDP =   "International Symposium on Principles and Practice of Declarative Programming"},
 @string{HOTNETS= "ACM Workshop on Hot Topics in Networks (HotNets)"},
 @string{DISC=    "International Symposium on Distributed Computing (DISC)"},
@@ -36,9 +37,9 @@
 @string{ICCAD=  "IEEE/ACM International Conference on Computer-aided design (ICCAD)"},
 @string{MICRO=  "IEEE/ACM International Symposium on Microarchitecture (MICRO)"},
 @string{SAS=    "International Static Analysis Symposium (SAS)"},
-@string{TACAS=  "International Conference on Tools and Algorithms for the 
+@string{TACAS=  "International Conference on Tools and Algorithms for the
                  Construction and Analysis of Systems (TACAS)"},
-@string{CASES=  "International Conference on Compilers, Architecture, 
+@string{CASES=  "International Conference on Compilers, Architecture,
                  and Synthesis for Embedded Systems (CASES)"},
 @string{HPCA=   "International Symposium on High-Performance Computer Architecture (HPCA)"},
 @string{ASYNC=  "International Symposium on Advanced Research in Asynchronous Circuits and Systems (ASYNC)"},
@@ -2198,7 +2199,7 @@
   title = 	 {Theory and Application of Digital Signal Processing},
   publisher = 	 {Prentice-Hall},
   year = 	 1975}
-  
+
 @inproceedings{Hammer-pldi09,
   author =	 {Matthew A. Hammer and Umut A. Acar and Yan Chen},
   editor =	 {Michael Hind and Amer Diwan},
@@ -2322,4 +2323,586 @@
                   The main contribution of the paper seems to be a
                   trasformation of distributed computation into the
                   traditional iterator "pull" model.},
+}
+
+@inproceedings{idris-sigmod17,
+  author =	 {Idris, Muhammad and Ugarte, Martin and Vansummeren,
+                  Stijn},
+  title =	 {The Dynamic Yannakakis Algorithm: Compact and
+                  Efficient Query Processing Under Updates},
+  year =	 2017,
+  url =		 {https://doi.org/10.1145/3035918.3064027},
+  abstract =	 {Modern computing tasks such as real-time analytics
+                  require refresh of query results under high update
+                  rates. Incremental View Maintenance (IVM) approaches
+                  this problem by materializing results in order to
+                  avoid recomputation. IVM naturally induces a
+                  trade-off between the space needed to maintain the
+                  materialized results and the time used to process
+                  updates. In this paper, we show that the full
+                  materialization of results is a barrier for more
+                  general optimization strategies. In particular, we
+                  present a new approach for evaluating queries under
+                  updates. Instead of the materialization of results,
+                  we require a data structure that allows: (1) linear
+                  time maintenance under updates, (2) constant-delay
+                  enumeration of the output, (3) constant-time lookups
+                  in the output, while (4) using only linear space in
+                  the size of the database. We call such a structure a
+                  Dynamic Constant-delay Linear Representation (DCLR)
+                  for the query. We show that DYN, a dynamic version
+                  of the Yannakakis algorithm, yields DCLRs for the
+                  class of free-connex acyclic CQs. We show that this
+                  is optimal in the sense that no DCLR can exist for
+                  CQs that are not free-connex acyclic. Moreover, we
+                  identify a sub-class of queries for which DYN
+                  features constant-time update per tuple and show
+                  that this class is maximal. Finally, using the TPC-H
+                  and TPC-DS benchmarks, we experimentally compare DYN
+                  and a higher-order IVM (HIVM) engine. Our approach
+                  is not only more efficient in terms of memory
+                  consumption (as expected), but is also consistently
+                  faster in processing updates.},
+  booktitle =	 SIGMOD,
+  pages =	 {1259–1274},
+  numpages =	 16,
+  keywords =	 {incremental view maintenance, acyclic joins, dynamic
+                  query processing},
+  location =	 {Chicago, Illinois, USA}
+}
+
+@article{kara-tds20,
+  author =	 {Kara, Ahmet and Ngo, Hung Q. and Nikolic, Milos and
+                  Olteanu, Dan and Zhang, Haozhe},
+  title =	 {Maintaining Triangle Queries under Updates},
+  year =	 2020,
+  issue_date =	 {September 2020},
+  volume =	 45,
+  number =	 3,
+  issn =	 {0362-5915},
+  url =		 {https://doi.org/10.1145/3396375},
+  abstract =	 {We consider the problem of incrementally maintaining
+                  the triangle queries with arbitrary free variables
+                  under single-tuple updates to the input relations.We
+                  introduce an approach called IVMϵ that exhibits a
+                  trade-off between the update time, the space, and
+                  the delay for the enumeration of the query result,
+                  such that the update time ranges from the square
+                  root to linear in the database size while the delay
+                  ranges from constant to linear time.IVMϵ achieves
+                  Pareto worst-case optimality in the update-delay
+                  space conditioned on the Online Matrix-Vector
+                  Multiplication conjecture. It is strongly Pareto
+                  optimal for the triangle queries with no or three
+                  free variables and weakly Pareto optimal for the
+                  remaining triangle queries with one or two free
+                  variables.IVMϵ recovers prior work such as the
+                  suboptimal classical view maintenance approach that
+                  uses delta query processing and the worst-case
+                  optimal approach that computes all triangles in a
+                  static database.},
+  journal =	 {ACM Trans. Database Syst.},
+  month =	 {aug},
+  articleno =	 11,
+  numpages =	 46,
+  keywords =	 {amortized update time, enumeration delay, complexity
+                  trade-off, Pareto worst-case optimality, Incremental
+                  view maintenance}
+}
+
+
+@inproceedings{nikolic-icmd18,
+  author =	 {Nikolic, Milos and Olteanu, Dan},
+  title =	 {Incremental View Maintenance with Triple Lock
+                  Factorization Benefits},
+  year =	 2018,
+  url =		 {https://doi.org/10.1145/3183713.3183758},
+  abstract =	 {We introduce F-IVM, a unified incremental view
+                  maintenance (IVM) approach for a variety of tasks,
+                  including gradient computation for learning linear
+                  regression models over joins, matrix chain
+                  multiplication, and factorized evaluation of
+                  conjunctive queries.F-IVM is a higher-order IVM
+                  algorithm that reduces the maintenance of the given
+                  task to the maintenance of a hierarchy of
+                  increasingly simpler views. The views are functions
+                  mapping keys, which are tuples of input data values,
+                  to payloads, which are elements from a task-specific
+                  ring. Whereas the computation over the keys is the
+                  same for all tasks, the computation over the
+                  payloads depends on the task. F-IVM achieves
+                  efficiency by factorizing the computation of the
+                  keys, payloads, and updates. We implemented F-IVM as
+                  an extension of DBToaster. We show in a range of
+                  scenarios that it can outperform classical
+                  first-order IVM, DBToaster's fully recursive
+                  higher-order IVM, and plain recomputation by orders
+                  of magnitude while using less memory.},
+  booktitle =	 {International Conference on Management of Data
+                  (ICMD)},
+  pages =	 {365–380},
+  numpages =	 16,
+  keywords =	 {factorized representation, query optimization,
+                  stream processing, materialized views, incremental
+                  view maintenance, rings},
+  location =	 {Houston, TX, USA}
+}
+
+
+@InProceedings{foster-planx08,
+  author =	 {J. Nathan Foster and Ravi Konuru and Jerome Simeon and
+                  Lionel Villard.},
+  title =	 {An Algebraic Approach to {XQuery} View Maintenance},
+  booktitle =	 {ACM SIGPLAN Workshop on Programming Languages
+                  Technologies for XML},
+  year =	 2008,
+  month =	 {January 9},
+  address =	 {San Francisco, CA},
+  abstract =	 {View maintenance is a problem in data management
+                  that arises whenever a view is materialized over a
+                  source that changes over time. When the source is
+                  large, or when the source and view reside on
+                  different hosts, it is not practical to recompute
+                  the view and retransmit it over the network each
+                  time the source is updated. A better idea, commonly
+                  used in systems built with view maintenance in mind,
+                  is to translate source updates to ones that can be
+                  applied to the view directly. The cost of
+                  calculating, transmitting, and applying a translated
+                  update is typically dramatically less than the cost
+                  of recomputing and retransmitting the entire view.
+                  This paper addresses the problem of maintaining
+                  XQuery views over XML data. The core algorithm
+                  translates updates through queries as expressed in
+                  the tree algebra used internally in the Galax
+                  engine. This algorithm extends previous work on
+                  maintenance for relational views, although there are
+                  significant complications due to the data model,
+                  which is both ordered and nested. To overcome these
+                  obstacles, we propose a scheme for storing auxiliary
+                  data that guides the translation of updates in this
+                  more complicated setting.  A novel aspect of our
+                  approach compared to previous work is that the
+                  amount and content of annotations can be controlled
+                  by users, making it possible to balance the
+                  tradeoffs between the size of the auxiliary data and
+                  the quality of translated updates.  We have built a
+                  prototype implementation to test these ideas.  Our
+                  system extends Galax, and handles a core set of
+                  operators and built-in functions capable of
+                  expressing many typical first- order queries. Its
+                  design is fully compositional, so it can easily be
+                  extended to new operators. We present preliminary
+                  results of experiments run on benchmark queries from
+                  the XMark suite.}
+}
+
+@inproceedings{begoli-icmd18,
+  author =	 {Begoli, Edmon and Camacho-Rodr\'{\i}guez, Jes\'{u}s
+                  and Hyde, Julian and Mior, Michael J. and Lemire,
+                  Daniel},
+  title =	 {{Apache} {Calcite}: A Foundational Framework for
+                  Optimized Query Processing Over Heterogeneous Data
+                  Sources},
+  year =	 2018,
+  url =		 {https://doi.org/10.1145/3183713.3190662},
+  abstract =	 {Apache Calcite is a foundational software framework
+                  that provides query processing, optimization, and
+                  query language support to many popular open-source
+                  data processing systems such as Apache Hive, Apache
+                  Storm, Apache Flink, Druid, and MapD. The goal of
+                  this paper is to formally introduce Calcite to the
+                  broader research community, brie y present its
+                  history, and describe its architecture, features,
+                  functionality, and patterns for adoption. Calcite's
+                  architecture consists of a modular and extensible
+                  query optimizer with hundreds of built-in
+                  optimization rules, a query processor capable of
+                  processing a variety of query languages, an adapter
+                  architecture designed for extensibility, and support
+                  for heterogeneous data models and stores
+                  (relational, semi-structured, streaming, and
+                  geospatial). This exible, embeddable, and extensible
+                  architecture is what makes Calcite an attractive
+                  choice for adoption in big-data frameworks. It is an
+                  active project that continues to introduce support
+                  for the new types of data sources, query languages,
+                  and approaches to query processing and
+                  optimization.},
+  booktitle =	 {International Conference on Management of Data
+                  (IDMD)},
+  pages =	 {221–230},
+  numpages =	 10,
+  keywords =	 {data management, modular query optimization, query
+                  algebra, relational semantics, storage adapters,
+                  apache calcite},
+  location =	 {Houston, TX, USA}
+}
+
+
+@Misc{sqllogictest,
+  title =	 {sqllogictest},
+  howpublished = {\url{https://www.sqlite.org/sqllogictest/doc/trunk/about.wiki}},
+  note =	 {Retrieved December 2022},
+  abstract =	 {Sqllogictest is a program designed to verify that an
+                  SQL database engine computes correct results by
+                  comparing the results to identical queries from
+                  other SQL database engines. Sqllogictest was
+                  originally designed to test SQLite, but it is
+                  database engine neutral and can just as easily be
+                  used to test other database products. }
+}
+
+@article{tangwongsan-vldb15,
+  author =	 {Tangwongsan, Kanat and Hirzel, Martin and Schneider,
+                  Scott and Wu, Kun-Lung},
+  title =	 {General Incremental Sliding-Window Aggregation},
+  year =	 2015,
+  issue_date =	 {February 2015},
+  publisher =	 {VLDB Endowment},
+  volume =	 8,
+  number =	 7,
+  issn =	 {2150-8097},
+  url =		 {https://doi.org/10.14778/2752939.2752940},
+  abstract =	 {Stream processing is gaining importance as more data
+                  becomes available in the form of continuous streams
+                  and companies compete to promptly extract insights
+                  from them. In such applications, sliding-window
+                  aggregation is a central operator, and incremental
+                  aggregation helps avoid the performance penalty of
+                  re-aggregating from scratch for each window
+                  change.This paper presents Reactive Aggregator (RA),
+                  a new framework for incremental sliding-window
+                  aggregation. RA is general in that it does not
+                  require aggregation functions to be invertible or
+                  commutative, and it does not require windows to be
+                  FIFO. We implemented RA as a drop-in replacement for
+                  the Aggregate operator of a commercial streaming
+                  engine. Given m updates on a window of size n, RA
+                  has an algorithmic complexity of O(m + m log (n/m)),
+                  rivaling the best prior algorithms for any
+                  m. Furthermore, RA's implementation minimizes
+                  overheads from allocation and pointer traversals by
+                  using a single flat array.},
+  journal =	 {Proc. VLDB Endow.},
+  month =	 {February},
+  pages =	 {702–713},
+  numpages =	 12
+}
+
+
+@inproceedings{abeysinghe-sigmod22,
+  author =	 {Abeysinghe, Supun and He, Qiyang and Rompf, Tiark},
+  title =	 {Efficient Incrementialization of Correlated Nested
+                  Aggregate Queries Using Relative Partial Aggregate
+                  Indexes (RPAI)},
+  year =	 2022,
+  url =		 {https://doi.org/10.1145/3514221.3517889},
+  abstract =	 {Incrementalization of queries is imperative in cases
+                  where data arrives as streams and output is
+                  latency-critical and/or desired before the full data
+                  has been received. Incremental execution computes
+                  the output at a given time by reusing the previously
+                  computed outputs or maintained views rather than
+                  re-evaluating the query from scratch. There are
+                  various approaches to perform this
+                  incrementalization ranging from query-specific
+                  algorithms and data structures (e.g., DYN, AJU) to
+                  general systems (e.g., DBToaster,
+                  Materialize).DBToaster is a state-of-the-art system
+                  that comes with an appealing theoretical background
+                  based on the idea of applying Incremental View
+                  Maintenance (IVM) recursively, maintaining a
+                  hierarchy of materialized views via delta
+                  queries. However, one key limitation of this
+                  approach is its inability to efficiently
+                  incrementalize correlated nested-aggregate queries
+                  due to an inefficient delta rule for such
+                  queries. Moreover, none of the other specialized
+                  approaches have shown efficient ways to optimize
+                  such queries either. Nonetheless, these types of
+                  queries can be found in many real-world application
+                  domains (e.g., finance), for which efficient
+                  incrementalization remains a crucial open
+                  problem. In this work, we propose an approach to
+                  incrementalize such queries based on a novel
+                  tree-based index structure called Relative Partial
+                  Aggregate Indexes (RPAI). Our approach is
+                  asymptotically faster than other systems and shows
+                  up to 1100\texttimes{} speedups in workloads of
+                  practical importance.},
+  booktitle =	 SIGMOD,
+  pages =	 {136–149},
+  numpages =	 14,
+  keywords =	 {nested aggregate queries, aggregate indexes,
+                  incremental processing, parent-relative trees},
+  location =	 {Philadelphia, PA, USA},
+}
+
+@book{chirkova-book12,
+  author =	 {Chirkova, Rada and Yang, Jun},
+  title =	 {Materialized Views},
+  year =	 2012,
+  isbn =	 {160198622X},
+  publisher =	 {Now Publishers Inc.},
+  address =	 {Hanover, MA, USA},
+  abstract =	 {Materialized views are a natural embodiment of the
+                  ideas of precomputation and caching in
+                  databases. Instead of computing a query from
+                  scratch, a system can use results that have already
+                  been computed, stored, and kept in sync with
+                  database updates. The ability of materialized views
+                  to speed up queries benefits most database
+                  applications, ranging from traditional querying and
+                  reporting to web database caching, online analytical
+                  processing, and data mining. By reducing dependency
+                  on the availability of base data, materialized views
+                  have also laid much of the foundation for
+                  information integration and data warehousing
+                  systems. The database tradition of declarative
+                  querying distinguishes materialized views from
+                  generic applications of precomputation and caching
+                  in other contexts, and makes materialized views
+                  especially interesting, powerful, and challenging at
+                  the same time. Study of materialized views has
+                  generated a rich research literature and mature
+                  commercial implementations, aimed at providing
+                  efficient, effective, automated, and general
+                  solutions to the selection, use, and maintenance of
+                  materialized views. This monograph provides an
+                  accessible introduction and reference to
+                  materialized views, explains its core ideas,
+                  highlights its recent developments, and points out
+                  its sometimes subtle connections to other research
+                  topics in databases.}
+}
+
+
+@inproceedings{chaudhuri-icde95,
+  author =	 {Chaudhuri, Surajit and Krishnamurthy, Ravi and
+                  Potamianos, Spyros and Shim, Kyuseok},
+  title =	 {Optimizing Queries with Materialized Views},
+  year =	 1995,
+  abstract =	 {While much work has addressed the problem of
+                  maintaining materialized views, the important
+                  question of optimizing queries in the presence of
+                  materialised views has not been resolved. In this
+                  paper, we analyze the optimization question and
+                  provide a comprehensive and efficient solution. Our
+                  solution has the desirable property that it is a
+                  simple generalization of the traditional query
+                  optimization algorithm.},
+  booktitle =	 ICDE,
+  pages =	 {190–200},
+  numpages =	 11,
+  keywords =	 {query processing, materialized views, query
+                  optimization algorithm, optimisation}
+}
+
+@article{idris-sigmod19,
+  author =	 {Idris, Muhammad and Ugarte, Mart\'{\i}n and
+                  Vansummeren, Stijn and Voigt, Hannes and Lehner,
+                  Wolfgang},
+  title =	 {Efficient Query Processing for Dynamically Changing
+                  Datasets},
+  year =	 2019,
+  issue_date =	 {March 2019},
+  volume =	 48,
+  number =	 1,
+  url =		 {https://doi.org/10.1145/3371316.3371325},
+  abstract =	 {The ability to efficiently analyze changing data is
+                  a key requirement of many real-time analytics
+                  applications. Traditional approaches to this problem
+                  were developed around the notion of Incremental View
+                  Maintenance (IVM), and are based either on the
+                  materialization of subresults (to avoid their
+                  recomputation) or on the recomputation of subresults
+                  (to avoid the space overhead of
+                  materialization). Both techniques are suboptimal:
+                  instead of materializing results and subresults, one
+                  may also maintain a data structure that supports
+                  efficient maintenance under updates and from which
+                  the full query result can quickly be enumerated. In
+                  two previous articles, we have presented algorithms
+                  for dynamically evaluating queries that are easy to
+                  implement, efficient, and can be naturally extended
+                  to evaluate queries from a wide range of application
+                  domains. In this paper, we discuss our algorithm and
+                  its complexity, explaining the main components
+                  behind its efficiency. Finally, we show experiments
+                  that compare our algorithm to a state-of-the-art
+                  (Higher-order) IVM engine, as well as to a prominent
+                  complex event recognition engine. Our approach
+                  outperforms the competitor systems by up to two
+                  orders of magnitude in processing time, and one
+                  order in memory consumption.},
+  journal =	 {SIGMOD Rec.},
+  month =	 {November},
+  pages =	 {33–40},
+  numpages =	 8
+}
+
+@article{idris-vldb18,
+  author =	 {Idris, Muhammad and Ugarte, Mart\'{\i}n and
+                  Vansummeren, Stijn and Voigt, Hannes and Lehner,
+                  Wolfgang},
+  title =	 {Conjunctive Queries with Inequalities under Updates},
+  year =	 2018,
+  issue_date =	 {March 2018},
+  publisher =	 {VLDB Endowment},
+  volume =	 11,
+  number =	 7,
+  issn =	 {2150-8097},
+  url =		 {https://doi.org/10.14778/3192965.3192966},
+  abstract =	 {Modern application domains such as Composite Event
+                  Recognition (CER) and real-time Analytics require
+                  the ability to dynamically refresh query results
+                  under high update rates. Traditional approaches to
+                  this problem are based either on the materialization
+                  of subresults (to avoid their recomputation) or on
+                  the recomputation of subresults (to avoid the space
+                  overhead of materialization). Both techniques have
+                  recently been shown suboptimal: instead of
+                  materializing results and subresults, one can
+                  maintain a data structure that supports efficient
+                  maintenance under updates and can quickly enumerate
+                  the full query output, as well as the changes
+                  produced under single updates. Unfortunately, these
+                  data structures have been developed only for
+                  aggregate-join queries composed of equi-joins,
+                  limiting their applicability in domains such as CER
+                  where temporal joins are commonplace. In this paper,
+                  we present a new approach for dynamically evaluating
+                  queries with multi-way θ-joins under updates that is
+                  effective in avoiding both materialization and
+                  recomputation of results, while supporting a wide
+                  range of applications. To do this we generalize
+                  Dynamic Yannakakis, an algorithm for dynamically
+                  processing acyclic equi-join queries. In tandem, and
+                  of independent interest, we generalize the notions
+                  of acyclicity and free-connexity to arbitrary
+                  θ-joins. We instantiate our framework to the case
+                  where θ-joins are only composed of equalities and
+                  inequalities (&lt;, ≤, =, &gt;, ≥) and
+                  experimentally compare this algorithm, called IEDyn,
+                  to state of the art CER systems as well as
+                  incremental view maintenance engines. IEDyn performs
+                  consistently better than the competitor systems with
+                  up to two orders of magnitude improvements in both
+                  time and memory consumption.},
+  journal =	 {Proc. VLDB Endow.},
+  month =	 {mar},
+  pages =	 {733–745},
+  numpages =	 13
+}
+
+@inproceedings{griffin-sigmod95,
+  author =	 {Griffin, Timothy and Libkin, Leonid},
+  title =	 {Incremental Maintenance of Views with Duplicates},
+  year =	 1995,
+  url =		 {https://doi.org/10.1145/223784.223849},
+  abstract =	 {We study the problem of efficient maintenance of
+                  materialized views that may contain duplicates. This
+                  problem is particularly important when queries
+                  against such views involve aggregate functions,
+                  which need duplicates to produce correct
+                  results. Unlike most work on the view maintenance
+                  problem that is based on an algorithmic approach,
+                  our approach is algebraic and based on equational
+                  reasoning. This approach has a number of advantages:
+                  it is robust and easily extendible to new language
+                  constructs, it produces output that can be used by
+                  query optimizers, and it simplifies correctness
+                  proofs.We use a natural extension of the relational
+                  algebra operations to bags (multisets) as our basic
+                  language. We present an algorithm that propagates
+                  changes from base relations to materialized
+                  views. This algorithm is based on reasoning about
+                  equivalence of bag-valued expressions. We prove that
+                  it is correct and preserves a certain notion of
+                  minimality that ensures that no unnecessary tuples
+                  are computed. Although it is generally only a
+                  heuristic that computing changes to the view rather
+                  than recomputing the view from scratch is more
+                  efficient, we prove results saying that under normal
+                  circumstances one should expect, the change
+                  propagation algorithm to be significantly faster and
+                  more space efficient than complete recomputing of
+                  the view. We also show that our approach interacts
+                  nicely with aggregate functions, allowing their
+                  correct evaluation on views that change.},
+  booktitle =	 SIGMOD,
+  pages =	 {328–339},
+  numpages =	 12,
+  location =	 {San Jose, California, USA}
+}
+
+@inproceedings{wang-sigmod20,
+  author =	 {Wang, Qichen and Yi, Ke},
+  title =	 {Maintaining Acyclic Foreign-Key Joins under Updates},
+  year =	 2020,
+  url =		 {https://doi.org/10.1145/3318464.3380586},
+  abstract =	 {A large number of analytical queries (e.g., all the
+                  22 queries in the TPC-H benchmark) are based on
+                  acyclic foreign-key joins. In this paper, we study
+                  the problem of incrementally maintaining the query
+                  results of these joins under updates, i.e.,
+                  insertion and deletion of tuples to any of the
+                  relations. Prior work has shown that this problem is
+                  inherently hard, requiring at least Ω(|db|1/2 -ε)
+                  time per update, where |db| is the size of the
+                  database, and ε &gt; 0 can be any small
+                  constant. However, this negative result holds only
+                  on adversarially constructed update sequences; on
+                  the other hand, most real-world update sequences are
+                  "nice", nowhere near these worst-case scenarios. We
+                  introduce a measure λ, which we call the
+                  enclosureness of the update sequence, to more
+                  precisely characterize its intrinsic difficulty. We
+                  present an algorithm to maintain the query results
+                  of any acyclic foreign-key join in O(λ) time
+                  amortized, on any update sequence whose
+                  enclosureness is λ. This is complemented with a
+                  lower bound of Ω(λ1-ε), showing that our algorithm
+                  is essentially optimal with respect to λ. Next,
+                  using this algorithm as the core component, we show
+                  how all the 22 queries in the TPC-H benchmark can be
+                  supported in ~O(\l{}ambda) time. Finally, based on
+                  the algorithms developed, we built a continuous
+                  query processing system on top of Flink, and
+                  experimental results show that our system
+                  outperforms previous ones significantly.},
+  booktitle =	 SIGMOD,
+  pages =	 {1225–1239},
+  numpages =	 15,
+  keywords =	 {query evaluation under updates, acyclic joins,
+                  incremental view maintenance, sliding windows},
+  location =	 {Portland, OR, USA}
+}
+
+@InProceedings{moura-cade15,
+  author =	 {Leonardo de Moura and Soonho Kong and Jeremy Avigad
+                  and Floris van Doorn and Jakob von Raumer},
+  title =	 {The {Lean} Theorem Prover},
+  booktitle =	 {International Conference on Automated Deduction
+                  (CADE-25)},
+  year =	 2015,
+  address =	 {Berlin, Germany},
+  abstract =	 {Lean is a new open source theorem prover being
+                  developed at Microsoft Research and Carnegie Mellon
+                  University, with a small trusted kernel based on
+                  dependent type theory. It aims to bridge the gap
+                  between interactive and automated theorem proving,
+                  by situating automated tools and methods in a
+                  framework that supports user inter- action and the
+                  construction of fully specified axiomatic
+                  proofs. Lean is an ongoing and long-term effort, but
+                  it already provides many useful com- ponents,
+                  integrated development environments, and a rich API
+                  which can be used to embed it into other systems. It
+                  is currently being used to formalize category
+                  theory, homotopy type theory, and abstract algebra.
+                  We describe the project goals, system architecture,
+                  and main features, and we discuss applications and
+                  continuing work.}
 }

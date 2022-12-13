@@ -89,7 +89,7 @@
 \newcommand{\defn}{\stackrel{\textrm{\scriptsize def}}{=}}
 \newcommand{\map}{\mbox{map}}
 \newcommand{\fix}[2]{\mbox{fix}\,#1.#2}
-\newcommand{\lift}[1]{{\uparrow}#1}              
+\newcommand{\lift}[1]{{\uparrow}#1}
 \newcommand{\rew}{\ensuremath{\mapsto}} % rewriting
 \newcommand{\birew}{\ensuremath{\mapsfrom\!\mapsto}} % bidirectional rewriting
 \newcommand{\pair}[2]{\ensuremath{\langle #1,#2 \rangle}} % pairing
@@ -118,11 +118,13 @@
 \newcommand{\mihai}[1]{\scream{MIHAI}{#1}}
 \newcommand{\leonid}[1]{\scream{LEONID}{#1}}
 
-\title{\dbsp: A Language for Expressing Incremental View Maintenance for Rich Query Languages}
+\title{\dbsp: Automatic Incremental View Maintenance for Rich Query
+Languages}
 \author{
-Mihai Budiu \\ VMware Research \and 
-Frank McSherry \\ Materialize Inc. \and 
-Leonid Ryzhyk \\ VMware Research \and 
+  Mihai Budiu \\ VMware Research \and
+  Tej Chajed \\ VMware Research \and
+Frank McSherry \\ Materialize Inc. \and
+Leonid Ryzhyk \\ VMware Research \and
 Val Tannen \\ University of Pennsylvania
 }
 
@@ -131,29 +133,26 @@ Val Tannen \\ University of Pennsylvania
 
 \maketitle
 
-\url{https://www.overleaf.com/project/604c047e921769355e4a1a0f}
-
 \begin{abstract}
-Incremental view maintenance has been for a long time a central problem of database theory.
+Incremental view maintenance (IVM) has been for a long time a central problem in database theory~\cite{gupta-idb95}.
 Many solutions have been proposed for restricted classes of database languages,
 such as the relational algebra, or Datalog.  These techniques do not naturally generalize to
-richer languages.  In this paper we give a general
+richer languages.  In this paper we give a general, heuristic-free
 solution to this problem in 3 steps: (1) we describe a simple but expressive language
-called \dbsp for describing computations over data streams; (2) we give a general algorithm for 
-solving the incremental view maintenance problem for arbitrary \dbsp programs, and (3) we show
-how to model several classes of database query languages (including relational queries, 
-grouping and aggregation, and recursion) using \dbsp.  \dbsp  
-can be used to model other interesting query languages, including 
-streaming aggregation queries, non-monotonic recursion, and queries on nested relations.  
+called \dbsp for describing computations over data streams; (2) we give a new mathematical definition of IVM and
+a general algorithm for solving IVM for arbitrary \dbsp programs, and (3) we show
+how to model many rich database query languages (including the full relational algebra, queries over
+sets and multisets, arbitrarily nested relations, aggregation, flatmap (unnest), monotonic and non-monotonic
+recursion, streaming aggregation, and arbitrary compositions of all of these) using \dbsp.
 As a consequence, we obtain efficient
-incremental view maintenance techniques for all these rich languages.
+incremental view maintenance algorithms for queries over all these languages.
 \end{abstract}
 
 \begin{quote}
 This document is work in progress.  It contains a formal specification
 of the \dbsp language, proofs of the theoretical results, and the
-specification of the implementation of several query languages in
-\dbsp.
+specification of several query languages in \dbsp.  A shorter earlier
+preprint is available at \url{https://arxiv.org/abs/2203.16684}.
 \end{quote}
 
 \tableofcontents
@@ -163,11 +162,12 @@ specification of the implementation of several query languages in
 
 \part{Streaming and incremental computations}
 \input{streams}
-
-\part{Incremental view maintenance in \dbsp}
-
 \input{relational}
+\input{incremental}
+\input{inc-relational}
+\input{nested}
 \input{recursive}
+\input{inc-recursive}
 \input{extensions}
 
 \part{Implementation}
