@@ -26,8 +26,8 @@
 //!                  ┌──┬─────────────────────────────────┤  └────────┘  │
 //!                  │  │                                 │              │
 //!                  │  │                                 └──────────────┘
-//!                  │  │        
-//!                  │  │       
+//!                  │  │
+//!                  │  │
 //!                  │  │                                   ┌───────────┐
 //!                  ▼  │                                   │           │         queue
 //!                ┌────┴───┐          ┌──────┐        ┌────┴─┐       ┌─┴────┐  ┌─┬─┬─┬─┐   ┌───────┐   ┌────────┐
@@ -108,8 +108,8 @@
 
 use num_derive::FromPrimitive;
 
-mod catalog;
-mod controller;
+pub mod catalog;
+pub mod controller;
 mod deinput;
 mod format;
 mod seroutput;

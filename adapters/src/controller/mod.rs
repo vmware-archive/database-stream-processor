@@ -33,7 +33,7 @@
 //! of transmitted bytes and records and updating respective performance
 //! counters in the controller.
 
-use crate::{
+pub use crate::{
     Catalog, Encoder, InputConsumer, InputEndpoint, InputFormat, InputTransport, OutputConsumer,
     OutputEndpoint, OutputFormat, OutputTransport, Parser, PipelineState, SerBatch,
     SerOutputBatchHandle,
