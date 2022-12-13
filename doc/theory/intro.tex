@@ -1,0 +1,268 @@
+\section{Introduction}\label{sec:ntro}
+
+In this paper we present a simple mathematical theory for modeling
+streaming and incremental computations.  This model has immediate
+practical applications in the design and implementation of streaming databases
+and incremental view maintenance.  Our model is based on mathematical formalisms 
+used in discrete digital signal processing (DSP)~\cite{rabiner-book75},
+but we apply it to database computations.  
+Thus, we have called it ``\dbsp''.  
+
+We borrow the following concepts from DSP: discrete signal streams, the
+delay operator $\zm$, time-invariance (also called shift-invariance), causality,
+strictness, z-transforms, integration, and differentiation.  The concept of
+linear transformation is also central to DSP.
+
+\dbsp is also inspired from Differential 
+Dataflow~\cite{mcsherry-cidr13} (DD), and started as an attempt to provide a simpler
+formalization of DD than the one of Abadi et al.~\cite{abadi-fossacs15} 
+(as discussed in \secref{sec:related}), but has evolved behind that purpose.
+
+The core concept of \dbsp is the \emph{stream}: a stream $s$ with type 
+$\stream{A}$ maps ``time'' moments $t\in\N$ 
+to values $s[t]$ of type $A$; think of it as an "infinite vector".
+A streaming computation is a function that
+consumes one or more streams and produces another stream.  We depict
+streaming computations with typical DSP box-and-arrow diagrams (also called ``circuits''),
+where boxes are computations and streams are arrows, as in the diagram from Figure~\ref{fig:stream},
+which shows a stream operator $T$ consuming two input streams $s_0$ and $s_1$ 
+and producing one output stream $s$.
+
+\begin{figure}
+\begin{center}
+\begin{tikzpicture}[auto,>=latex,minimum width=.5cm]
+  \node[] (input0) {$s_0$};
+  \node[below of=input0,node distance=.3cm] (dummy) {};
+  \node[below of=dummy,node distance=.3cm] (input1) {$s_1$};
+  \node[block, right of=dummy] (T) {$T$};
+  \node[right of=T] (output) {$s$};
+  \draw[->] (input0) -- (T);
+  \draw[->] (input1) -- (T);
+  \draw[->] (T) -- (output);
+\end{tikzpicture}
+\vspace{-.2cm}
+\caption{A simple streaming circuit that consumes two streams and produces one stream.\label{fig:stream}}
+\end{center}
+\end{figure}
+
+We generally think of streams as sequences of \emph{small} values,
+and we will use them in this way.
+However, we make a leap of imagination and also treat a \emph{whole database} as a stream value.
+What is a stream of databases?  It is a \emph{sequence of database
+snapshots}.  We model the time-evolution of a database $DB$ as a
+stream $DB \in \stream{SCH}$, where $SCH$ is the database schema.
+Time is not the wall-clock time, but essentially a counter
+of the \emph{sequence of transactions} applied to the database. 
+Since transactions are linearizable,
+they have a total order, which defines a linear time $t$ dimension:
+the value of the stream $DB[t]$ is the snapshot of the 
+database contents after $t$ transactions have been applied.  We assume
+that $DB[0] = 0$, i.e., the database starts empty.
+
+Database transactions also form a stream $T$, a stream of \emph{changes},
+or \emph{deltas} that are applied to our database.   
+The database snapshot at time $t$ is the cumulative result of applying all 
+transactions in the sequence up to $t$: $DB[t] = \sum_{i \leq t} T[i]$.
+The operation of adding up all changes is \emph{stream integration}.
+The following diagram expresses this relationship using the $\I$ operator for 
+stream integration:
+
+\begin{center}
+\begin{tikzpicture}[auto,>=latex,minimum width=.5cm]
+  \node[] (input) {$T$};
+  \node[block, right of=input] (I) {$\I$};
+  \node[right of=I] (output) {$DB$};
+  \draw[->] (input) -- (I);
+  \draw[->] (I) -- (output);
+\end{tikzpicture}
+\end{center}
+
+Conversely, we can say that transactions are the \emph{changes} of a database, and write
+$T = \D(DB)$.  Stream differentiation, denoted by $\D$, 
+is an operation that computes the changes of a stream, and is the 
+inverse of stream integration.  \secref{sec:streams}
+precisely defines streams, integration and differentiation, and analyzes
+their properties. 
+
+Let us apply these concepts to view maintenance.
+Consider a database $DB$ and a query $Q$ defining a view $V$ as a function
+of a database snapshot $V = Q(DB)$.  Corresponding to the stream of database snapshots
+$DB$ we have a \emph{stream of view snapshots}: $V[t]$ is the
+view's contents after the $t$-th transaction has been applied.  We show this
+relationship using the following diagram:
+
+\begin{center}
+\begin{tikzpicture}[auto,>=latex,minimum width=.5cm]
+  \node[] (input) {$DB$};
+  \node[block, right of=input] (I) {$\lift{Q}$};
+  \node[right of=I] (output) {$V$};
+  \draw[->] (input) -- (I);
+  \draw[->] (I) -- (output);
+\end{tikzpicture}
+\end{center}
+
+The symbol $\lift{Q}$ (the ``lifting'' of $Q$) shows that the query $Q$ is applied
+pointwise to every element of the stream of database snapshots $DB$.  We say that
+$\lift{Q}$ is a ``streaming query'' since it operates on a stream of values.
+The incremental view maintenance problem requires an algorithm to  
+compute the stream $\Delta V$ of \emph{changes} of the view $V$, i.e., $\D(V)$,
+as a function of the stream $T$.  
+By chaining these definitions together we get the following \defined{fundamental equation}
+of the view maintenance problem: $\Delta V = \D(\lift{Q}(DB)) = \D(\lift{Q}(\I(T)))$,
+graphically shown as:
+
+\begin{center}
+\begin{tikzpicture}[auto,>=latex,minimum width=.5cm]
+  \node[] (input) {$T$};
+  \node[block, right of=input] (I) {$\I$};
+  \node[block, right of=I, node distance=1.5cm] (Q) {$\lift{Q}$};
+  \node[block, right of=Q] (D) {$\D$};
+  \node[right of=D] (output) {$\Delta V$};
+  \draw[->] (input) -- (I);
+  \draw[->] (I) -- node (db) {$DB$} (Q);
+  \draw[->] (Q) -- (D);
+  \draw[->] (D) -- (output);
+\end{tikzpicture}
+\end{center}
+
+This definition is the subject of Section~\ref{sec:incremental}.
+The notion can be generalized to more general streaming queries
+$S: \stream{A} \to \stream{B}$ that are richer than lifted pointwise queries $Q$.
+The incremental version of streaming query $S$ is denoted by $\inc{S}$ and is defined
+according to the above equation, which can also be written as: $\inc{S} = \D \circ S \circ \I$. 
+
+It is generally assumed that the changes to a dataset are much smaller than
+the dataset itself; thus, computing on streams of changes may
+produce significant performance benefits.
+
+Applying the query \emph{incrementalization} operator $S \mapsto \inc{S}$ constructs
+a query that computes directly on changes; however, the resulting query is no more
+efficient than a query that computes on the entire dataset, because it uses an
+integration operator to reconstitute the full dataset.
+\secref{sec:incremental} shows algebraic properties of the $\inc{\cdot}$ operator 
+that can used to optimize the implementation of $\inc{S}$:
+
+\begin{enumerate}[label=\textbf{(\arabic*)}]
+\item The first property is that many classes of primitive operations have very efficient incremental
+versions.  In particular, linear queries have the property $Q = \inc{Q}$.  Almost all
+relational and Datalog queries are based on linear operators.  Thus, the incremental version
+of such queries can be computed in time proportional to the size of the changes.  Bilinear 
+operators (such as joins) have a more complex implementation, which nevertheless still performs 
+work proportional to the size of the changes, but require storing an amount of data proportional
+to the size of the relations.
+
+\item The second key property is the chain rule:
+$\inc{(S_1 \circ S_2)} = \inc{S_1} \circ \inc{S_2}$.  This rule gives the incremental
+version of a complex streaming query as a composition of incremental versions of its components.
+It follows that we can implement any incremental query as a composition of primitive
+incremental queries, \emph{all of which perform work proportional to the size of the changes}.
+\end{enumerate}
+
+While this machinery is sufficient to express the whole relational algebra and
+recursive queries, it is not sufficient to incrementalize recursive queries.
+So in \refsec{sec:nested} we extend \dbsp to operate on nested streams.
+
+First, in \secref{sec:stream-intro-elim} we introduce two additional operators: $\delta_0$
+creates a stream from a scalar value, and $\int$ creates a scalar value from a stream.  
+These operators can be used to implement computations with \code{while} loops.
+So, in addition to modelling changing inputs and database, we also
+use streams as a model for sequences of \emph{consecutive values of loop
+iteration variables}.  This model will enable us to implement recursive queries.
+
+In \secref{sec:nested} we use \dbsp to model computations on nested streams, where each 
+value of a stream is another stream.  With this extension \dbsp becomes rich enough to
+model incremental streaming recursive queries.
+
+Armed with (a) a language that can express many classes of queries and
+(b) a  general theory of incremental computation, we proceed in a sequence of
+sections to apply these techniques to richer and richer query languages.
+
+In \secref{sec:relational}  
+we show how to model relational queries in \dbsp.  This immediately gives
+us a general algorithm to compute the incremental version of any relational query.
+These results are well-known, but they are cleanly modeled by \dbsp.
+
+\secref{sec:recursive} shows how recursive queries can be implemented in \dbsp.  
+This allows us to define in \refsec{sec:inc-recursive} \emph{incremental streaming computations 
+for recursive programs}.  As a consequence we derive a universal algorithm for incrementalizing
+arbitrary streaming Datalog programs.
+
+\secref{sec:extensions} shows how other classes of powerful query languages can
+be modeled in \dbsp: streaming window queries, queries on nested relations (such as grouping),
+non-monotone recursive queries, and while-relational queries. 
+
+Interestingly, the incrementalization algorithm can applied to all \dbsp programs.
+
+\dbsp is a \textbf{simple} language: 
+the basic  \dbsp streaming model is built essentially from two elementary 
+mathematical operators: lifting $\lift$ and delay $\zm$.
+The nested streams model adds two additional operators, $\delta_0$ for 
+stream construction and $\int$ for destruction.
+
+Despite its simplicity, \dbsp is also \textbf{expressive}, and we show how many useful
+query languages can be modeled in \dbsp.
+
+\dbsp is \textbf{mathematically abstract}: the two core concepts of 
+(1) streaming computations, and (2) incremental computations
+are completely abstract, since they work over any algebraic group structure.  
+By instantiating the group structure with the real numbers $\mathbb{R}$, 
+we get traditional signal processing systems.  By substituting
+for the group structure \zrs we obtain streaming incremental computations over databases. 
+
+\subsection{Notations used in this paper}
+
+The following tables summarize the mathematical notations used in the rest of this paper.
+
+\noindent
+\begin{center}
+\begin{tabular}{|c|p{10cm}|} \hline
+%\textbf{Notation} & \textbf{Meaning} \\ \hline
+
+\multicolumn{2}{|c|}{General notations} \\ \hline
+$\Z$ & The ring of integer numbers \\
+$\N$ & The set of natural numbers $0, 1, 2, \ldots$ \\
+$\B$ & The set of Boolean values \\
+$[n]$ & The natural numbers between 0 and $n-1$ \\
+$\id$ & The identity function over some domain $\id: A \to A$, $\id(x) = x$ \\
+$\means{Q}$ & Semantics of query (function) $Q$ \\
+$\pair{a}{b}$ & The pair containing values $a$ and $b$ \\
+fst$(p)$ & The operator that returns the first value of a pair $p$ \\
+snd$(p)$ & The operator that returns the second value of a pair $p$ \\
+$a \mapsto b$ & The function that maps $a$ to $b$ and everything else to 0 \\          
+$\lambda x.M$ & An anonymous function with argument $x$ and body $M$ \\
+$\fix{x}{f}$ & The (unique) solution (fixed point) of the equation $f(x) = x$ \\
+\hline
+\end{tabular}
+
+\noindent
+\begin{tabular}{|c|p{10cm}|} \hline
+\multicolumn{2}{|c|}{Streams} \\ \hline
+$\stream{A}$ & The set of streams with elements from a group $A$; $\stream{A} = \{ f \,|\, f : \N \to A \}$ \\
+$\streamf{A}$ & Streams with elements from a group $A$ that are 0 almost everywhere \\
+$s[t]$ & The $t$-th element of a stream; $s[t] = s(t)$ \\
+$\lift{f}$ & An operator applied to a function $f: A \to B$ to produce a function $\lift{f}: \stream{A} \to \stream{B}$
+           operating pointwise \\
+$\zpp{f}$ & $\zpp{f}$ iff $f(0) = 0$ for $f: A \to B$ for $A, B$ groups \\
+$\zm$ & The stream delay operator $\zm: \stream{A} \to \stream{A}$, that outputs a 0 followed by the input stream \\
+$\I$ & The stream integration operator $\I: \stream{A} \to \stream{A}$ \\
+$\D$ & The stream differentiation operator $\D: \stream{A} \to \stream{A}$ \\
+$\inc{Q}$ & The incremental version of an operator $\inc{Q} = \D \circ Q \circ \I$ \\
+$\cut{s}{t}$ & A stream that has the same prefix as $s$ up to $t$, then it is all 0s \\
+$\scut{s}{t}$ & A stream that has the same prefix as $s$ up to $t-1$, then it is all 0s \\
+$\cong$ & Symbol that indicates that two circuits compute the same function \\
+$\delta_0$ & A function that produces a stream from a scalar: scalar, followed by zeros \\
+$\int$ & A function that produces a scalar by adding all elements of a stream \\
+$E$ & $E = \I \circ \delta_o$ \\
+$X$ & $X = \int \circ \D$ \\
+\hline
+\multicolumn{2}{|c|}{\zrs} \\ \hline
+$\Z[A]$ & \zrs: finite functions from $A \to \Z$ \\
+$\norm{s}$ & Size of \zr $s$ \\
+$\isset$ & A function $\isset: \Z[A] \to \B$ that determines whether its argument is a set \\
+$\distinct$ & A function $\distinct: \Z[A] \to \Z[A]$ that always returns a set \\
+$\ispositive$ & A function $\ispositive: \Z[A] \to \B$ that determines whether all elements of a \zr have positive weights \\
+toszet & Function converting a set to a \zr \\
+toset & Function converting a \zr into a set \\
+\hline
+\end{tabular}
+\end{center}
