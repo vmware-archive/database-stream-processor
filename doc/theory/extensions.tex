@@ -8,8 +8,7 @@ and show how they can be implemented in \dbsp.
 Aggregation in SQL applies a function $a$ to a whole set producing a ``scalar''
 result with some type $R$: $a: 2^A \to R$.  We convert such aggregation
 functions to operate on \zrs, so in \dbsp an aggregation function has
-a signature $a: \Z[A] \to R$.  Correctness of the implementation is 
-defined as in \refsec{sec:correctness}.
+a signature $a: \Z[A] \to R$.
 
 The SQL \texttt{COUNT} aggregation function is implemented on \zrs by $a_\texttt{COUNT} : \Z[A] \to \Z$, which
 computes a \emph{sum} of all the element weights: $a_\texttt{COUNT}(s) = \sum_{x \in s} s[x]$.
@@ -23,13 +22,13 @@ If the output of the \dbsp circuit can be such a ``scalar'' value, then aggregat
 with a linear function is simply function application, and thus it is automatically incremental.  However, in general, for composing multiple queries
 we require the result of an aggregation to be a singleton \zr (containing a single value),
 and not a scalar value.  In this case the aggregation function is implemented in
-\dbsp as the composition of the actual aggregation and the 
-$\makeset: A \to \Z[A]$ function, 
+\dbsp as the composition of the actual aggregation and the
+$\makeset: A \to \Z[A]$ function,
 which converts a scalar value of type $A$ to a singleton \zr, defined as follows:
 $\makeset(x) \defn 1 \cdot x$.
 
-In conclusion, the following SQL query: 
-\code{SELECT SUM(c) FROM I} 
+In conclusion, the following SQL query:
+\code{SELECT SUM(c) FROM I}
 is implemented as the following circuit:
 
 \begin{tikzpicture}[auto,>=latex]
@@ -41,22 +40,22 @@ is implemented as the following circuit:
   \node[block, right of=a, node distance=1.5cm] (m) {$\makeset$};
   \node[right of=m, node distance=1.4cm] (O) {\code{O}};
   \draw[->] (a) -- (m);
-  \draw[->] (m) -- (O); 
+  \draw[->] (m) -- (O);
 \end{tikzpicture}
 
-The lifted incremental version of this circuit is interesting: since $\pi$ 
-and $a_\texttt{SUM}$ are linear, they are equivalent to their own incremental 
+The lifted incremental version of this circuit is interesting: since $\pi$
+and $a_\texttt{SUM}$ are linear, they are equivalent to their own incremental
 versions.  Although $\inc{(\lift \makeset)} = \D \circ \lift{\makeset} \circ \I$
 cannot be simplified, it is nevertheless efficient, doing only O(1) work per
 invocation, since its input and output are singleton values.
 
-An aggregation function such as \texttt{AVG} can be written as the composition of 
-a more complex linear function that computes a pair of values using 
+An aggregation function such as \texttt{AVG} can be written as the composition of
+a more complex linear function that computes a pair of values using
 \texttt{SUM} and \texttt{COUNT}, followed by a $\mbox{makeset}$ and a selection operation
 that divides the two columns.
 
 \begin{lstlisting}[language=SQL]
-SELECT AVG(c) FROM I 
+SELECT AVG(c) FROM I
 \end{lstlisting}
 
 \begin{tikzpicture}[>=latex]
@@ -73,7 +72,7 @@ SELECT AVG(c) FROM I
   \draw[->] (div) -- (O);
 \end{tikzpicture}
 
-Finally, some aggregate functions, such as \code{MIN}, are 
+Finally, some aggregate functions, such as \code{MIN}, are
 \emph{not} incremental in general, since for handling deletions
 they may need to know the full set, and not just its changes.  The lifted
 incremental version of such aggregate functions is implemented essentially
@@ -82,7 +81,7 @@ by ``brute force'', using the formula $\inc{(\lift a_\texttt{MIN})}
 proportional to $R(s)$ at each invocation.
 
 Note that the SQL \code{ORDER BY} directive can be modeled as
-a non-linear aggregate function that emits a list.  However, such an implementation it is not efficiently incrementalizable in \dbsp. 
+a non-linear aggregate function that emits a list.  However, such an implementation it is not efficiently incrementalizable in \dbsp.
 We leave the efficient handling of ORDER BY to future work.
 
 Even when aggregation results do not form a group, they usually form
@@ -95,19 +94,19 @@ aggregation function maps empty \zrs to zeros in the target domain.
 \subsubsection{Indexed partitions}
 
 Let $A[K]$ be the set of functions with finite support from $K$ to $A$.
-Consider a group $A$, an arbitrary set of \defined{key values} $K$, and a 
-\emph{partitioning function} $k: A \to A[K]$ with the property that 
+Consider a group $A$, an arbitrary set of \defined{key values} $K$, and a
+\emph{partitioning function} $k: A \to A[K]$ with the property that
 $\forall a \in A . a = \sum k(a)$.  We call elements of $A[K]$ \emph{indexed}
 values of $A$ --- indexed by a key value.
 
-Notice that $A[K]$ also has a group structure, and $k$ itself 
+Notice that $A[K]$ also has a group structure, and $k$ itself
 is a linear function (homomorphism).  As an example,
 if $A = \Z[B_0 \times B_1]$, we can use for $k$ the first projection
 $k: A \to \Z[A][B_0]$, where $k(a)[b] = \sum_{t \in a, t|0 = b} a[t] \cdot t$.
-In other words, $k$ projects the elements in $\Z[B_0 \times B_1]$ on 
+In other words, $k$ projects the elements in $\Z[B_0 \times B_1]$ on
 their first component.  This enables \emph{incremental computations
 on nested relations}.  This is how operators such as group-by are
-implemented: the result of group-by is an indexed \zr, where each 
+implemented: the result of group-by is an indexed \zr, where each
 element is indexed by the key of the group it belongs to.  Since
 indexing is linear, its incremental version is very efficient.
 Notice that the structure $\Z[A][K]$ represents a form of \emph{nested relation}.
@@ -115,27 +114,27 @@ Notice that the structure $\Z[A][K]$ represents a form of \emph{nested relation}
 \subsection{Grouping; indexed relations}\label{sec:grouping}
 
 Pick an arbitrary set $K$ of ``key values.''
-Consider the mathematical structure of finite maps from $K$ 
+Consider the mathematical structure of finite maps from $K$
 to \zrs over some other domain $A$: $K \to \Z[A] = \Z[A][K]$.
 We call values $i$ of this structure \defined{indexed \zrs}: for
-each key $k \in K$, $i[k]$ is a \zr.  Because 
-the codomain $\Z[A]$ is an abelian group, this structure is itself 
+each key $k \in K$, $i[k]$ is a \zr.  Because
+the codomain $\Z[A]$ is an abelian group, this structure is itself
 an abelian group.
 
-We use this structure to model the SQL \texttt{GROUP BY} operator in \dbsp.  
+We use this structure to model the SQL \texttt{GROUP BY} operator in \dbsp.
 Consider a \defined{partitioning function}
 $p: A \to K$ that assigns a key to any value in $A$.  We define the grouping function
 $G_p: \Z[A] \to (K \to \Z[A])$ as $G_p(a)[k] \defn \sum_{x \in a.p(x)=k}a[x] \cdot x$.
-When applied to a \zr $a$ this function returns a indexed \zr, where each element 
+When applied to a \zr $a$ this function returns a indexed \zr, where each element
 is called a \defined{grouping}\footnote{We use
-``group'' for the algebraic structure and ``grouping'' for the result of \code{GROUP BY}.}: for each key $k$ a 
-grouping is a \zr containing all elements of $a$ that map to $k$ 
+``group'' for the algebraic structure and ``grouping'' for the result of \code{GROUP BY}.}: for each key $k$ a
+grouping is a \zr containing all elements of $a$ that map to $k$
 (as in SQL, groupings are multisets, represented by \zrs).
 Consider our example \zr $R$ from \refsec{sec:relational},
-and a key function $p(s)$ that returns the first letter of the string 
-$s$. Then we have that $G_p(R) = \{ \code{j} \mapsto \{ \code{joe} 
+and a key function $p(s)$ that returns the first letter of the string
+$s$. Then we have that $G_p(R) = \{ \code{j} \mapsto \{ \code{joe}
 \mapsto 1 \}, \code{a} \mapsto \{ \code{anne} \mapsto -1 \} \}$,
-i.e., grouping with this key function produces an indexed \zr with two groupings, each 
+i.e., grouping with this key function produces an indexed \zr with two groupings, each
 of which contains a \zr with one element.
 
 The grouping function $G_p$ is linear for any $p$.
@@ -146,24 +145,24 @@ to each change separately to compute how each grouping changes.
 
 \subsection{\texttt{GROUP BY-AGGREGATE}}
 
-Grouping in SQL is almost always followed by aggregation.  
+Grouping in SQL is almost always followed by aggregation.
 Let us consider an aggregation function $a: (K \times \Z[A]) \to B$ that produces values
 in some group $B$, and an indexed relation of type $\Z[A][K]$, as defined above in~\refsec{sec:grouping}.
-The nested relation aggregation operator $Agg_a: \Z[A][K] \to B$ applies $a$ 
+The nested relation aggregation operator $Agg_a: \Z[A][K] \to B$ applies $a$
 to the contents of each grouping independently and adds the results:
 $Agg_a(g) \defn \sum_{k \in K} a(k, g[k])$.  To apply this
 to our example, let us compute the equivalent of GROUP-BY count; we use
-the following aggregation function $count: K \times \Z[A]$, $count(k, s) = 
-\makeset((k, a_\texttt{COUNT}(s)))$, using the \zr counting function $a_\texttt{COUNT}$ 
+the following aggregation function $count: K \times \Z[A]$, $count(k, s) =
+\makeset((k, a_\texttt{COUNT}(s)))$, using the \zr counting function $a_\texttt{COUNT}$
 from~\refsec{sec:aggregation}; the notation $(a,b)$ is a pair of values $a$ and $b$.
-Then we have $Agg_{count} (G_p(R)) = \{ (\code{j}, 1) \mapsto 1, 
+Then we have $Agg_{count} (G_p(R)) = \{ (\code{j}, 1) \mapsto 1,
 (\code{a}, -1) \mapsto 1 \}$.
 
 Notice that, unlike SQL, \dbsp can express naturally computations
-on indexed \zrs, they are just an instance of a group structure. 
-One can even implement queries that operate on each grouping 
-in an indexed \zr.  However, our definition of incremental 
-computation is only concerned with incrementality in the 
+on indexed \zrs, they are just an instance of a group structure.
+One can even implement queries that operate on each grouping
+in an indexed \zr.  However, our definition of incremental
+computation is only concerned with incrementality in the
 \emph{outermost} structures.  We leave it to future work to
 explore an appropriate definition of incremental computation that
 operates on the \emph{inner} relations.
@@ -174,17 +173,17 @@ essentially the inverse of partitioning, converting an indexed
 $\mbox{flatmap}$ is in fact a particular instance of aggregation,
 using the aggregation function $a: K \times \Z[A] \to \Z[A \times K]$
 defined by $a(k, s) = \sum_{x \in s[k]} s[k][x] \cdot (k, x).$
-For our previous example, $\mbox{flatmap}(G_p(R)) = \{ (\code{j}, \code{joe}) \mapsto 1, 
+For our previous example, $\mbox{flatmap}(G_p(R)) = \{ (\code{j}, \code{joe}) \mapsto 1,
 (\code{a}, \code{anne}) \mapsto -1 \}$.
 
 If we use an aggregation function $a: K \times Z[A]$ that is linear in its
 second argument, then the aggregation operator $Agg_a$ is linear, and
-thus fully incremental.  As a consequence, $\mbox{flatmap}$ is linear.  
-However, many practical aggregation functions for nested relations are in fact 
+thus fully incremental.  As a consequence, $\mbox{flatmap}$ is linear.
+However, many practical aggregation functions for nested relations are in fact
 not linear; an example is the $count$ function above, which is not linear
-since it uses the $\makeset$ non-linear function.  Nevertheless, while 
-the incremental evaluation of such functions is not fully incremental, 
-it is at least partly incremental: when applying a change to groupings, the aggregation 
+since it uses the $\makeset$ non-linear function.  Nevertheless, while
+the incremental evaluation of such functions is not fully incremental,
+it is at least partly incremental: when applying a change to groupings, the aggregation
 function only needs to be re-evaluated \emph{for groupings that have changed}.
 
 
@@ -217,7 +216,7 @@ So far the $\zm$ operator was confined to its implicit use in integration or
 differentiation.  However, it can be exposed as a primitive operation that
 can be applied to streams or collections.  This enables programs that can
 perform time-based window computations over streams, and convolution-like
-operators.  
+operators.
 
 
 \subsection{Multisets/bags}
@@ -229,7 +228,7 @@ is \zr addition followed by $\distinct$, \code{UNION ALL} is just \zr addition.
 
 \subsection{Window aggregates}
 
-Streaming databases often organize the contents of streams into windows, 
+Streaming databases often organize the contents of streams into windows,
 which store a subset of data points with a predefined range of timestamps.
 The circuit below (a convolution filter in DSP) computes a \emph{fixed-size sliding-window aggregate}
 over the last four timestamps defined by the $T_i$ functions.
@@ -299,12 +298,12 @@ $\cong$
 
 \noindent{}where the \emph{window operator} $W$ prunes input \zrs, only keeping values
 with timestamps less than an hour behind $\theta[t]$.  Assuming $ts: A \to \mathbb{R}$ returns
-the physical timestamp of a value, $W$ is defined as $W(v, \theta)[t] \defn \{x \in v[t] . 
+the physical timestamp of a value, $W$ is defined as $W(v, \theta)[t] \defn \{x \in v[t] .
 ts(x) \geq \theta[t] - 1hr\}$.  Assuming $\theta$ increases monotonically, $W$
 can be moved inside integration, resulting in the circuit on the right, which uses
 bounded memory to compute a window of an unbounded stream.
 This circuit is a building block of a large family of window queries, including
-window joins and aggregation.  We conjecture that \dbsp can express 
+window joins and aggregation.  We conjecture that \dbsp can express
 any CQL query.
 
 \begin{center}
@@ -363,7 +362,7 @@ The \dbsp implementation of this program is:
 \end{tikzpicture}
 \end{center}
 
-This circuit can be converted to a streaming circuit that computes a stream of values $i$ 
+This circuit can be converted to a streaming circuit that computes a stream of values $i$
 by lifting it; it can be incrementalized using Algorithm~\ref{algorithm-inc} to compute on changes of $i$:
 
 \begin{center}
@@ -386,4 +385,3 @@ by lifting it; it can be incrementalized using Algorithm~\ref{algorithm-inc} to 
   \draw[->] (z) -- (p);
 \end{tikzpicture}
 \end{center}
-

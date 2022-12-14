@@ -109,7 +109,7 @@ The following diagram expresses the relationship between the streams $\Delta DB$
   \node[block, right of=input] (I) {$\I$};
   \node[right of=I] (output) {$DB$};
   \node[block, right of=output] (D) {$\D$};
-  \node[right of=D] (end) {$\Delta DB$};
+  \node[right of=D, node distance=1.2cm] (end) {$\Delta DB$};
   \draw[->] (input) -- (I);
   \draw[->] (I) -- (output);
   \draw[->] (output) -- (D);

@@ -64,6 +64,14 @@ is ``what other interesting group structures could this be applied to besides \z
 Papers such as~\cite{nikolic-icmd18} explore other possibilities, such as matrix algebra,
 linear ML models, or conjunctive queries.
 
+\cite{bonifati-iclp2018} implemented a verified IVM algorithm for a particular
+class of graph queries called Regular Datalog, with an implementation machine-checked in the
+Coq proof assistant. Their focus is on a particular algorithm and the approach does not
+consider other SQL operators, general recursion, or custom operators (although it is modular
+in the sense that it works on any query by incrementalizing it recursively). Furthermore,
+for all queries a deletion in the input change stream requires running the non-incremental
+query to recover.
+
 \dbsp does not do anything special for triangle queries~\cite{kara-tds20}.  Are there
 better algorithms for this case?
 
@@ -85,7 +93,7 @@ type system of \zrs does not.  \val{Safe to delete this para}
 \dbsp is also related to Differential Dataflow
 (DD)~\cite{mcsherry-cidr13, murray-sosp13} and its theoretical
 foundations~\cite{abadi-fossacs15} (and
-recently~\cite{mchserry-vldb20,chothia-vldb16}).  DD's computational
+recently~\cite{mcsherry-vldb20,chothia-vldb16}).  DD's computational
 model is more powerful than \dbsp, since it allows past values in a
 stream to be "updated".  In fact, DD is the only other framework which
 we are aware of which can incrementalize recursive queries as

@@ -7,18 +7,6 @@ expressing recursive query evaluation.  These operators allow us
 to build circuits implementing looping constructs, which
 are used to iterate computations until a fixed-point is reached.
 
-\subsubsection{Generalizing box-and-arrow diagrams}
-
-From now on our circuits will mix computations on scalars and streams.
-We will use the same graphical representation for functions that compute
-on scalars: boxes with input and output arrows.  The values on the
-the connecting arrows will be scalars instead of streams; otherwise
-the interpretation of boxes as function application is unchanged.
-
-When connecting boxes the types of the arrows must match.  E.g.,
-the output of a box producing a stream cannot be connected to the
-input of a box consuming a scalar.
-
 \subsubsection{Stream introduction}\label{sec:stream-introduction}
 
 \begin{definition}[Dirac delta]
@@ -278,6 +266,7 @@ Similarly, we can apply both differentiation operators in sequence:
 
 $$(\D(\lift{\D}))(i) = \ssa{0 1 1 1 2 0 0 0 2 0 0 0 2 0 0 0}$$
 
+\begin{comment}
 \subsubsection{Matrix representations of nested streams}\label{sec:matrix-picture}
 
 Similar to the vector graphical representations from \refsec{sec:vector-picture},
@@ -346,6 +335,7 @@ $$
 \matmult{\mtrx{0 1 0 1}}{\mtrx{0 0 1 9}}.
 \end{aligned}
 $$
+\end{comment}
 
 \subsubsection{Strict operators on nested streams}
 

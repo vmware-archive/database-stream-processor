@@ -3,7 +3,7 @@
 In this section we formally define incremental computations over
 streams and analyze their properties.
 
-\begin{definition}
+\begin{definition}\label{def:inc}
 Given a unary stream operator $Q: \stream{A} \to \stream{B}$ we define the
 \defined{incremental version} of $Q$ as $\inc{Q} \defn \D \circ Q \circ \I$.
 $\inc{Q}$ has the same ``type'' as $Q$: $\inc{Q}: \stream{A} \to \stream{B}$.
@@ -513,9 +513,9 @@ $\cong$ &
 \begin{tikzpicture}[auto,>=latex]
   \node[] (a) {$a$};
   \node[below of=input1, node distance=2cm] (b) {$b$};
-  \node[block, right of=a] (I1) {$\I$};
+  \node[block, right of=a, node distance=.7cm] (I1) {$\I$};
   \node[block, below of=I1] (ab) {$\times$};
-  \node[block, right of=b] (I2) {$\I$};
+  \node[block, right of=b, node distance=.7cm] (I2) {$\I$};
   \draw[->] (a) -- (I1);
   \draw[->] (b) -- (I2);
   \draw[->] (a) |- ([yshift=-1mm]ab.north west);
@@ -538,9 +538,9 @@ $\cong$ &
   \draw[->] (b) -- (DI1);
 \end{tikzpicture} &
 $\cong$ &
-\begin{tikzpicture}[auto,>=latex,node distance=.9cm]
+\begin{tikzpicture}[auto,>=latex]
   \node[] (input1) {$a$};
-  \node[below of=input1, node distance=1cm] (input2) {$b$};
+  \node[below of=input1, node distance=1.5cm] (input2) {$b$};
   \node[block, right of=input1, node distance=.5cm] (I1) {$\I$};
   \node[block, right of=input2, node distance=.5cm] (I2) {$\I$};
   \draw[->] (input1) -- (I1);
@@ -551,7 +551,7 @@ $\cong$ &
   \node[block, right of=ZI2] (DI2) {$\times$};
   \draw[->] (I1) -- (DI1);
   \draw[->] (ZI2) -- (DI2);
-  \node[block, circle, above of=DI2, inner sep=0cm, node distance=.5cm] (sum) {$+$};
+  \node[block, circle, above of=DI2, inner sep=0cm, node distance=.8cm] (sum) {$+$};
   \draw[->] (DI1) -- (sum);
   \draw[->] (DI2) -- (sum);
   \node[right of=sum, node distance=.7cm] (output) {$o$};
@@ -571,18 +571,13 @@ $$
              &  ~~~~~~~~~~~~~~-~ \zm(\I(a)) \times \zm(\I(b)) & \mbox{bilinearity} \\
              &= a \times b ~+~ \zm(\I(a)) \times b ~+~ a \times \zm(\I(b)) & \mbox{cancel} \\
              &= a \times b ~+~ \I(\zm(a)) \times b ~+~ a \times \I(\zm(b)) & \mbox{$I$ time inv.} \\
-             %&= \I(a) \times \I(b) ~-~  \zm(\I(a)) \times \I(b) & \mbox{ add and sub a term} \\
-             %& ~~~~~~~~~~~~+~ \zm(\I(a)) \times \I(b) ~-~ \zm(\I(a)) \times \zm(\I(b))) & \\
-             %&= \D(\I(a)) \times \I(b) ~+~ \zm(\I(a)) \times \D(\I(b))) & \mbox{bilinearity, def of }\D \\
-             %&= a \times \I(b) ~+~ \zm(\I(a)) \times b & \D \circ \I = \id \\
-             %&= a \times \I(b) ~-~ a \times \zm(\I(b)) & \mbox{ add and sub a term} \\
-             %&     ~~~~~~~~~~~~~~+~ a \times \zm(\I(b)) ~+~ \zm(\I(a)) \times b & \\
-             %&= a \times \D(\I(b)) ~+~ a \times \zm(\I(b)) ~+~ \zm(\I(a)) \times b & \mbox{bilinearity, def of }\D  \\
-             %&= a \times b  ~+~ \zm(\I(a)) \times b ~+~ a \times \zm(\I(b))
+             &= (a + \I(\zm(a))) \times b ~+~ a \times \I(\zm(b)) & \mbox{commutativity} \\
+             &= \I(a) \times b ~+~ a \times \I(\zm(b)) & \mbox{def of } \I \\
 \end{aligned}
 $$
 \end{proof}
 
+\begin{comment}
 \subsection{Vector representations}\label{sec:vector-picture}
 
 Some formulas are easier to read as mathematical expressions over ``vectors''.
@@ -632,3 +627,4 @@ $$
 \matmult{\strm{0 1}}{\strm{0 1}}.
 \end{aligned}
 $$
+\end{comment}

@@ -3,7 +3,8 @@
 \subsection{Streams and stream operators}\label{sec:notation}
 
 $\N$ is the set of natural numbers, $\B$ is the set of Booleans, and $\Z$ is the set of integers.
-$[n] = \{ 0, 1, 2, \ldots n-1 \}$ is the set of natural numbers less than n.
+$[n] = \{ 0, 1, 2, \ldots n-1 \}$ is the set of natural numbers less
+than n. $\R$ is the set of reals.
 
 \begin{definition}[stream]
 Given a set $A$, a \defined{stream} \emph{of values from $A$}, or an \emph{$A$-stream}, is a function $\N \rightarrow A$.
@@ -428,13 +429,13 @@ For the rest of the technical development we will require the set of values $(A,
 for any stream $\stream{A}$ to form a commutative group.
 
 We denote by $0_{\stream{A}}$ (or simply $0$ when the type is clear) the stream that consist of the special
-value 0 at each time moment: $0_{\stream{A}} \in \stream{A}$, $\forall t \in \N . 0_{\stream{A}}[t] \defn 0_A$.
+value $0_A$ at each time moment: $0_{\stream{A}} \in \stream{A}$, $\forall t \in \N . 0_{\stream{A}}[t] \defn 0_A$.
 
 \subsubsection{Delays and time-invariance}\label{sec:delay}
 
 \begin{definition}[Delay]
 The \defined{delay operator}\footnote{The name $\zm$
-comes form the DSP literature, and it is related to the z-transform.} emits an output stream that is
+comes form the DSP literature, and it is related to the z-transform in~\secref{sec:ztransform}.} emits an output stream that is
 the input stream delayed by one element: $\zm_A: \stream{A} \to \stream{A}$ defined by:
 $$
 \zm_A(s)[t] \defn  \begin{cases}
@@ -748,7 +749,8 @@ Corollary~\ref{cor-fix-cut} as follows:
          & = & \cut{(\fix{\alpha}{T(\cut{s}{t},F(\alpha))})}{t}~~~~~~~~~~\mbox{(Corollary~\ref{cor-fix-cut})}\\
          & = & \cut{Q(\cut{s}{t})}{t}
 \end{eqnarray*}
-For time-invariance we observe that if $\alpha=T(s,F(\alpha))$ then $\zm(\alpha)= \zm(T(s,F(\alpha)))=T(\zm(s),\zm(F(\alpha))=
+For time-invariance we observe that if $\alpha=T(s,F(\alpha))$ then
+$\zm(\alpha)= \\ \zm(T(s,F(\alpha)))=T(\zm(s),\zm(F(\alpha))=
 T(\zm(s),F(\zm(\alpha)))$. It follows that $\beta=\zm(\alpha)$ satisfies the equation $\beta=T(\zm(s),F(\beta))$ so,
 by uniqueness of the fixed point $Q(\zm(s))=\zm(Q(s))$.
 \end{proof}

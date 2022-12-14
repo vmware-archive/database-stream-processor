@@ -1,5 +1,17 @@
 \section{Relational algebra in \dbsp}\label{sec:relational}
 
+\subsubsection{Generalizing box-and-arrow diagrams}
+
+From now on our circuits will mix computations on scalars and streams.
+We will use the same graphical representation for functions that compute
+on scalars: boxes with input and output arrows.  The values on the
+the connecting arrows will be scalars instead of streams; otherwise
+the interpretation of boxes as function application is unchanged.
+
+When connecting boxes the types of the arrows must match.  E.g.,
+the output of a box producing a stream cannot be connected to the
+input of a box consuming a scalar.
+
 Results in \secref{sec:streams} apply to streams of arbitrary group
 values.  In this section we turn our attention to using these results
 in the context of relational databases.
