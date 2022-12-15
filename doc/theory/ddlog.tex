@@ -1,23 +1,26 @@
-\section{Semantics of Differential Datalog}\label{sec:ddlog}\label{sec:datalog}
+\section{Implementing Differential Datalog in \dbsp}\label{sec:ddlog}\label{sec:datalog}
 
-This section gives a semantics of DDlog in terms of \dbsp circuits.
-This is a precise specification of the semantics of DDlog.
+This section gives an implementation of DDlog in terms of \dbsp
+circuits.  This is a precise specification of the semantics of DDlog.
 
 \subsection{Differential Datalog syntax and semantics}\label{sec:datalog-syntax}
 
-We describe the syntax and semantics of a dialect of Datalog called Differential Datalog,
-or DDlog.  We start by ignoring the differential aspects, we will return to these in Section~\ref{sec:ddlog}.
-In defining the syntax and semantics of Datalog we mostly follow standard definitions, e.g.,~\cite{Abiteboul-book95}.
-In this section we give a syntax-directed translation of Datalog programs into circuits.
-We model a \emph{core} of the language (ignoring constructs that can be viewed as syntactic sugar), 
-to simplify the description.  We argue informally that the resulting circuits implement the standard
+We describe the syntax and semantics of a dialect of Datalog called
+Differential Datalog, or DDlog.  We start by ignoring the differential
+aspects, we will return to these in Section~\ref{sec:ddlog}.  In
+defining the syntax and semantics of Datalog we mostly follow standard
+definitions, e.g.,~\cite{Abiteboul-book95}.  In this section we give a
+syntax-directed translation of Datalog programs into circuits.  We
+model a \emph{core} of the language (ignoring constructs that can be
+viewed as syntactic sugar), to simplify the description.  We argue
+informally that the resulting circuits implement the standard
 semantics of Datalog.
 
 \begin{figure}[t]
 {\small
 \begin{lstlisting}[numbers=left]
 DatalogProgram := TypeDeclaration*
-                  RelationDeclaration* 
+                  RelationDeclaration*
                   Rule*
 TypeDeclaration := ...
 Type := ...
@@ -32,18 +35,18 @@ Head := RelationTerm
 RelationTerm := Id "(" Columns? ")"
 Columns := Variable ( "," Variable )*
 Body := RelationTerm ( "," Term )?
-Term := RelationTerm 
-     | Predicate 
-     | NegatedTerm 
+Term := RelationTerm
+     | Predicate
+     | NegatedTerm
      | VariableDefinitionTerm
      | FlatmapTerm
      | GroupByTerm
 NegatedTerm := "not" RelationTerm
 VariableDefinitionTerm := "var" Variable "=" Expression
 FlatmapTerm := "var" Variable "=" "Flatmap" "(" Id ")"
-GroupByTerm := "var" Variable "=" 
+GroupByTerm := "var" Variable "="
      Expression "." "group_by" "(" VariableList? ")"
-Variable := Id     
+Variable := Id
 VariableList := Id (, Id)*
 Predicate := Expression
 \end{lstlisting}
@@ -58,7 +61,7 @@ Figure~\ref{fig:grammar} shows the EBNF-like grammar of the core DDlog language
 
 \paragraph{Types}
 
-Assume that we are given a set of basic types, including \code{integer}, Booleans, \code{string}, 
+Assume that we are given a set of basic types, including \code{integer}, Booleans, \code{string},
 but also structures (product types), unions (sum types), tuples, vectors, and sets.
 Each such type must support an operation to compare values for equality.  This is the only
 requirement to store values of a particular type in a set.
@@ -71,17 +74,17 @@ We treat such computations as uninterpreted functions (black boxes) and no longe
 concern ourselves with them in this document.
 
 All DDlog programs must be strongly typed, but we don't specify the typing rules in
-this document (e.g., predicates must produce Boolean results).  
+this document (e.g., predicates must produce Boolean results).
 The typing rules are standard.  Only the semantics of well-typed
 programs is defined.
 
 \paragraph{Relations}
 
 Datalog programs compute over relations.  The inputs and outputs of a Datalog
-program are relations.  The standard Datalog semantics of 
+program are relations.  The standard Datalog semantics of
 a relation is a \emph{set} of values from some domain.
 
-DDlog programs continuously interact with their environment.  Thus they 
+DDlog programs continuously interact with their environment.  Thus they
 distinguish relations by their roles.  Some relations are \code{input} relations;
 their contents is supplied by the environment.  Some relations
 are declared as \code{output} relations.  The contents of these relations is visible
@@ -98,12 +101,12 @@ output relation Names(name: string)
 
 This declares three relations.  The first relation is an \code{input} relation, named \code{People},
 and it has 2 columns, \code{name} of type \code{string}, and \code{age} of type \code{integer}.
-Its elements are 2-tuples of type (\code{string}, \code{integer}).  
+Its elements are 2-tuples of type (\code{string}, \code{integer}).
 
 The value of relation \code{People} is a \emph{set} of such tuples.  As a running example,
 let us assume that the input relation \code{People} has the value (supplied by the
-program's environment) $\{ (\code{bob}, 10), 
-(\code{john}, 20), (\code{amy}, 10) \}$, containing three tuples.  
+program's environment) $\{ (\code{bob}, 10),
+(\code{john}, 20), (\code{amy}, 10) \}$, containing three tuples.
 
 The relation \code{Names} has a single column, and it is an \code{output} relation.
 This means that the environment can observe it's contents.  The relation \code{Ages}
@@ -114,7 +117,7 @@ computed from the \code{input} relations, i.e., \code{People}.
 \paragraph{Rules}
 
 Besides type and relation declarations, the most important part of a Datalog program is a set of rules.
-A \defined{Datalog rule} defines the contents of a relation as a function 
+A \defined{Datalog rule} defines the contents of a relation as a function
 of other relations.  A rule has a \defined{head} and a \defined{body}, as shown in the
 grammar from Figure~\ref{fig:grammar}.  In the following rule:
 
@@ -127,8 +130,8 @@ Names(n) :- People(n, a).
 and it is always a relation with variables standing for the tuple fields.
 This rule defines how \code{Names} is computed from the contents
 of \code{People}.
-In this example the rule's head is \code{Names(n)}.  
-You may guess that the value of \code{Names} is the set 
+In this example the rule's head is \code{Names(n)}.
+You may guess that the value of \code{Names} is the set
 $\{ \code{bob}, \code{john}, \code{amy} \}$.  We will explain how this result is computed.
 The turnstyle symbol can be read as ``if''.
 \code{n} is a variable of type \code{string}, standing for the column \code{name}
@@ -152,7 +155,7 @@ the semantics of the various terms and their implementation as circuits in the r
 
 The body of the above rule is \code{People(n, a)}.  The body defines
 two variables, \code{n} and \code{a}.
-The semantics of a rule body is a \defined{valuation}: 
+The semantics of a rule body is a \defined{valuation}:
 a set of values that the variables defined by the body may \emph{jointly} take.
 Our example body defines a valuation for the tuple of variables (\code{n}, \code{a}).
 Since the body is \code{People(n,a)}, the valuation defines the set of values for $(\code{n},\code{a})$
@@ -171,7 +174,7 @@ USAges(a) :- People(n, a), Lives(n, c), c == "USA".
 \end{lstlisting}
 
 The rule prefix \code{People(n, a), Lives(n, c)} defines a valuation for
-variables \code{n, a, c}.  By introducing a temporary relation 
+variables \code{n, a, c}.  By introducing a temporary relation
 \code{Temp(n, a, c)} we can rewrite this rule as two rules, producing the same
 result for the visible relatin \code{USAges}:
 
@@ -189,7 +192,7 @@ by representing each set by a \zr with weights 1.  (Subsequent optimizations can
 relax this requirement for internal relations as long as the semantics
 of output relations is preserved, since only \code{output}
 relations are observable from the environment.  We expand on this
-in Section~\ref{sec:optimizations}.)  
+in Section~\ref{sec:optimizations}.)
 
 \subsubsection{Rule compilation}
 
@@ -201,7 +204,7 @@ Each rule is compiled to a circuit with the following properties:
     \item The relations that appear in the body are inputs of the circuit;
     \item The circuit structure is defined by the terms that appear
     in the relation body (as discussed in the rest of this section);
-    \item The turnstyle is compiled into a projection operator (described in 
+    \item The turnstyle is compiled into a projection operator (described in
     Section~\ref{sec:projection});
     \item The \emph{valuation} at a conjunction in the rule body
     is translated into an edge in the circuit, carrying \zr values.
@@ -213,28 +216,28 @@ This translation is illustrated in Figure~\ref{fig:compilation}.
     \center
     \includegraphics[width=\columnwidth,clip=true]{compilation.png}
     \caption{Compilation of a DDlog rule into a circuit.\label{fig:compilation}}
-\end{figure} 
+\end{figure}
 
 The compilation of a program containing a set of rules produces a ``toplevel'' circuit,
 composed of the circuits for the rules interconnected with each other (as described
 in Section~\ref{sec:connections}).
-For the toplevel circuit the \code{input} relations correspond to the input 
+For the toplevel circuit the \code{input} relations correspond to the input
 edges.  (\code{input} relations cannot appear in the head of any rule).  Similarly,
 the \code{output} relations will correspond to output edges of the toplevel circuit,
 (each \code{output} relation must appear in some rule head).
 
 \subsubsection{Relation terms in rule bodies}\label{sec:connections}
 
-A \code{RelationTerm} is a term in a rule body containing a relation with variables substituted 
+A \code{RelationTerm} is a term in a rule body containing a relation with variables substituted
 for the columns: \code{People(n, a)} is such an example.
-This term \emph{defines a valuation} for all variables that appear in the columns; 
+This term \emph{defines a valuation} for all variables that appear in the columns;
 the valuation associates the variables with the contents of the relation itself.  In our example
 the term \code{People(n, a)} defines the following valuation:
 $(\code{n}, \code{a}) \in \{ (\code{bob}, 10), (\code{john}, 20), (\code{amy}, 10) \}$.
 Each Datalog relation is represented by an edge in a circuit
-carrying a \zr.  
+carrying a \zr.
 
-As Figure~\ref{fig:compilation} shows, a relation in the head of a rule is compiled into the  
+As Figure~\ref{fig:compilation} shows, a relation in the head of a rule is compiled into the
 output edge of the circuit corresponding to the rule, and that a \code{RelationTerm}
 in the body of a rule is compiled into an input edge of the circuit
 corresponding to the rule.
@@ -264,12 +267,12 @@ implementing the second rule:
   \node[right of=CR] (R) {\code{R}};
   \draw[->] (I) -- (CR);
   \draw[->] (CR) -- (R);
-  
+
   \node[below of=I] (RI) {\code{R}};
   \node[block, right of=RI] (CO) {$C_O$};
   \node[right of=CO] (O) {\code{O}};
   \draw[->] (RI) -- (CO);
-  \draw[->] (CO) -- (O); 
+  \draw[->] (CO) -- (O);
 \end{tikzpicture}
 
 \noindent the translation of the program with both rules is:
@@ -278,11 +281,11 @@ implementing the second rule:
   \node[] (I) {\code{I}};
   \node[block, right of=I] (CR) {$C_R$};
   \draw[->] (I) -- (CR);
-  
+
   \node[block, right of=R] (CO) {$C_O$};
   \node[right of=CO] (O) {\code{O}};
   \draw[->] (CR) -- node (R) {\code{R}} (CO);
-  \draw[->] (CO) -- (O); 
+  \draw[->] (CO) -- (O);
 \end{tikzpicture}
 
 This construction is repeated for all rules, translating a program with $n$ rules into
@@ -295,7 +298,7 @@ The same relation may appear in the head of multiple rules.
 In this case the contents of the head relation is the \emph{set union}
 of the values assigned by all heads.
 Consider the following example, where \code{I1} and \code{I2} are
-rule bodies of arbitrary complexity providing a valuation for variable 
+rule bodies of arbitrary complexity providing a valuation for variable
 \code{v}:
 
 \begin{lstlisting}[language=ddlog]
@@ -319,15 +322,15 @@ The following circuit implements the Datalog program with both rules:
 \end{tikzpicture}
 
 Given two \zrs $a \in \Z[I]$ and $b \in \Z[I]$
-which are sets (i.e., $\isset(a)$ and $\isset(b)$), their \emph{set union} 
+which are sets (i.e., $\isset(a)$ and $\isset(b)$), their \emph{set union}
 can be computed as: $\cup: \Z[I] \times \Z[I] \rightarrow \Z[I]$.  $a
-\cup b \defn \distinct(a +_{\Z[I]} b)$.  
+\cup b \defn \distinct(a +_{\Z[I]} b)$.
 The $\distinct$ application is necessary to provide the set semantics of
 Datalog.  We have $\isset(a) \land \isset(b) \Rightarrow
 \isset(a \cup b)$ and $\ispositive(a) \land \ispositive(b)
 \Rightarrow \ispositive(a \cup b)$.
 
-Consider a concrete example for the above program where the value of \code{I1(v)} 
+Consider a concrete example for the above program where the value of \code{I1(v)}
 is $\code{v} \in \{ \code{bob} \mapsto 1, \code{mike} \mapsto 1 \}$ and the value of
 \code{I2(v)} is $\code{v} \in \{ \code{bob} \mapsto 1, \code{john} \mapsto 1 \}$.
 In terms of \zrs we are performing the following addition:
@@ -368,24 +371,24 @@ on the variable \code{n} is the valuation
 $\code{n} \in \{ \code{bob}, \code{john}, \code{amy} \}$.  This defines
 the contents of the relation in the head: $\code{Names} = \{ \code{bob}, \code{john}, \code{amy} \}.$
 
-Thus, in Datalog projection is used when some of the bound variables 
-in the body of a rule are not used in the head.  We can assume without loss of 
+Thus, in Datalog projection is used when some of the bound variables
+in the body of a rule are not used in the head.  We can assume without loss of
 generality that a single variable is removed in a projection (by bundling multiple
-variables in a single tuple-valued variable).  
+variables in a single tuple-valued variable).
 Let us consider the following example, where \code{I} stands for a rule body producing
 a valuation for \code{(v, v1)}.
 
 \begin{lstlisting}[language=ddlog]
-O(v) :- I(v, v1).    
+O(v) :- I(v, v1).
 \end{lstlisting}
 
-Here the type of the implementation of \code{I} is $\Z[A_0 \times A_1]$ (a \zr of tuples with 
+Here the type of the implementation of \code{I} is $\Z[A_0 \times A_1]$ (a \zr of tuples with
 two elements), while the type of the implementation of \code{O} is $\Z[A_0]$.  In terms of \zrs, the
-projection of a \zr $i$ on $A_0$ is defined as: $\pi_0(i)[t] = \sum_{x \in i, x|_0 = t} i[x]$, 
+projection of a \zr $i$ on $A_0$ is defined as: $\pi_0(i)[t] = \sum_{x \in i, x|_0 = t} i[x]$,
 where $x|_0$ is first component of the tuple $x$.  The multiplicity of a tuple in the result
 is the sum of the multiplicities of all tuples that project to it.
 
-As a concrete example of projection, consider the \zr corresponding to the 
+As a concrete example of projection, consider the \zr corresponding to the
 \code{People} relation and it's projection on the \code{Age} column.
 The projection is $\pi_{Age}(\code{People}) = \{ 10 \mapsto 1 + 1, 20 \mapsto 1 \}$.
 Notice that in the projection the weight of 10 is the sum of all weight of
@@ -406,12 +409,12 @@ The circuit for such a rule is:
 Note that $\lift{\pi}$ is time-invariant, since $\pi$ has the zero-preservation
 property.  We have $\isset(i) \Rightarrow \isset(\pi_A(i))$ and $\ispositive(\pi_0)$.
 
-\subsubsection{Flatmap in DDlog}\label{sec:flatmap} \index{flatmap} 
+\subsubsection{Flatmap in DDlog}\label{sec:flatmap} \index{flatmap}
 
 Recall that in DDlog the type of a column in a relation can be
 any of the types supported by the language, including complex types,
 such as vectors, sets, or even maps.  For example, the following
-declaration indicates that the values in relation \code{I} are 
+declaration indicates that the values in relation \code{I} are
 sets of integers.
 
 \begin{lstlisting}[language=ddlog]
@@ -419,10 +422,10 @@ relation I(set: Set<integer>)
 \end{lstlisting}
 
 Flatmap is an operator that can expand the data in such a collection value
-stored in a relation into the contents of a relation.  Classic Datalog does not support flatmaps. 
+stored in a relation into the contents of a relation.  Classic Datalog does not support flatmaps.
 In DDlog \code{Flatmap} is an explicit keyword.  It appears
-in rules in the form of a \code{FlatmapTerm} in 
-the grammar in Figure~\ref{fig:grammar}.  The DDlog type system ensures that the \code{Flatmap} 
+in rules in the form of a \code{FlatmapTerm} in
+the grammar in Figure~\ref{fig:grammar}.  The DDlog type system ensures that the \code{Flatmap}
 operator can only be applied to an expression whose type is a collection.
 
 Here is an example of a program using \code{Flatmap}:
@@ -434,19 +437,19 @@ O(v) :- I(set), var v = Flatmap(set).
 // O = union of all sets in I
 \end{lstlisting}
 
-Each element in relation \code{I} is a set of integers.  
+Each element in relation \code{I} is a set of integers.
 The DDlog \code{Flatmap}\index{\code{Flatmap}} operator implements a restricted form of
-the functionality of the general mathematical operator from above 
+the functionality of the general mathematical operator from above
 (unlike the mathematical flatmap, which is parameterized by a function $f$, the DDlog
-\code{Flatmap} uses a hardwired function, essentially the identity function.).  
+\code{Flatmap} uses a hardwired function, essentially the identity function.).
 The semantics is as follows: the \code{Flatmap} rule body term extends the existing valuation
 with a new variable, \code{v} in this example.  \code{Flatmap}'s argument is
 an expression that depends on the current valuation (\code{set} in this example)
-whose value is a collection.  Let us assume that the contents of the \code{I} relation is: 
-$\{ \{1,2\}, \{2,3\} \}$.  
+whose value is a collection.  Let us assume that the contents of the \code{I} relation is:
+$\{ \{1,2\}, \{2,3\} \}$.
 
 The valuation produced by the rule \code{I(set), var v = Flatmap(set)} is
-the following: $(\code{set}, \code{v}) \in  \{ (\{1,2\}, 1), (\{1,2\}, 2), 
+the following: $(\code{set}, \code{v}) \in  \{ (\{1,2\}, 1), (\{1,2\}, 2),
 (\{2,3\}, 2), (\{2,3\}, 3) \}$.
 
 The circuit-based implementation of \code{Flatmap}, operating on \zrs, can be
@@ -462,9 +465,9 @@ defined as follows:
   \draw[->] (distinct) -- (output);
 \end{tikzpicture}
 
-\noindent where the function $e$ extends each tuple in a \zr with the newly introduced variable 
+\noindent where the function $e$ extends each tuple in a \zr with the newly introduced variable
 and each set value with a Cartesian product between the collection and all it's elements.
-For our example: $e: \code{Set<integer>} \to \Z[\code{Set<integer>} \times \code{integer}]$ 
+For our example: $e: \code{Set<integer>} \to \Z[\code{Set<integer>} \times \code{integer}]$
 defined by: $e(\code{set}) = \sum_{x \in \code{set}} (\code{set}, x) \mapsto 1$.
 
 The $\code{distinct}$ operator is needed because some collections (e.g., vectors)
@@ -486,11 +489,11 @@ in a rule, by using an expression to computing a value for a new variable, that 
 as in the following example:
 
 \begin{lstlisting}[language=ddlog]
-O(v) :- I(x), var v = x + 1. 
+O(v) :- I(x), var v = x + 1.
 \end{lstlisting}
 
 The \code{VariableDefinitionTerm}, \code{var v = x + 1}, extends the current valuation, which
-contains just \code{x}, to include the newly defined variable \code{v}.  
+contains just \code{x}, to include the newly defined variable \code{v}.
 
 The circuit implementation of the previous rule is:
 
@@ -502,21 +505,21 @@ The circuit implementation of the previous rule is:
   \draw[->] (map) -- (output);
 \end{tikzpicture}
 
-The function $e$ extends the current valuation tuple with a new column 
+The function $e$ extends the current valuation tuple with a new column
 (corresponding to \code{v} in the example) and
 evaluates the expression in the term (\code{x + 1}) for each row of the valuation
 to compute the corresponding value for the new column.  In our example,
 $e: \Z[\code{integer}] \to \Z[\code{integer} \times \code{integer}]$,
 $e(x) = (x, x+1)$.
 
-Note that $\ispositive(\map(f))$ for any function $f$.  
+Note that $\ispositive(\map(f))$ for any function $f$.
 From the linearity of flatmap it follows that $\map$
 is linear as well.  Moreover, the operator $\lift{\map(f)}$ is
 time-invariant for any $f$.
 
 \subsubsection{Filtering}\label{sec:filtering}
 
-Filtering occurs in Datalog whenever a \code{TermPredicate} appears in 
+Filtering occurs in Datalog whenever a \code{TermPredicate} appears in
 the body of a rule, in the guise of a Boolean expression, as in the following example:
 
 \noindent
@@ -528,8 +531,8 @@ Minors(n, a) :- People(n, a), a < 18.
 (A predicate may not appear in the first position in the body of a rule.)
 The predicate must only use variables in the current valuation.
 The produced valuation contains the same variables as the source valuation.
-The value of the valuation the set of tuples in the source valuation that 
-satisfy the predicate. 
+The value of the valuation the set of tuples in the source valuation that
+satisfy the predicate.
 
 Recall that the valuation of the term \code{People(n, a)} is
 $(\code{n}, \code{a}) \in \{ (\code{bob}, 10), \\ (\code{john}, 20), (\code{amy}, 10) \}$.
@@ -538,7 +541,7 @@ for which the predicate $\code{a} < 18$ holds.  That valuation is
 $(\code{n}, \code{a}) \in \{ (\code{bob}, 10), (\code{amy}, 10) \}$.  Thus the contents
 of relation $\code{Minors}$ is $\{ (\code{bob}, 10), (\code{amy}, 10) \}$.
 
-To compute on \zrs, let us assume that we are filtering with a predicate $P: A \rightarrow \B$.  
+To compute on \zrs, let us assume that we are filtering with a predicate $P: A \rightarrow \B$.
 We define the following function $\sigma_P: A \rightarrow \Z[A]$ as:
 $$\sigma_P(x) = \left\{
 \begin{array}{ll}
@@ -568,22 +571,22 @@ The circuit for filtering with a predicate $P$ can be implemented as:
 \subsubsection{Grouping}\index{grouping}\label{sec:grouping}
 
 Classic Datalog does not support grouping.
-In DDlog grouping is the fundamental operator used for aggregation.  
+In DDlog grouping is the fundamental operator used for aggregation.
 Grouping is applied to a set and produces a partition of that set
 into a set of collections.  The type of a partition is a built-in
 type in DDlog, called \code{Group}.
 The following example shows an example of grouping in DDlog:
 
 \begin{lstlisting}[language=ddlog]
-output relation O(v: Group<integer, string>) 
+output relation O(v: Group<integer, string>)
 // Groups with key integer and values Vector<string>
-ByAge(g) :- People(n, a), var g = (n).group_by(a).  
+ByAge(g) :- People(n, a), var g = (n).group_by(a).
 // Each g is the group of all names that have the same age
 \end{lstlisting}
 
 The general syntax of a \code{GroupByTerm} in Figure~\ref{fig:grammar} is given by: \\
 \code{var g = (project-expression).group\_by(key-expression)}.
-In DDlog the \code{key-expression} is restricted to be a tuple 
+In DDlog the \code{key-expression} is restricted to be a tuple
 of variables in the current valuation.
 
 The semantics of a \code{GroupByTerm} is given by the following algorithm:
@@ -597,7 +600,7 @@ The semantics of a \code{GroupByTerm} is given by the following algorithm:
     the new anonymous variable and all variables that appear in \code{key-expression}.
     The result of the projection is a new valuation $P$, a set (with no duplicates).
     This valuation \emph{only includes the variables that appear in the projection and
-    the key expression}; all other variables are removed.  This behavior is unusual --- 
+    the key expression}; all other variables are removed.  This behavior is unusual ---
     this is the only DDlog operator that removes variables from a valuation.
     \item Finally, the data in the valuation is grouped by key,
     and the result is a valuation that contains for the new variable a group.
@@ -610,7 +613,7 @@ As an example, let us evaluate the above DDlog rule according to these steps:
     $(\code{n},\code{a}) \in \{ (\code{bob}, 10), (\code{john}, 20), (\code{amy}, 10) \}$.
     \item In our example \code{project-expression} is just \code{n}, whose value
     will be assigned to the anonymous variable.  This creates a new valuation: \\
-    $(\code{n},\code{a}, \code{anonymous}) \in \{ (\code{bob}, 10, \code{bob}), 
+    $(\code{n},\code{a}, \code{anonymous}) \in \{ (\code{bob}, 10, \code{bob}),
     (\code{john}, 20, \code{john}),  (\code{amy}, 10, \code{amy}) \}$.
     \item The valuation is projected on \code{a} (the group key) and \code{anonymous}
     (the projection key), obtaining:
@@ -622,15 +625,15 @@ As an example, let us evaluate the above DDlog rule according to these steps:
     Notice how the value of \code{g} in the valuation is a collection, shown with square brackets.
 \end{enumerate}
 
-Let us define this computation in terms of \zrs.  Consider an arbitrary type of 
-keys $K$, and a function that computes a key for a value $k: I \rightarrow K$.  
+Let us define this computation in terms of \zrs.  Consider an arbitrary type of
+keys $K$, and a function that computes a key for a value $k: I \rightarrow K$.
 Then we define $\mbox{groupby}(k): \Z[I] \rightarrow \Z[I][K]$, as
 $\mbox{groupby}(k)(i) = \sum_{x \in i} \{ k(x) \mapsto 1 \cdot x \}$.
 Note that groupby always produces a set of \zrs.  The weight of each group
 is always 1.  Note that $\ispositive(\mbox{groupby}(k))$.  Also, $\lift{\mbox{groupby}(k)}$
 is time-invariant for any function $k$, since $\mbox{groupby}(k)$ has the zero-preservation
 property.
- 
+
 The implementation of the \code{group\_by} operator requires chaining the implementation of the
 projection and of groupby function just described:
 the resulting circuit is (using $p$ as the translation of \code{project-expression} and $k$ as
@@ -650,36 +653,36 @@ the translation of \code{key-expression}):
   \draw[->] (group) -- (output);
 \end{tikzpicture}
 
-\subsubsection{Aggregation}\label{sec:aggregation}  
+\subsubsection{Aggregation}\label{sec:aggregation}
 
 Classic Datalog does not support aggregations
 but many practical implementations have extended Datalog with
-a construct equivalent with a composition of groupby-aggregate. 
+a construct equivalent with a composition of groupby-aggregate.
 
 Strictly speaking, DDlog does not support for aggregation -- the only
 aggregate supported is a group.  However, since DDlog allows users to apply arbitrary
 functions to a \code{Group} object, traditional aggregation can be performed
 by grouping and then applying a scalar-returning function using a \code{map}, as described
-Section~\ref{sec:map}.  Consider the following example, an extension of 
+Section~\ref{sec:map}.  Consider the following example, an extension of
 the example in Section~\ref{sec:grouping}:
 
 \begin{lstlisting}[language=ddlog]
-output relation NamesByAge(s: string) 
-NamesByAge(s) :- ByAge(g), 
-      var s = g.key + ": " + g.toString().  
+output relation NamesByAge(s: string)
+NamesByAge(s) :- ByAge(g),
+      var s = g.key + ": " + g.toString().
 \end{lstlisting}
 
-This example uses built-in functions \code{g.key} that obtains the key of a group, 
+This example uses built-in functions \code{g.key} that obtains the key of a group,
 and \code{g.toString()}, which converts the group contents to a string.
 
-Formally, given a function $a: \code{Group<$K$,$I$>} \to O$, 
+Formally, given a function $a: \code{Group<$K$,$I$>} \to O$,
 aggregation is just $\map(a)$ applied to a set of groups.  As a consequence
 lifted aggregation is time-invariant.
 
 \subsubsection{Cartesian products}\label{sec:cartesian}
 
-Cartesian products in Datalog appear from the use of in a rule body of a \code{TermRelation} 
-where the relation arguments are all new variables (not already defined in the input valuation).  
+Cartesian products in Datalog appear from the use of in a rule body of a \code{TermRelation}
+where the relation arguments are all new variables (not already defined in the input valuation).
 The Datalog semantics of Cartesian products is to produce a new valuation that includes all
 variables, and having as values the Cartesian product of the values of the input
 valuation and the relation in the term.
@@ -747,7 +750,7 @@ O(x, y) :- I1(x, v), I2(v, y).
 \end{lstlisting}
 
 The semantics of a join can be modeled as a cartesian product followed by a sequence of filters.
-This is achieved by using fresh variable names for the arguments of each 
+This is achieved by using fresh variable names for the arguments of each
 \code{TermRelation}, and adding predicates that require these fresh variables
 to be equal to the bound variables they replace.
 For example, the following program is equivalent to the one above.
@@ -778,7 +781,7 @@ The circuit computing the join product is given by:
 
 Set intersection in Datalog is just a particular case of join where a \code{TermRelation}
 uses \emph{all} the variables defined in the current valuation as arguments.
-In the following example relation \code{O} is the 
+In the following example relation \code{O} is the
 intersection of relations \code{I1} and \code{I2}:
 
 \begin{lstlisting}[language=ddlog]
@@ -786,24 +789,24 @@ O(v) = I1(v), I2(v).
 \end{lstlisting}
 
 The join implementation using circuits immediately applies to set intersections.
-It follows that set intersection is a bilinear operator, and thus time-invariant 
+It follows that set intersection is a bilinear operator, and thus time-invariant
 when lifted.
 
 \subsubsection{Negation}\label{sec:negation}\index{negation}
 
-We only support Datalog programs with stratified negation.  
-See~\cite{Abiteboul-book95} for a precise definition.  
-Negation in a Datalog program is introduced syntactically by a \code{NegatedTerm} 
+We only support Datalog programs with stratified negation.
+See~\cite{Abiteboul-book95} for a precise definition.
+Negation in a Datalog program is introduced syntactically by a \code{NegatedTerm}
 from the grammar in Figure~\ref{fig:grammar}.  A negated term
 cannot appear first in a rule body.  All variables that
 appear in the negated term must have been already defined
-by previous terms in the body.  
+by previous terms in the body.
 
-With these syntactic constraints the are two different meanings to 
+With these syntactic constraints the are two different meanings to
 negation:
 
 \begin{itemize}
-    \item If the negated term uses \emph{all} variables already in the valuation, 
+    \item If the negated term uses \emph{all} variables already in the valuation,
     it is modeled as a set difference.
     \item If the negated term uses a subset of all the variables in the
     existing valuation, it is modeled as an antijoin.
@@ -824,16 +827,16 @@ relation Major(name: string, age: integer)
 Major(n, a) :- People(n, a), not Minor(n, a).
 \end{lstlisting}
 
-The valuation computed by the rule's body is $\{ (\code{bob}, 10), (\code{john}, 20), (\code{amy}, 10) \} 
+The valuation computed by the rule's body is $\{ (\code{bob}, 10), (\code{john}, 20), (\code{amy}, 10) \}
 \setminus \{ (\code{bob}, 10), (\code{amy}, 10) \} = \{ (\code{john}, 20) \}$.
 
 In terms of \zrs, let us consider the following program:
 
 \begin{lstlisting}[language=ddlog]
-O(v) :- I1(v), not I2(v).     
+O(v) :- I1(v), not I2(v).
 \end{lstlisting}
 
-We define the set difference on \zrs as follows: 
+We define the set difference on \zrs as follows:
 $\setminus: \Z[I] \times \Z[I] \rightarrow \Z[I]$, where $i_1
 \setminus i_2 = \distinct(i_1 - i_2)$.  Note
 that we have $\forall i_1, i_2, \ispositive(i_1 \setminus
@@ -866,7 +869,7 @@ which does not use some of the variables in the current valuation.
 Consider the following program:
 
 \begin{lstlisting}[language=ddlog]
-O(v) :- I1(v, z), not I2(v).     
+O(v) :- I1(v, z), not I2(v).
 \end{lstlisting}
 
 The semantics of such a rule can be defined in terms of joins and set difference.
@@ -874,12 +877,12 @@ This rule is equivalent with the following pair of rules:
 
 \begin{lstlisting}[language=ddlog]
 C(v, z) :- I1(v, z), I2(v).
-O(v) :- I1(v, z), not C(v, z).     
+O(v) :- I1(v, z), not C(v, z).
 \end{lstlisting}
 
-This transformation reduces an antijoin to a join (using all variables in the current valuation), 
+This transformation reduces an antijoin to a join (using all variables in the current valuation),
 followed by a set difference.  The translation of these rules is covered by Sections~\ref{sec:join} and
-Section~\ref{sec:set-difference}.  In terms of circuits we can just build the circuit 
+Section~\ref{sec:set-difference}.  In terms of circuits we can just build the circuit
 for the pair of rules:
 
 \begin{tikzpicture}[auto,>=latex]
@@ -901,8 +904,8 @@ for the pair of rules:
 
 \subsection{Streaming Differential Datalog}\label{sec:ddlog}
 
-In this section we have shown how Given a Datalog (or SQL) query $Q$, 
-can be converted into a circuit $C_Q$ that computes the same input-output function as $Q$.  
+In this section we have shown how Given a Datalog (or SQL) query $Q$,
+can be converted into a circuit $C_Q$ that computes the same input-output function as $Q$.
 
 \begin{tikzpicture}[auto,node distance=1cm,>=latex]
     \node[] (input) {$i$};
@@ -918,8 +921,8 @@ differential program.
 
 \subsubsection{Streaming Datalog}
 
-Given the circuit $C_Q: A \to B$, We can lift it to compute on \emph{streams} 
-of relations.  $\lift{C_Q}: \stream{A} \to \stream{B}$ interacts with its environment 
+Given the circuit $C_Q: A \to B$, We can lift it to compute on \emph{streams}
+of relations.  $\lift{C_Q}: \stream{A} \to \stream{B}$ interacts with its environment
 in ``epochs,'' corresponding to the time dimension of the streams.  In each epoch the circuit
 receives a new set of values for the inputs relations and it provides the corresponding values
 for the output relations.
@@ -934,7 +937,7 @@ for the output relations.
 
 \subsubsection{Streaming Differential Datalog}
 
-Furthermore, we can apply the $\inc{\cdot}$ operator to the streaming circuit $\lift{C_Q}$, 
+Furthermore, we can apply the $\inc{\cdot}$ operator to the streaming circuit $\lift{C_Q}$,
 converting it into an incremental streaming circuit: $\inc{(\lift{C_Q})}: \stream{A} \to \stream{B}$.
 
 \begin{tikzpicture}[auto,node distance=1cm,>=latex]
@@ -950,11 +953,10 @@ converting it into an incremental streaming circuit: $\inc{(\lift{C_Q})}: \strea
 \end{tikzpicture}
 
 This is a differential streaming version of the circuit $C_Q$.  This circuit
-interacts with its environment in ``ephochs,'' corresponding to the time dimension of the streams.  
+interacts with its environment in ``ephochs,'' corresponding to the time dimension of the streams.
 In each epoch the circuit receives a new set of \emph{changes} to the inputs relations and it
 provides the corresponding \emph{change} for the output relations.
 
 This is in essence the service provided by the DDlog compiler: given a query $Q$
 it provides a streaming implementation of $\inc{\lift{C_Q}}$.  However, the DDlog
 runtime provides some additional services, described in the next section.
-

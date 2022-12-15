@@ -316,10 +316,10 @@ This query generates a \dbsp circuit with inputs \code{E} and \code{R}:
 \begin{center}
 \begin{tikzpicture}[>=latex, node distance=1.2cm]
   \node[] (E) {\code{E}};
-  \node[above of=E, node distance=.6cm] (R1) {\code{R}};
+  \node[above of=E, node distance=.8cm] (R1) {\code{R}};
   \node[block, right of=R1] (j) {$\bowtie_{t=s}$};
   \node[block, right of=j] (pj) {$\pi_{h, t}$};
-  \node[block, circle, below of=pj, inner sep=0cm, node distance=.6cm] (plus) {$+$};
+  \node[block, circle, below of=pj, inner sep=0cm, node distance=.8cm] (plus) {$+$};
   \node[block, right of=plus] (d) {$\distinct$};
   \node[right of=d] (R) {\code{R}};
   \draw[->] (R1) -- (j);
@@ -337,10 +337,10 @@ Step 2: Lift the circuit by lifting each operator pointwise:
 \begin{center}
 \begin{tikzpicture}[>=latex, node distance=1.5cm]
   \node[] (E) {\code{E}};
-  \node[above of=E, node distance=.8cm] (R1) {\code{R}};
+  \node[above of=E, node distance=.9cm] (R1) {\code{R}};
   \node[block, right of=R1] (j) {$\lift{\bowtie_{t=s}}$};
   \node[block, right of=j] (pj) {$\lift{\pi_{h, t}}$};
-  \node[block, circle, below of=pj, node distance=.6cm, inner sep=0cm] (plus) {$+$};
+  \node[block, circle, below of=pj, node distance=.9cm, inner sep=0cm] (plus) {$+$};
   \node[block, right of=plus] (d) {$\lift{\distinct}$};
   \node[right of=d] (R) {\code{R}};
   \draw[->] (R1) -- (j);
