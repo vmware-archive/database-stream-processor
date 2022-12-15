@@ -13,6 +13,7 @@ use crossbeam::atomic::AtomicConsume;
 use crossbeam_utils::CachePadded;
 use std::{
     borrow::Cow,
+    cell::UnsafeCell,
     marker::PhantomData,
     mem::MaybeUninit,
     panic::Location,
@@ -105,7 +106,7 @@ where
 
 struct GatherData<T> {
     is_valid: Box<[CachePadded<AtomicBool>]>,
-    values: Box<[CachePadded<MaybeUninit<T>>]>,
+    values: Box<[CachePadded<UnsafeCell<MaybeUninit<T>>>]>,
     notify: ArcSwap<Box<NotifyCallback>>,
     location: &'static Location<'static>,
 }
@@ -172,7 +173,10 @@ impl<T> GatherData<T> {
 
         unsafe {
             // Write the value to the slot
-            (*(self.values.as_ptr().add(worker) as *mut CachePadded<MaybeUninit<T>>)).write(value);
+            self.values
+                .get_unchecked(worker)
+                .get()
+                .write(MaybeUninit::new(value));
 
             // Mark the slot as valid
             self.is_valid
@@ -203,7 +207,7 @@ impl<T> GatherData<T> {
             debug_assert!(is_valid);
 
             // Read the value from the channel
-            let value = self.values.get_unchecked(worker).assume_init_read();
+            let value = (*self.values.get_unchecked(worker).get()).assume_init_read();
 
             // Set the slot to be invalid
             slot_is_valid.store(false, Ordering::Relaxed);
@@ -226,7 +230,7 @@ impl<T> Drop for GatherData<T> {
         for idx in 0..self.is_valid.len() {
             if self.is_valid[idx].load_consume() {
                 // Safety: The value is initialized
-                unsafe { self.values[idx].assume_init_drop() };
+                unsafe { (*self.values[idx].get()).assume_init_drop() };
             }
         }
     }

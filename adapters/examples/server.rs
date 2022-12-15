@@ -30,8 +30,7 @@ fn main() {
     ]);
 
     // Config string
-    let config_str = format!(
-        r#"
+    let config_str = r#"
 inputs:
     test_input1:
         transport:
@@ -56,8 +55,7 @@ outputs:
                 max_inflight_messages: 0
         format:
             name: csv
-"#
-    );
+"#;
 
     spawn(move || {
         let producer = TestProducer::new();
@@ -85,7 +83,7 @@ outputs:
     let (circuit, catalog) = test_circuit(4);
 
     println!("Starting HTTP server on port 8080");
-    let _server = server::run(circuit, catalog, &config_str, 8080);
+    let _server = server::run(circuit, catalog, config_str, 8080);
 
     drop(kafka_resources);
 }
