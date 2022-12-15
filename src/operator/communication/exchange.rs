@@ -13,14 +13,17 @@ use crate::{
     },
     circuit_cache_key, Circuit,
 };
+use arc_swap::ArcSwap;
+use crossbeam::atomic::AtomicConsume;
 use crossbeam_utils::CachePadded;
-use once_cell::sync::OnceCell;
 use std::{
     borrow::Cow,
+    cell::UnsafeCell,
     marker::PhantomData,
+    mem::MaybeUninit,
     sync::{
-        atomic::{AtomicUsize, Ordering},
-        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+        Arc,
     },
 };
 
@@ -33,6 +36,8 @@ use std::{
 // be used instead.
 circuit_cache_key!(local ExchangeId<T>(usize => Arc<Exchange<T>>));
 
+type NotifyCallback = dyn Fn() + Send + Sync + 'static;
+
 /// `Exchange` is an N-to-N communication primitive that partitions data across
 /// multiple concurrent threads.
 ///
@@ -43,43 +48,56 @@ circuit_cache_key!(local ExchangeId<T>(usize => Arc<Exchange<T>>));
 /// produced at the previous round.  Likewise, the receive operation can proceed
 /// once all incoming values are ready for the current round.
 pub(crate) struct Exchange<T> {
-    /// The number of communicating peers.
-    npeers: usize,
-    /// `npeers^2` mailboxes, one for each sender/receiver pair.  Note that each
-    /// mailbox is accessed by exactly two threads, so contention is low.
-    mailboxes: Vec<Mutex<Option<T>>>,
-    /// Counts the number of messages received in the current round of
-    /// communication per receiver.  The receiver must wait until it has all
-    /// `npeers` messages before reading all of them from mailboxes in one
-    /// pass.
-    receiver_counters: Vec<CachePadded<AtomicUsize>>,
-    /// Callback invoked when all `npeers` messages are ready for a receiver.
-    receiver_callbacks: Vec<OnceCell<Box<dyn Fn() + Send + Sync>>>,
-    /// Counts the number of empty mailboxes ready to accept new data per
-    /// sender. The sender waits until it has `npeers` available mailboxes
-    /// before writing all of them in one pass.
-    sender_counters: Vec<CachePadded<AtomicUsize>>,
-    /// Callback invoked when all `npeers` mailboxes are available.
-    sender_callbacks: Vec<OnceCell<Box<dyn Fn() + Send + Sync>>>,
+    /// Contains `n` notify callbacks, one for each worker. The first callback
+    /// for any given worker is for that worker's receiver, the second is for
+    /// its sender
+    notify: Box<[[ArcSwap<Box<NotifyCallback>>; 2]]>,
+    /// Contains `n^2` booleans, one for each value
+    is_valid: Box<[CachePadded<AtomicBool>]>,
+    /// Contains `n^2` slots, one for each send/recv pair
+    values: Box<[CachePadded<UnsafeCell<MaybeUninit<T>>>]>,
 }
 
 impl<T> Exchange<T>
 where
     T: Send + 'static,
 {
-    /// Create a new exchange operator for `npeers` communicating threads.
-    fn new(npeers: usize) -> Self {
+    /// Create a new exchange operator for `threads` communicating threads.
+    fn new(threads: usize) -> Self {
+        fn noop_notify() {
+            if cfg!(debug_assertions) {
+                panic!("a notification callback was never set on an exchange node");
+            }
+        }
+
+        debug_assert_ne!(threads, 0);
+
+        let notify = (0..threads)
+            .map(|_| {
+                [
+                    ArcSwap::new(Arc::new(Box::new(noop_notify) as Box<NotifyCallback>)),
+                    ArcSwap::new(Arc::new(Box::new(noop_notify) as Box<NotifyCallback>)),
+                ]
+            })
+            .collect();
+
+        let slots = threads * threads;
+
+        let is_valid = (0..slots)
+            .map(|_| CachePadded::new(AtomicBool::new(false)))
+            .collect();
+
+        let mut values = Vec::with_capacity(slots);
+        // Safety: `CachePadded<MaybeUninit<T>>` is valid to initialize as uninit
+        #[allow(clippy::uninit_vec)]
+        unsafe {
+            values.set_len(slots);
+        }
+
         Self {
-            npeers,
-            mailboxes: (0..npeers * npeers).map(|_| Mutex::new(None)).collect(),
-            receiver_counters: (0..npeers)
-                .map(|_| CachePadded::new(AtomicUsize::new(0)))
-                .collect(),
-            receiver_callbacks: (0..npeers).map(|_| OnceCell::new()).collect(),
-            sender_counters: (0..npeers)
-                .map(|_| CachePadded::new(AtomicUsize::new(npeers)))
-                .collect(),
-            sender_callbacks: (0..npeers).map(|_| OnceCell::new()).collect(),
+            notify,
+            is_valid,
+            values: values.into_boxed_slice(),
         }
     }
 
@@ -95,21 +113,96 @@ where
             .clone()
     }
 
-    /// Returns a reference to a mailbox for the sender/receiver pair.
-    fn mailbox(&self, sender: usize, receiver: usize) -> &Mutex<Option<T>> {
-        debug_assert!(sender < self.npeers);
-        debug_assert!(receiver < self.npeers);
-        &self.mailboxes[sender * self.npeers + receiver]
+    #[inline]
+    fn workers(&self) -> usize {
+        self.notify.len()
     }
 
-    /// True if all `sender`'s outgoing mailboxes are free and ready to accept
-    /// data.
-    ///
-    /// Once this function returns true, a subsequent `try_send_all` operation
-    /// is guaranteed to succeed for `sender`.
+    #[inline]
+    fn receiver_callback(&self, receiver: usize) -> &ArcSwap<Box<NotifyCallback>> {
+        &self.notify[receiver][0]
+    }
+
+    #[inline]
+    fn sender_callback(&self, sender: usize) -> &ArcSwap<Box<NotifyCallback>> {
+        &self.notify[sender][1]
+    }
+
+    #[inline]
+    fn slot_index(&self, sender: usize, receiver: usize) -> usize {
+        debug_assert!(sender < self.workers());
+        debug_assert!(receiver < self.workers());
+
+        debug_assert!(
+            sender * self.workers() + receiver < self.is_valid.len(),
+            "sender: {sender}, receiver: {receiver}",
+        );
+        sender * self.workers() + receiver
+    }
+
     fn ready_to_send(&self, sender: usize) -> bool {
-        debug_assert!(sender < self.npeers);
-        self.sender_counters[sender].load(Ordering::Acquire) == self.npeers
+        debug_assert!(sender < self.workers());
+
+        (0..self.workers())
+            .all(|receiver| !self.is_valid[self.slot_index(sender, receiver)].load_consume())
+    }
+
+    fn ready_to_receive(&self, receiver: usize) -> bool {
+        debug_assert!(receiver < self.workers());
+
+        (0..self.workers())
+            .all(|sender| self.is_valid[self.slot_index(sender, receiver)].load_consume())
+    }
+
+    /// Returns a reference to a mailbox for the sender/receiver pair.
+    unsafe fn push(&self, sender: usize, receiver: usize, value: T) {
+        let slot = self.slot_index(sender, receiver);
+
+        if cfg!(debug_assertions) {
+            // There shouldn't be any value stored within the channel when we're pushing
+            let currently_filled = self.is_valid[slot].load_consume();
+            assert!(!currently_filled);
+        }
+
+        unsafe {
+            // Write the value to the slot
+            self.values
+                .get_unchecked(slot)
+                .get()
+                .write(MaybeUninit::new(value));
+
+            // Mark the slot as valid
+            self.is_valid
+                .get_unchecked(slot)
+                .store(true, Ordering::Release);
+        }
+
+        // Notify the receiver
+        (self.receiver_callback(receiver).load())();
+    }
+
+    unsafe fn pop(&self, sender: usize, receiver: usize) -> T {
+        let slot = self.slot_index(sender, receiver);
+
+        unsafe {
+            let slot_is_valid = self.is_valid.get_unchecked(slot);
+
+            // Load the value currently stored in the channel (and synchronize against
+            // previous writes)
+            let is_valid = slot_is_valid.load_consume();
+            debug_assert!(is_valid);
+
+            // Read the value from the channel
+            let value = (*self.values.get_unchecked(slot).get()).assume_init_read();
+
+            // Set the slot to be invalid
+            slot_is_valid.store(false, Ordering::Relaxed);
+
+            // Notify the sender
+            (self.sender_callback(sender).load())();
+
+            value
+        }
     }
 
     /// Write all outgoing messages for `sender` to mailboxes.
@@ -125,7 +218,7 @@ where
     /// # Panics
     ///
     /// Panics if `data` yields fewer than `self.npeers` items.
-    pub(crate) fn try_send_all<I>(&self, sender: usize, data: &mut I) -> bool
+    pub(crate) fn try_send<I>(&self, sender: usize, data: &mut I) -> bool
     where
         I: Iterator<Item = T>,
     {
@@ -133,28 +226,27 @@ where
             return false;
         }
 
-        for receiver in 0..self.npeers {
-            *self.mailbox(sender, receiver).lock().unwrap() = data.next();
-            self.sender_counters[sender].fetch_sub(1, Ordering::AcqRel);
-            let old_counter = self.receiver_counters[receiver].fetch_add(1, Ordering::AcqRel);
-            if old_counter >= self.npeers - 1 {
-                // This can be a spurious callback (see detailed comment in `try_receive_all`)
-                // below.
-                if let Some(cb) = self.receiver_callbacks[receiver].get() {
-                    cb()
-                }
-            }
+        for receiver in 0..self.workers() {
+            let data = data.next().unwrap();
+            unsafe { self.push(sender, receiver, data) };
         }
+
         true
     }
 
-    /// True if all `receiver`'s incoming mailboxes contain data.
-    ///
-    /// Once this function returns true, a subsequent `try_receive_all`
-    /// operation is guaranteed for `receiver`.
-    pub(crate) fn ready_to_receive(&self, receiver: usize) -> bool {
-        debug_assert!(receiver < self.npeers);
-        self.receiver_counters[receiver].load(Ordering::Acquire) == self.npeers
+    pub(crate) fn try_broadcast(&self, sender: usize, data: T) -> bool
+    where
+        T: Clone,
+    {
+        if !self.ready_to_send(sender) {
+            return false;
+        }
+
+        for receiver in 0..self.workers() {
+            unsafe { self.push(sender, receiver, data.clone()) };
+        }
+
+        true
     }
 
     /// Read all incoming messages for `receiver`.
@@ -164,7 +256,7 @@ where
     /// # Errors
     ///
     /// Fails if at least one of the receiver's incoming mailboxes is empty.
-    pub(crate) fn try_receive_all<F>(&self, receiver: usize, mut cb: F) -> bool
+    pub(crate) fn try_receive<F>(&self, receiver: usize, mut callback: F) -> bool
     where
         F: FnMut(T),
     {
@@ -172,28 +264,9 @@ where
             return false;
         }
 
-        for sender in 0..self.npeers {
-            let data = self
-                .mailbox(sender, receiver)
-                .lock()
-                .unwrap()
-                .take()
-                .unwrap();
-            cb(data);
-            self.receiver_counters[receiver].fetch_sub(1, Ordering::Release);
-            let old_counter = self.sender_counters[sender].fetch_add(1, Ordering::AcqRel);
-            if old_counter >= self.npeers - 1 {
-                // This can be a spurious callback if the following thread interleaving occurs:
-                // 1. Another receiver increments the sender's counter to `npeers`.
-                // 2. The sender starts transmitting messages, writing `receiver`'s mailbox
-                // first    (counter drops to `npeers-1`)
-                // 3. `receiver` is unblocked and retrieves its message, bumping the counter
-                //    back to `npeers` and generating a spurious sender callback in the
-                // following    line.
-                if let Some(cb) = self.sender_callbacks[sender].get() {
-                    cb()
-                }
-            }
+        for sender in 0..self.workers() {
+            let data = unsafe { self.pop(sender, receiver) };
+            callback(data);
         }
 
         true
@@ -213,14 +286,12 @@ where
     /// can occur occasionally.  Therefore, the user must check the status
     /// explicitly by calling `ready_to_send` or be prepared that `try_send_all`
     /// can fail.
-    pub(crate) fn register_sender_callback<F>(&self, sender: usize, cb: F)
+    pub(crate) fn register_sender_callback<F>(&self, sender: usize, callback: F)
     where
         F: Fn() + Send + Sync + 'static,
     {
-        debug_assert!(sender < self.npeers);
-        debug_assert!(self.sender_callbacks[sender].get().is_none());
-        let res = self.sender_callbacks[sender].set(Box::new(cb) as Box<dyn Fn() + Send + Sync>);
-        debug_assert!(res.is_ok());
+        self.sender_callback(sender)
+            .store(Arc::new(Box::new(callback)));
     }
 
     /// Register callback to be invoked whenever the `ready_to_receive`
@@ -238,17 +309,17 @@ where
     /// can occur occasionally.  The user must check the status explicitly
     /// by calling `ready_to_receive` or be prepared that `try_receive_all`
     /// can fail.
-    pub(crate) fn register_receiver_callback<F>(&self, receiver: usize, cb: F)
+    pub(crate) fn register_receiver_callback<F>(&self, receiver: usize, callback: F)
     where
         F: Fn() + Send + Sync + 'static,
     {
-        debug_assert!(receiver < self.npeers);
-        debug_assert!(self.receiver_callbacks[receiver].get().is_none());
-        let res =
-            self.receiver_callbacks[receiver].set(Box::new(cb) as Box<dyn Fn() + Send + Sync>);
-        debug_assert!(res.is_ok());
+        self.receiver_callback(receiver)
+            .store(Arc::new(Box::new(callback)));
     }
 }
+
+unsafe impl<T: Send> Send for Exchange<T> {}
+unsafe impl<T: Send> Sync for Exchange<T> {}
 
 /// Operator that partitions incoming data across all workers.
 ///
@@ -391,6 +462,7 @@ where
         partition: L,
     ) -> Self {
         debug_assert!(worker_index < runtime.num_workers());
+
         Self {
             worker_index,
             location,
@@ -416,19 +488,16 @@ where
         self.location
     }
 
-    fn clock_start(&mut self, _scope: Scope) {}
-    fn clock_end(&mut self, _scope: Scope) {}
-
     fn is_async(&self) -> bool {
         true
     }
 
-    fn register_ready_callback<F>(&mut self, cb: F)
+    fn register_ready_callback<F>(&mut self, callback: F)
     where
         F: Fn() + Send + Sync + 'static,
     {
         self.exchange
-            .register_sender_callback(self.worker_index, cb)
+            .register_sender_callback(self.worker_index, callback)
     }
 
     fn ready(&self) -> bool {
@@ -451,13 +520,11 @@ where
     }
 
     fn eval_owned(&mut self, input: D) {
-        debug_assert!(self.ready());
         self.outputs.clear();
         (self.partition)(input, &mut self.outputs);
-        let res = self
-            .exchange
-            .try_send_all(self.worker_index, &mut self.outputs.drain(..));
-        debug_assert!(res);
+
+        self.exchange
+            .try_send(self.worker_index, &mut self.outputs.drain(..));
     }
 
     fn input_preference(&self) -> OwnershipPreference {
@@ -550,9 +617,9 @@ where
         let mut combined = Default::default();
         let res = self
             .exchange
-            .try_receive_all(self.worker_index, |x| (self.combine)(&mut combined, x));
-
+            .try_receive(self.worker_index, |x| (self.combine)(&mut combined, x));
         debug_assert!(res);
+
         combined
     }
 }
@@ -635,14 +702,21 @@ mod tests {
     fn test_exchange() {
         const WORKERS: usize = 16;
 
-        let hruntime = Runtime::run(WORKERS, || {
+        Runtime::run(WORKERS, || {
+            let current_worker = Runtime::worker_index();
             let exchange = Exchange::with_runtime(&Runtime::runtime().unwrap(), 0);
+
+            let (send_unparker, recv_unparker) = Runtime::parker()
+                .with(|parker| (parker.unparker().clone(), parker.unparker().clone()));
+            exchange.register_sender_callback(current_worker, move || send_unparker.unpark());
+            exchange.register_receiver_callback(current_worker, move || recv_unparker.unpark());
 
             for round in 0..ROUNDS {
                 let output_data = vec![round; WORKERS];
+
                 let mut output_iter = output_data.clone().into_iter();
                 loop {
-                    if exchange.try_send_all(Runtime::worker_index(), &mut output_iter) {
+                    if exchange.try_send(current_worker, &mut output_iter) {
                         break;
                     }
 
@@ -651,7 +725,7 @@ mod tests {
 
                 let mut input_data = Vec::with_capacity(WORKERS);
                 loop {
-                    if exchange.try_receive_all(Runtime::worker_index(), |x| input_data.push(x)) {
+                    if exchange.try_receive(current_worker, |x| input_data.push(x)) {
                         break;
                     }
 
@@ -660,9 +734,9 @@ mod tests {
 
                 assert_eq!(input_data, output_data);
             }
-        });
-
-        hruntime.join().unwrap();
+        })
+        .join()
+        .unwrap();
     }
 
     #[test]
@@ -691,7 +765,7 @@ mod tests {
         where
             S: Scheduler + 'static,
         {
-            let hruntime = Runtime::run(workers, move || {
+            Runtime::run(workers, move || {
                 let circuit = Circuit::build_with_scheduler::<_, _, S>(move |circuit| {
                     let mut n: usize = 0;
                     let source = circuit.add_source(Generator::new(move || {
@@ -726,9 +800,9 @@ mod tests {
                 for _ in 1..ROUNDS {
                     circuit.step().unwrap();
                 }
-            });
-
-            hruntime.join().unwrap();
+            })
+            .join()
+            .unwrap();
         }
 
         do_test::<S>(1);

@@ -50,7 +50,6 @@ use std::{
     collections::HashMap,
     fmt,
     fmt::{Debug, Display, Write},
-    iter::repeat,
     marker::PhantomData,
     panic::Location,
     rc::Rc,
@@ -1874,25 +1873,29 @@ where
                     let termination_check = move || {
                         // Send local fixed point status to all peers.
                         let local_fixedpoint = child_clone.inner().fixedpoint(0);
-                        while !exchange.try_send_all(worker_index, &mut repeat(local_fixedpoint)) {
+                        while !exchange.try_broadcast(worker_index, local_fixedpoint) {
                             if Runtime::kill_in_progress() {
                                 return Err(SchedulerError::Killed);
                             }
+
                             Runtime::parker().with(|parker| parker.park());
                         }
+
                         // Receive the fixed point status of each peer, compute global fixedpoint
                         // state as a logical and of all peer states.
                         let mut global_fixedpoint = true;
-                        while !exchange.try_receive_all(worker_index, |fp| global_fixedpoint &= fp)
-                        {
+                        while !exchange.try_receive(worker_index, |fp| global_fixedpoint &= fp) {
                             if Runtime::kill_in_progress() {
                                 return Err(SchedulerError::Killed);
                             }
+
                             // Sleep if other threads are still working.
                             Runtime::parker().with(|parker| parker.park());
                         }
+
                         Ok(global_fixedpoint)
                     };
+
                     let executor = <IterativeExecutor<_, S>>::new(child, termination_check)?;
                     Ok((res, executor))
                 })
