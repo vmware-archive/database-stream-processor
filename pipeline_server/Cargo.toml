@@ -1,0 +1,14 @@
+[package]
+name = "dbsp_pipeline_server"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+
+actix-files = "0.6.2"
+actix-web = "4.2"
+anyhow = "1.0.57"
+tokio = "1.23.0"
+tokio-postgres = "0.7.7"
+log = "0.4.17"
