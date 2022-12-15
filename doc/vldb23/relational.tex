@@ -8,34 +8,34 @@ efficiently compute the incremental version of any relational query $Q$
 that defines a database view.
 
 However, we face a technical problem: the $\I$ and $\D$ operators were
-defined on abelian groups, and relational databases in general are 
-not abelian groups, since they operate on sets.  Fortunately, 
+defined on abelian groups, and relational databases in general are
+not abelian groups, since they operate on sets.  Fortunately,
 there is a well-known tool in the database literature
 which converts set operations into group operations by using \zrs
 (also called z-relations elsewhere~\cite{green-tcs11}) instead of sets.
 
-We start by defining the \zrs group, and then we review how 
-relational queries are converted into \dbsp circuits  over \zrs.  
+We start by defining the \zrs group, and then we review how
+relational queries are converted into \dbsp circuits  over \zrs.
 This translation is efficiently incrementalizable because
 many basic relational queries can be expressed using LTI \zr operators~\refsec{sec:relational-operators}.
 
 \subsection{\zrs as an abelian group}
 
-Given a set $A$, we define \defined{\zrs} 
-over $A$ as functions with \emph{finite support} from $A$ to $\Z$.  
-These are functions $f: A \rightarrow \Z$ where 
+Given a set $A$, we define \defined{\zrs}
+over $A$ as functions with \emph{finite support} from $A$ to $\Z$.
+These are functions $f: A \rightarrow \Z$ where
 $f(x) \not= 0$ for at most a finite number of values $x \in A$.
 We also write $\Z[A]$ for the type of \zrs with elements from $A$.
-Values in $\Z[A]$ can be thought of as key-value maps with 
-keys in $A$ and values in $\Z$, justifying the array indexing notation.  
+Values in $\Z[A]$ can be thought of as key-value maps with
+keys in $A$ and values in $\Z$, justifying the array indexing notation.
 If $m \in \Z[A]$ we write $m[a]$ instead of $m(a)$, again using
-an indexing notation.  
+an indexing notation.
 
 A particular \zr $m \in \Z[A]$ can be denoted by enumerating its
-elements that have non-zero values and their corresponding values: 
-$m = \{ x_1 \mapsto w_1, \dots, x_n \mapsto w_n \}$.  
+elements that have non-zero values and their corresponding values:
+$m = \{ x_1 \mapsto w_1, \dots, x_n \mapsto w_n \}$.
 We call $w_i \in \Z$ the \defined{multiplicity} (or weight)
-of $x_i \in A$.  Multiplicities can be negative.  
+of $x_i \in A$.  Multiplicities can be negative.
 We write that $x \in m$ iff $m[x] \not= 0$.
 In terms of databases think of a \zr as a table
 where each row as an associated weight, possibly negative.
@@ -43,19 +43,19 @@ We also write $w \cdot x$ for $\{ x \mapsto w \}$.
 
 \ifzsetexamples
 Consider a concrete \zr $R \in \Z[\texttt{string}]$,
-defined by $R = \{ \texttt{joe} \mapsto 1, \texttt{anne} \mapsto -1 \}$.  
+defined by $R = \{ \texttt{joe} \mapsto 1, \texttt{anne} \mapsto -1 \}$.
 $R$ has two elements in its domain,
-\texttt{joe} with a multiplicity of 1 (so $R[\texttt{joe}] = 1$), 
+\texttt{joe} with a multiplicity of 1 (so $R[\texttt{joe}] = 1$),
 and \texttt{anne} with a multiplicity of $-1$.
 We say \texttt{joe} $\in R$ and \texttt{anne} $\in R$.
 \fi
 
 Since $\Z$ is an abelian ring, $\Z[A]$ is also an abelian ring (and thus a group).  This group
-$(\Z[A], +_{\Z[A]}, 0_{\Z[A]}, -_{\Z{A}})$ has addition and subtraction defined pointwise: 
-$(f +_{\Z[A]} g)(x) = f(x) + g(x) . \forall x \in A.$  
-The $0$ element of $\Z[A]$ is the function $0_{\Z[A]}$ defined by $0_{\Z[A]}(x) = 0 . 
+$(\Z[A], +_{\Z[A]}, 0_{\Z[A]}, -_{\Z{A}})$ has addition and subtraction defined pointwise:
+$(f +_{\Z[A]} g)(x) = f(x) + g(x) . \forall x \in A.$
+The $0$ element of $\Z[A]$ is the function $0_{\Z[A]}$ defined by $0_{\Z[A]}(x) = 0 .
 \forall x \in A$.  For example $R + R =  \{ \texttt{joe} \mapsto 2, \texttt{anne} \mapsto -2 \}$.
-Since \zrs form a group, all the results from \secref{sec:streams} apply to streams over \zrs. 
+Since \zrs form a group, all the results from \secref{sec:streams} apply to streams over \zrs.
 
 \zrs generalize sets and bags.  A set with elements from $A$
 can be represented as a \zr by associating a weight of 1 with each element.
@@ -65,7 +65,7 @@ Negative weights in a change represent elements that are being ``removed''.
 
 \begin{definition}
 We say that a \zr represents a \defined{set} if the multiplicity of every
-element is one.  We define a function to check this property 
+element is one.  We define a function to check this property
 $\isset : \Z[A] \rightarrow \B$\index{isset}
 given by:
 $$\isset(m) \defn \left\{
@@ -78,7 +78,7 @@ $$
 \end{definition}
 
 \ifzsetexamples
-For our example $\isset(R) = \mbox{false}$, since $R[\texttt{anne}] = -1$.  
+For our example $\isset(R) = \mbox{false}$, since $R[\texttt{anne}] = -1$.
 \fi
 
 \begin{definition}
@@ -105,7 +105,7 @@ positive.  For positive $m, n$ we write $m \geq n$ for $m, n
 
 We call a function $f : \Z[A] \rightarrow \Z[B]$ \defined{positive} if it maps
 positive values to positive values:
-$\forall x \in \Z[A], x \geq 0_{\Z[A]} \Rightarrow f(x) \geq 0_{\Z[B]}$.  
+$\forall x \in \Z[A], x \geq 0_{\Z[A]} \Rightarrow f(x) \geq 0_{\Z[B]}$.
 We apply this notation to functions as well: $\ispositive(f)$.
 
 \begin{definition}[distinct]
@@ -120,30 +120,30 @@ $$\distinct(m)[x] \defn \left\{
 $$
 \end{definition}
 
-Notice that $\distinct$ ``removes'' duplicates from multisets, and it also eliminates 
+Notice that $\distinct$ ``removes'' duplicates from multisets, and it also eliminates
 elements with negative multiplicities.
 \ifzsetexamples
 $\distinct(R) = \{ \texttt{joe} \mapsto 1 \}$.
 \fi
-While very simple, this definition of $\distinct$ has been carefully 
+While very simple, this definition of $\distinct$ has been carefully
 chosen to enable us to implement the relational (set) operators
 using \zrs operators.
-Circuits derived from relational queries only compute on positive \zrs.
+%Circuits derived from relational queries only compute on positive \zrs.
 
-\begin{definition}(mononotonicity)
-A stream $s \in \stream{\Z[A]}$ is \defined{positive} if every value of the stream is positive:
-$s[t] \geq 0 . \forall t \in \N$.
-A stream $s \in \stream{\Z[A]}$ is \defined{monotone} if $s[t] \geq s[t-1], \forall t \in \N$.
-\end{definition}
-
-If $s \in \stream{\Z[A]}$ is positive, then $\I(s)$ is monotone.
-If $s \in \stream{\Z[A]}$ is monotone, $\D(s)$ is positive.
-
+%\begin{definition}(mononotonicity)
+%A stream $s \in \stream{\Z[A]}$ is \defined{positive} if every value of the stream is positive:
+%$s[t] \geq 0 . \forall t \in \N$.
+%A stream $s \in \stream{\Z[A]}$ is \defined{monotone} if $s[t] \geq s[t-1], \forall t \in \N$.
+%\end{definition}
+%
+%If $s \in \stream{\Z[A]}$ is positive, then $\I(s)$ is monotone.
+%If $s \in \stream{\Z[A]}$ is monotone, $\D(s)$ is positive.
+%
 \paragraph{Generalizing circuit diagrams}
 
 From now on we will use circuits to compute both on scalars (\zrs in our case) and streams of \zrs.
-We use the same graphical representation for functions on streams or scalars: 
-boxes with input and output arrows.  For scalar functions the ``values'' 
+We use the same graphical representation for functions on streams or scalars:
+boxes with input and output arrows.  For scalar functions the ``values''
 of the arrows are scalars instead of streams; otherwise
 the interpretation of boxes as function application is unchanged.  We will
 thus use circuits to depict relational query plans.
@@ -152,7 +152,7 @@ thus use circuits to depict relational query plans.
 
 The fact that relational algebra can be implemented by computations
 on \zrs has been shown before, e.g.~\cite{green-pods07}.  The translation
-of the relational operators to \dbsp is shown in Table~\ref{tab:relational}.  
+of the relational operators to \dbsp is shown in Table~\ref{tab:relational}.
 The first row of the table shows that a composite query is translated
 recursively.  This gives us a recipe for
 translating an arbitrary relational query plan into a \dbsp circuit.
@@ -165,10 +165,10 @@ translating an arbitrary relational query plan into a \dbsp circuit.
 Operation & SQL example & \dbsp circuit & Details \\ \hline
 Composition &
  \begin{lstlisting}[language=SQL]
-SELECT DISTINCT ... FROM 
+SELECT DISTINCT ... FROM
 (SELECT ... FROM ...)
 \end{lstlisting}
- & 
+ &
  \begin{tikzpicture}[auto,>=latex]
   \node[] (I) {\code{I}};
   \node[block, right of=I] (CI) {$C_I$};
@@ -176,17 +176,17 @@ SELECT DISTINCT ... FROM
   \node[block, right of=CI] (CO) {$C_O$};
   \node[right of=CO] (O) {\code{O}};
   \draw[->] (CI) -- (CO);
-  \draw[->] (CO) -- (O); 
+  \draw[->] (CO) -- (O);
 \end{tikzpicture}
  &
  \parbox[b][][t]{\commentsize}{
   $C_I$ circuit for inner query, \\
-  $C_O$ circuit for outer query.}  
+  $C_O$ circuit for outer query.}
 \\ \hline
-Union & 
+Union &
 \begin{lstlisting}[language=SQL]
-(SELECT * FROM I1) 
-UNION 
+(SELECT * FROM I1)
+UNION
 (SELECT * FROM I2)
 \end{lstlisting}
 &
@@ -206,7 +206,7 @@ UNION
 \\ \hline
 Projection &
 \begin{lstlisting}[language=SQL]
-SELECT DISTINCT I.c 
+SELECT DISTINCT I.c
 FROM I
 \end{lstlisting}
 &
@@ -224,12 +224,12 @@ FROM I
 $\pi(i)[y] \defn
 \sum_{x \in i, x|_c = y} i[x]$ \\
 $x|_c$ is projection on column $c$ of the tuple $x$ \\
-$\pi$ is linear; $\ispositive(\pi), \zpp{\pi}$.
+$\pi$ is linear; $\ispositive(\pi)$ %, \zpp{\pi}$.
 }
 \\ \hline
 Filtering &
 \begin{lstlisting}[language=SQL]
-SELECT * FROM I 
+SELECT * FROM I
 WHERE p(I.c)
 \end{lstlisting}
 &
@@ -249,12 +249,12 @@ $\sigma_P(m)[x] \defn \left\{
 \end{array}
 \right.$ \\
 $P: A \rightarrow \B$ is a predicate. \\
-$\sigma_P$ is linear; $\ispositive(\sigma_P), \zpp{\sigma_P}$.
+$\sigma_P$ is linear; $\ispositive(\sigma_P)$ % \zpp{\sigma_P}$.
 }
 % \\ \hline
 %Selection &
 %\begin{lstlisting}[language=SQL]
-%SELECT DISTINCT f(I.c, ...) 
+%SELECT DISTINCT f(I.c, ...)
 %FROM I
 %\end{lstlisting}
 %&
@@ -267,7 +267,7 @@ $\sigma_P$ is linear; $\ispositive(\sigma_P), \zpp{\sigma_P}$.
 %  \draw[->] (map) -- (distinct);
 %  \draw[->] (distinct) -- (output);
 %\end{tikzpicture}
-%& 
+%&
 %\parbox[b][][t]{\commentsize}{
 %For a function $f$ \\
 %$\map(f)$ is linear, \\
@@ -278,10 +278,10 @@ $\sigma_P$ is linear; $\ispositive(\sigma_P), \zpp{\sigma_P}$.
 Cartesian \\
 product} &
 \begin{lstlisting}[language=SQL]
-SELECT I1.*, I2.* 
+SELECT I1.*, I2.*
 FROM I1, I2
 \end{lstlisting}
-& 
+&
 \begin{tikzpicture}[auto,>=latex]
   \node[] (i1) {\code{I1}};
   \node[below of=i1, node distance=.4cm] (midway) {};
@@ -292,15 +292,15 @@ FROM I1, I2
   \draw[->] (i2) -| (prod);
   \draw[->] (prod) -- (output);
 \end{tikzpicture}
-& 
+&
 \parbox[b][][t]{\commentsize}{
 $(a \times b)((x,y)) \defn a[x] \times b[y]$. \\
-$\times$ is bilinear, $\ispositive(\times), \zpp{\times}$.
+$\times$ is bilinear, $\ispositive(\times)$ % , \zpp{\times}$.
 }
 \\ \hline
 Equi-join &
 \begin{lstlisting}[language=SQL]
-SELECT I1.*, I2.* 
+SELECT I1.*, I2.*
 FROM I1 JOIN I2
 ON I1.c1 = I2.c2
 \end{lstlisting}
@@ -319,13 +319,13 @@ ON I1.c1 = I2.c2
 \parbox[b][][t]{\commentsize}{
 $(a \bowtie b)((x,y)) \defn a[x] \times b[y] \\
 \mbox{ if } x|_{c1} = y|_{c2}$. \\
-$\bowtie$ is bilinear, $\ispositive(\bowtie), \zpp{\bowtie}$.
+$\bowtie$ is bilinear, $\ispositive(\bowtie)$ %, \zpp{\bowtie}$.
 }
 \\ \hline
 Intersection &
 \begin{lstlisting}[language=SQL]
 (SELECT * FROM I1)
-INTERSECT 
+INTERSECT
 (SELECT * FROM I2)
 \end{lstlisting}
 &
@@ -344,8 +344,8 @@ Special case of equi-join when both relations have the same schema.
  \\ \hline
 Difference &
 \begin{lstlisting}[language=SQL]
-SELECT * FROM I1 
-EXCEPT 
+SELECT * FROM I1
+EXCEPT
 SELECT * FROM I2
 \end{lstlisting}
 &
@@ -366,46 +366,46 @@ SELECT * FROM I2
 &
 \\ \hline
 \end{tabular}
-\caption{Implementation of SQL relational set operators in \dbsp.  
-Each query assumes that inputs \code{I}, \code{I1}, \code{I2}, are sets and it 
+\caption{Implementation of SQL relational set operators in \dbsp.
+Each query assumes that inputs \code{I}, \code{I1}, \code{I2}, are sets and it
 produces output sets.\label{tab:relational}}
 \end{table*}
 
 
 The translation is fairly straightforward, but many operators require
-the application of a $\distinct$ to produce sets.  
-For example, $a \cup b = \distinct(a + b)$, $a \setminus b = 
+the application of a $\distinct$ to produce sets.
+For example, $a \cup b = \distinct(a + b)$, $a \setminus b =
 \distinct(a - b)$, $(a \times b)((x,y)) = a[x] \times b[y]$.
 
-\paragraph{Correctness of the \dbsp implementations}\label{sec:correctness}
-
-A relational query $Q$ that transforms
-a set $V$ into a set $U$ is implemented by a \dbsp computation $Q'$ on 
-\zrs.  The correctness of the implementation requires the following
-diagram to commute:
-
-\begin{center}
-\begin{tikzpicture}
-  \node[] (V) {$V$};
-  \node[below of=V] (VZ) {$VZ$};
-  \node[right of=V, node distance=2cm] (U) {$U$};
-  \node[below of=U] (UZ) {$UZ$};
-  \draw[->] (V) -- node (f) [below] {$Q$} (U);
-  \draw[->] (V) --  node (s) [left] {tozset}(VZ);
-  \draw[->] (VZ) -- node (f) [above] {$Q'$} (UZ);
-  \draw[->] (UZ) -- node (d) [right] {toset} (U);
-\end{tikzpicture}
-\end{center}
-
-(The correctness of
-this implementation is predicated on $Q'$'s inputs being
-sets, an invariant which needs to be maintained by the environment.) 
-The ``$\mbox{toset}$'' and ``$\mbox{tozset}$'' functions convert sets to \zrs and 
-vice-versa, in the expected way:
-
-$\mbox{toset}: \Z[A] \to 2^A$ is defined as $\mbox{toset}(m) \defn \cup_{x \in \distinct(m)} \{ x \}$.
-
-$\mbox{tozset}: 2^A \to \Z[A]$ is defined as $\mbox{tozset}(s) \defn \sum_{x \in s} 1 \cdot x$.
+%\paragraph{Correctness of the \dbsp implementations}\label{sec:correctness}
+%
+%A relational query $Q$ that transforms
+%a set $V$ into a set $U$ is implemented by a \dbsp computation $Q'$ on
+%\zrs.  The correctness of the implementation requires the following
+%diagram to commute:
+%
+%\begin{center}
+%\begin{tikzpicture}
+%  \node[] (V) {$V$};
+%  \node[below of=V] (VZ) {$VZ$};
+%  \node[right of=V, node distance=2cm] (U) {$U$};
+%  \node[below of=U] (UZ) {$UZ$};
+%  \draw[->] (V) -- node (f) [below] {$Q$} (U);
+%  \draw[->] (V) --  node (s) [left] {tozset}(VZ);
+%  \draw[->] (VZ) -- node (f) [above] {$Q'$} (UZ);
+%  \draw[->] (UZ) -- node (d) [right] {toset} (U);
+%\end{tikzpicture}
+%\end{center}
+%
+%(The correctness of
+%this implementation is predicated on $Q'$'s inputs being
+%sets, an invariant which needs to be maintained by the environment.)
+%The ``$\mbox{toset}$'' and ``$\mbox{tozset}$'' functions convert sets to \zrs and
+%vice-versa, in the expected way:
+%
+%$\mbox{toset}: \Z[A] \to 2^A$ is defined as $\mbox{toset}(m) \defn \cup_{x \in \distinct(m)} \{ x \}$.
+%
+%$\mbox{tozset}: 2^A \to \Z[A]$ is defined as $\mbox{tozset}(s) \defn \sum_{x \in s} 1 \cdot x$.
 
 %All standard algebraic properties
 %of the relational operators can be used to optimize circuits
@@ -414,7 +414,7 @@ $\mbox{tozset}: 2^A \to \Z[A]$ is defined as $\mbox{tozset}(s) \defn \sum_{x \in
 Notice that the use of the $\distinct$ operator allows \dbsp to model
 the \emph{full relational algebra}, including set difference (and not just the positive
 fragment).  Prior work (e.g., Proposition 6.13 in~\cite{green-tcs11}) has shown
-how some invocations of $\distinct$ can be eliminated from query plans 
+how some invocations of $\distinct$ can be eliminated from query plans
 without changing the query semantics.
 
 \begin{proposition}\label{prop-distinct-delay}
@@ -494,7 +494,7 @@ one $\distinct$ at the end of a chain of computations.
 
 \subsection{Incremental view maintenance}
 
-Let us consider a relational query $Q$ 
+Let us consider a relational query $Q$
 defining a view $V$.  To create a circuit that maintains incrementally $V$
 we apply the following mechanical steps (this algorithm is deterministic
 and its running time is proportional to the number of operators in the query):
@@ -502,36 +502,36 @@ and its running time is proportional to the number of operators in the query):
 \begin{algorithm}[incremental view maintenance]\label{algorithm-inc}\quad
 \begin{enumerate}[nosep, leftmargin=\parindent]
     \item Translate $Q$ into a circuit using the rules in Table~\ref{tab:relational}.
-    \item Apply $\distinct$ elimination rules (\ref{prop-distinct-delay}, \ref{prop-distinct-once}) until convergence\footnote{The 
-    order in which the rules are applied does not matter, since the algorithm is 
+    \item Apply $\distinct$ elimination rules (\ref{prop-distinct-delay}, \ref{prop-distinct-once}) until convergence\footnote{The
+    order in which the rules are applied does not matter, since the algorithm is
     confluent: it always produces the same final result. So the rules can be applied in topological order.}.
     \item Lift the whole circuit, by applying Proposition~\ref{prop:distributivity},
     converting it to a circuit operating on streams.
     \item Incrementalize the whole circuit ``surrounding'' it with $\I$ and $\D$.
-    \item Apply the chain rule 
+    \item Apply the chain rule
     from Proposition~\ref{prop-inc-properties} recursively on the query structure
-    to obtain an incremental implementation.  
+    to obtain an incremental implementation.
 \end{enumerate}
 \end{algorithm}
 
 A query can be implemented by multiple plans, with varying data-dependent costs.  The input provided
 to this algorithm is a standard relational query plan, and this algorithm produces
-an incremental plan that is ``similar'' to the input plan\footnote{Query planners generally use cost-based 
+an incremental plan that is ``similar'' to the input plan\footnote{Query planners generally use cost-based
 heuristics to optimize plans, but IVM planning in general does not have this luxury, since the plan
-must be generated \emph{before} the data has been fed to the database.  Nevertheless, standard query 
-optimization techniques, perhaps based on historical statistics, can be applied to the query plan before 
-generating the incremental plan.}.  Step (2) generates an equivalent circuit, with possibly 
+must be generated \emph{before} the data has been fed to the database.  Nevertheless, standard query
+optimization techniques, perhaps based on historical statistics, can be applied to the query plan before
+generating the incremental plan.}.  Step (2) generates an equivalent circuit, with possibly
 fewer $\distinct$ operators.
-Step (3) yields a circuit that consumes a \emph{stream} of complete database snapshots and outputs a 
+Step (3) yields a circuit that consumes a \emph{stream} of complete database snapshots and outputs a
 stream of complete view snapshots. Step (4) yields a circuit that consumes a stream of \emph{database changes}
-and outputs a stream of \emph{view changes}; however, the internal operation of the 
+and outputs a stream of \emph{view changes}; however, the internal operation of the
 circuit is non-incremental, as it rebuilds the complete database using
-integration operators.  Step (5) incrementalizes the circuit by replacing each  
+integration operators.  Step (5) incrementalizes the circuit by replacing each
 primitive operators with its incremental version.
 
  Most of the operators that appear in the circuits in
 Table~\ref{tab:relational} are linear, and thus have very efficient
-incremental versions (we discuss complexity in \refsec{sec:complexity}).  A notable exception is $\distinct$. 
+incremental versions (we discuss complexity in \refsec{sec:complexity}).  A notable exception is $\distinct$.
 The next proposition shows that the incremental version of $\distinct$
 is also efficient, and it can be computed by doing work proportional to the size of the input change.
 
@@ -562,7 +562,7 @@ $\cong$ &
 
 \noindent where $H: \Z[A] \times \Z[A] \to \Z[A]$ is defined as:
 $$
-H(i, d)[x] \defn 
+H(i, d)[x] \defn
 \begin{cases}
 -1 & \mbox{if } i[x] > 0 \mbox{ and } (i + d)[x] \leq 0 \\
 1  & \mbox{if } i[x] \leq 0 \mbox{ and } (i + d)[x] > 0 \\
@@ -571,13 +571,13 @@ H(i, d)[x] \defn
 $$
 \end{proposition}
 
-He is the intuition why $\distinct$ is efficiently incrementalizable: the only elements that can appear in the output of 
+He is the intuition why $\distinct$ is efficiently incrementalizable: the only elements that can appear in the output of
 $\inc{(\lift{\distinct})}$ must have changed in the input.  So the size of the output
 change cannot be bigger than the size of the input change.  In the diagram above, $i$
 is the previous version of the integral of all changes, i.e., the full \zr
-whose $\distinct$ value is being computed. 
+whose $\distinct$ value is being computed.
 The function $H$ detects whether the multiplicity of an element in
-$i$ is changing sign (positive to negative or vice-versa) when adding a new delta $d$.  
+$i$ is changing sign (positive to negative or vice-versa) when adding a new delta $d$.
 %\refsec{sec:relational-example} shows a concrete example of a relational query converted
 %into a circuit and then incrementalized using Algorithm~\ref{algorithm-inc}.
 
@@ -591,28 +591,28 @@ The result produced by $\inc{Q}$ on the $t$-th input depends in general not only
 $t$-th input, but also on all prior inputs it has received.
 
 We argue that each operator in the incremental version of a circuit is efficient in
-terms of work and space.  We make the standard IVM assumption that the input changes \emph{of each operator} 
-are small: $|\Delta DB[t]| \ll |DB[t]| = |(\I(\Delta DB))[t]|$.  
+terms of work and space.  We make the standard IVM assumption that the input changes \emph{of each operator}
+are small: $|\Delta DB[t]| \ll |DB[t]| = |(\I(\Delta DB))[t]|$.
 
 An unoptimized incremental operator $\inc{Q} = \D \circ Q \circ \I$
-evaluates query $Q$ on the whole database $DB$, the integral of the input stream: 
-$DB = \I(\Delta DB)$; hence its time complexity  is the same as that of the non-incremental 
+evaluates query $Q$ on the whole database $DB$, the integral of the input stream:
+$DB = \I(\Delta DB)$; hence its time complexity  is the same as that of the non-incremental
 evaluation of $Q$.  In addition, each of the $\I$ and $\D$ operators uses $O(|DB[t]|)$ memory.
 
 Step (5) of the incrementalization algorithm applies the optimizations described in \secref{sec:incremental};
-these reduce the time complexity of each operator to be a function of $O(|\Delta DB[t]|)$.  
+these reduce the time complexity of each operator to be a function of $O(|\Delta DB[t]|)$.
 For example, Theorem~\ref{linear}, allows evaluating $\inc{S}$, where $S$ is a
 linear operator, in time $O(|\Delta DB[t]|)$.  The $\I$
-operator can also be evaluated in $O(|\Delta DB[t]|)$ time, because 
+operator can also be evaluated in $O(|\Delta DB[t]|)$ time, because
 all values that appear in the output of $\I(\Delta DB)[t]$ must be present in
 current input change $\Delta DB[t]$.  Similarly, while the $\distinct$ operator is not
 linear, $\inc{(\lift{\distinct})}$ can also be evaluated in $O(|\Delta DB[t]|)$ according to
 Proposition~\ref{prop-inc_distinct}.  Bilinear operators, including join, can be
-evaluated in time $O(|DB[t]| \times |\Delta DB[t]|)$, which is a factor of $|DB[t] / \Delta DB[t]|$ 
+evaluated in time $O(|DB[t]| \times |\Delta DB[t]|)$, which is a factor of $|DB[t] / \Delta DB[t]|$
 better than full re-evaluation.
 
 The space complexity of linear operators is 0 (zero), since they store no
-data persistently.  The space complexity of operators such as $\inc{(\lift{\distinct})}$, 
-$\inc{(\lift{\bowtie})}$, $\I$, and $\D$ is $O(|DB[t]|)$. 
+data persistently.  The space complexity of operators such as $\inc{(\lift{\distinct})}$,
+$\inc{(\lift{\bowtie})}$, $\I$, and $\D$ is $O(|DB[t]|)$.
 
-%\input{example1}
+\input{example1}

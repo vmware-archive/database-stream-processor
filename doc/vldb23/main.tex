@@ -1,7 +1,7 @@
 \documentclass[
 sigconf, % conference proceedings
 %anonymous,  % do not show authors
-nonacm, 
+nonacm,
 %authorversion,
 %natbib,  % bib style
 balance  % equalize columns on last page
@@ -17,11 +17,11 @@ balance  % equalize columns on last page
 \newcommand\vldbyear{2020}
 % should be fine as it is
 \newcommand\vldbauthors{\authors}
-\newcommand\vldbtitle{\shorttitle} 
+\newcommand\vldbtitle{\shorttitle}
 % leave empty if no availability url should be set
 \newcommand\vldbavailabilityurl{https://github.com/vmware/database-stream-processor}
 % whether page numbers should be shown or not, use 'plain' for review versions, 'empty' for camera ready
-\newcommand\vldbpagestyle{plain} 
+\newcommand\vldbpagestyle{plain}
 
 
 %\acmConference[CONF]{Conference}{2022}{USA}
@@ -49,7 +49,7 @@ balance  % equalize columns on last page
 \streamexamplestrue
 \newif\ifzsetexamples
 \zsetexamplestrue
-%\titlespacing{\paragraph}{0pt}{0pt}{1em}  
+%\titlespacing{\paragraph}{0pt}{0pt}{1em}
 %\titlespacing{\section}{0pt}{*.9}{*.9}
 %\titlespacing{\subsection}{0pt}{*.9}{*.9}
 \widowpenalty=0
@@ -137,12 +137,12 @@ balance  % equalize columns on last page
 \newcommand{\defn}{\stackrel{\textrm{\scriptsize def}}{=}}
 \newcommand{\map}{\mbox{map}}
 \newcommand{\fix}[2]{\mbox{fix}\,#1.#2}
-\newcommand{\lift}[1]{{\uparrow}#1}              
+\newcommand{\lift}[1]{{\uparrow}#1}
 \newcommand{\rew}{\ensuremath{\mapsto}} % rewriting
 \newcommand{\birew}{\ensuremath{\mapsfrom\!\mapsto}} % bidirectional rewriting
 \newcommand{\pair}[2]{\ensuremath{\langle #1,#2 \rangle}} % pairing
 \newcommand{\norm}[1]{\| #1 \|} % norm; requires math mode
-\newcommand{\zpp}[1]{\mbox{zpp}(#1)}
+%\newcommand{\zpp}[1]{\mbox{zpp}(#1)}
 \newcommand{\makeset}{\ensuremath{\mbox{makeset}}}
 \newcommand{\sv}[1]{ % simple stream value, supplied as a space-separated list of 5 values
 \setsepchar{ }
@@ -199,11 +199,11 @@ Many solutions have been proposed for restricted classes of database languages,
 such as the relational algebra, or Datalog.  These techniques do not naturally generalize to
 richer languages.  In this paper we give a general, heuristic-free
 solution to this problem in 3 steps: (1) we describe a simple but expressive language
-called \dbsp for describing computations over data streams; (2) we give a new mathematical definition of IVM and 
+called \dbsp for describing computations over data streams; (2) we give a new mathematical definition of IVM and
 a general algorithm for solving IVM for arbitrary \dbsp programs, and (3) we show
 how to model many rich database query languages (including the full relational algebra, queries over
-sets and multisets, arbitrarily nested relations, aggregation, flatmap (unnest), monotonic and non-monotonic 
-recursion, streaming aggregation, and arbitrary compositions of all of these) using \dbsp.  
+sets and multisets, arbitrarily nested relations, aggregation, flatmap (unnest), monotonic and non-monotonic
+recursion, streaming aggregation, and arbitrary compositions of all of these) using \dbsp.
 As a consequence, we obtain efficient
 incremental view maintenance algorithms for queries written in all these languages.
 \end{abstract}

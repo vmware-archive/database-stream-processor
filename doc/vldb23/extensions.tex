@@ -1,7 +1,7 @@
 \section{\dbsp and richer query languages}\label{sec:extensions}
 
 The \dbsp language can express a richer class of streaming computations (both incremental and non-incremental)
-than those covered so far. In this section we enumerate several important classes of 
+than those covered so far. In this section we enumerate several important classes of
 queries that can be implemented in \dbsp, and thus can be incrementalized using Algorithm~\ref{algorithm-inc}.
 
 \subsection{Multisets and bags}
@@ -9,17 +9,17 @@ queries that can be implemented in \dbsp, and thus can be incrementalized using 
 In \secref{sec:relational} we have shown how to implement the relational algebra on sets.
 Some SQL queries however produce \emph{multisets}, e.g., \code{UNION ALL}.
 Since \zrs generalize multisets and bags, it is trivial to implement query
-operators on multisets, by just omitting $\distinct$ operator invocations.  
-For example, SQL \code{UNION} is \zr addition followed by $\distinct$, 
+operators on multisets, by just omitting $\distinct$ operator invocations.
+For example, SQL \code{UNION} is \zr addition followed by $\distinct$,
 whereas \code{UNION ALL} is just \zr addition.  Indeed, the SQL to \dbsp compiler
-mentioned in \refsec{sec:implementation} handles full standard SQL, including 
+mentioned in \refsec{sec:implementation} handles full standard SQL, including
 all multiset queries.
 
 \subsection{Aggregation}\label{sec:aggregation}
 
 Aggregation in SQL applies a function $a$ to a set of values of type $A$ producing a ``scalar''
 result with some result type $B$: $a: 2^A \to B$.  In \dbsp an aggregation function has
-a signature $a: \Z[A] \to B$.  
+a signature $a: \Z[A] \to B$.
 
 The SQL \texttt{COUNT} aggregation function is implemented on \zrs by $a_\texttt{COUNT} : \Z[A] \to \Z$, which
 computes a \emph{sum} of all the element weights: $a_\texttt{COUNT}(s) = \sum_{x \in s} s[x]$.
@@ -32,20 +32,20 @@ With this definition the aggregation functions $a_\texttt{COUNT}$ and $a_\texttt
 fact linear transformations between the group $\Z[A]$ and the result group ($\Z$, and $\R$ respectively).
 
 If the output of the \dbsp circuit is allowed be such a ``scalar'' value, then aggregation
-with a linear function is simply function application, and thus linear.  
+with a linear function is simply function application, and thus linear.
 However, in general, composing multiple queries
 requires the result of an aggregation to be a singleton \zr (containing a single value),
 and not a scalar value.  In this case the aggregation function is implemented in
-\dbsp as the composition of the actual aggregation and the 
-$\makeset: A \to \Z[A]$ function, 
+\dbsp as the composition of the actual aggregation and the
+$\makeset: A \to \Z[A]$ function,
 which converts a scalar value of type $A$ to a singleton \zr, defined as follows:
 $\makeset(x) \defn \{ x \mapsto 1 \}$.
 
-In conclusion, the following SQL query: 
-\code{SELECT SUM(c) FROM I} 
+In conclusion, the following SQL query:
+\code{SELECT SUM(c) FROM I}
 is implemented as the following circuit:\footnote{The actual SQL \texttt{SUM} aggregate is
-even more complicated, because it needs to skip \texttt{NULL}s, 
-and it returns \texttt{NULL} for an empty input set; 
+even more complicated, because it needs to skip \texttt{NULL}s,
+and it returns \texttt{NULL} for an empty input set;
 this behavior can be accurately implemented in \dbsp.}
 
 \begin{tikzpicture}[auto,>=latex]
@@ -57,21 +57,21 @@ this behavior can be accurately implemented in \dbsp.}
   \node[block, right of=a, node distance=1.5cm] (m) {$\makeset$};
   \node[right of=m] (O) {\code{O}};
   \draw[->] (a) -- (m);
-  \draw[->] (m) -- (O); 
+  \draw[->] (m) -- (O);
 \end{tikzpicture}
 
-The lifted incremental version of this circuit is interesting: since $\pi$ 
-and $a_\texttt{SUM}$ are linear, they are equivalent to their own incremental 
+The lifted incremental version of this circuit is interesting: since $\pi$
+and $a_\texttt{SUM}$ are linear, they are equivalent to their own incremental
 versions.  Although $\inc{(\lift \makeset)} = \D \circ \lift{\makeset} \circ \I$
 cannot be simplified, it is nevertheless efficient, doing only O(1) work per
 invocation, since its input and output are singleton values.
 
-An aggregation function such as \texttt{AVG} can be written as the composition of 
-a linear function that computes a pair of values using 
-\texttt{SUM} and \texttt{COUNT}, followed by a division and a call to \makeset.
+%An aggregation function such as \texttt{AVG} can be written as the composition of
+%a linear function that computes a pair of values using
+%\texttt{SUM} and \texttt{COUNT}, followed by a division and a call to \makeset.
 
 %\begin{lstlisting}[language=SQL]
-%SELECT AVG(c) FROM I 
+%SELECT AVG(c) FROM I
 %\end{lstlisting}
 %
 %\begin{tikzpicture}[auto,>=latex]
@@ -88,48 +88,49 @@ a linear function that computes a pair of values using
 %  \draw[->] (div) -- (O);
 %\end{tikzpicture}
 
-Finally, some aggregate functions, such as \code{MIN}, are 
+Finally, some aggregate functions, such as \code{MIN}, are
 \emph{not} linear: for handling deletions
 they need to track the full set.  One way to implement in \dbsp the lifted
-incremental version of such aggregate functions is 
+incremental version of such aggregate functions is
 by ``brute force'', using the formula $\inc{(\lift a_\texttt{MIN})}
 = \D \circ \lift{a_\texttt{MIN}} \circ \I$.  Such an implementations performs work
 $O(|DB|)$ at each invocation.  However, schemes
 such as Reactive Aggregator~\cite{tangwongsan-vldb15} can be implemented as custom \dbsp operators to bring
 the amortized cost per update to $O(\log |DB|)$.  This approach is similar to the
-customized implementation of the $\distinct$ operator, and it is another facet of 
-the modularity of \dbsp, which allows optimized operator implementations to be 
-mixed and matched, and can always fallback to brute-force.\footnote{SQL's \code{ORDER BY} can also be modeled in \dbsp as
-a non-linear aggregate function that emits an ordered list.  However, 
-such an implementation is not efficiently incrementalizable in \dbsp,
-doing $O(|DB|)$ work for every update. 
-We leave the efficient handling of ORDER BY to future work.}
+customized implementation of the $\distinct$ operator, and it is another facet of
+the modularity of \dbsp, which allows optimized operator implementations to be
+mixed and matched, and can always fallback to brute-force.%
+%\footnote{SQL's \code{ORDER BY} can also be modeled in \dbsp as
+%a non-linear aggregate function that emits an ordered list.  However,
+%such an implementation is not efficiently incrementalizable in \dbsp,
+%doing $O(|DB|)$ work for every update.
+%We leave the efficient handling of ORDER BY to future work.}
 
 \subsection{Grouping; indexed relations}\label{sec:grouping}
 
 Let $K$ be a set of ``key values.''
-Consider the mathematical structure of finite maps from $K$ 
+Consider the mathematical structure of finite maps from $K$
 to \zrs: $K \to \Z[A] = \Z[A][K]$.
 We call values $i$ of this structure \defined{indexed \zrs}: for
-each key $k \in K$, $i[k]$ is a \zr.  Because 
-the codomain $\Z[A]$ is an abelian group, this structure is itself 
+each key $k \in K$, $i[k]$ is a \zr.  Because
+the codomain $\Z[A]$ is an abelian group, this structure is itself
 an abelian group.
 
-We use this structure to implement the SQL \texttt{GROUP BY} operator in \dbsp.  
+We use this structure to implement the SQL \texttt{GROUP BY} operator in \dbsp.
 Consider a \defined{partitioning function}
 $p: A \to K$ that assigns a key to any value in $A$.  We define the grouping function
-$G_p: \Z[A] \to \Z[A][K]$ as $G_p(a)[k] \defn \sum_{x \in a.p(x)=k}a[x] \cdot x$ 
+$G_p: \Z[A] \to \Z[A][K]$ as $G_p(a)[k] \defn \sum_{x \in a.p(x)=k}a[x] \cdot x$
 (just map each element of the input $a$ to the \zr grouping corresponding to its key).
-When applied to a \zr $a$ this function returns a indexed \zr, where each element 
+When applied to a \zr $a$ this function returns a indexed \zr, where each element
 is a \defined{grouping}:\footnote{We use
-``group'' for the algebraic structure and ``grouping'' for the result of \code{GROUP BY}.} for each key $k$ a 
-grouping is a \zr containing all elements of $a$ that map to $k$ 
+``group'' for the algebraic structure and ``grouping'' for the result of \code{GROUP BY}.} for each key $k$ a
+grouping is a \zr containing all elements of $a$ that map to $k$
 (as in SQL, groupings are multisets).
 Consider our example \zr $R$ from \refsec{sec:relational},
-and a key function $p(s)$ that returns the first letter of the string 
-$s$. Then we have that $G_p(R) = \{ \code{j} \mapsto \{ \code{joe} 
+and a key function $p(s)$ that returns the first letter of the string
+$s$. Then we have that $G_p(R) = \{ \code{j} \mapsto \{ \code{joe}
 \mapsto 1 \}, \code{a} \mapsto \{ \code{anne} \mapsto -1 \} \}$,
-i.e., grouping with this key function produces an indexed \zr with two groupings, each 
+i.e., grouping with this key function produces an indexed \zr with two groupings, each
 of which contains a \zr with one element.
 
 The grouping function $G_p$ is linear for any key function $p$!
@@ -139,29 +140,29 @@ to the input relation we can apply the partitioning function
 to each change separately to compute how each grouping changes.
 
 Notice that, unlike SQL, \dbsp can express naturally computations
-on indexed \zrs, they are just an instance of a group structure. 
+on indexed \zrs, they are just an instance of a group structure.
 In \dbsp one does not need to follow
 grouping by aggregation, and \dbsp can represent nested groupings
-of arbitrary depth.  Our definition of incremental 
-computation is only concerned with incrementality in the 
+of arbitrary depth.  Our definition of incremental
+computation is only concerned with incrementality in the
 \emph{outermost} structures.  We leave it to future work to
-explore an appropriate definition of incremental computation 
+explore an appropriate definition of incremental computation
 on the \emph{inner} relations.
 
 
 \subsection{\texttt{GROUP BY-AGGREGATE}, flatmap}
 
-Grouping in SQL is almost always followed by aggregation.  
+Grouping in SQL is almost always followed by aggregation.
 Let us consider an aggregation function $a: (K \times \Z[A]) \to B$ that produces values
 in some group $B$, and an indexed relation of type $\Z[A][K]$, as defined above in~\refsec{sec:grouping}.
-The nested relation aggregation operator $Agg_a: \Z[A][K] \to B$ applies $a$ 
+The nested relation aggregation operator $Agg_a: \Z[A][K] \to B$ applies $a$
 to the contents of each grouping independently and adds the results:
 $Agg_a(g) \defn \sum_{k \in K} a(k, g[k])$.  To apply this
 to our example, let us compute the equivalent of \texttt{GROUP BY-COUNT}; we use
-the following aggregation function $count: K \times \Z[A]$, $count(k, s) = 
-\makeset((k, a_\texttt{COUNT}(s)))$, using the \zr counting function $a_\texttt{COUNT}$ 
+the following aggregation function $count: K \times \Z[A]$, $count(k, s) =
+\makeset((k, a_\texttt{COUNT}(s)))$, using the \zr counting function $a_\texttt{COUNT}$
 from~\refsec{sec:aggregation}; the notation $(a,b)$ is a pair of values $a$ and $b$.
-Then we have $Agg_{count} (G_p(R)) = \{ (\code{j}, 1) \mapsto 1, 
+Then we have $Agg_{count} (G_p(R)) = \{ (\code{j}, 1) \mapsto 1,
 (\code{a}, -1) \mapsto 1 \}$.
 
 %\subsection{\texttt{UNNEST} (flatmap)}
@@ -172,56 +173,56 @@ essentially the inverse of grouping, converting an indexed
 $\mbox{flatmap}$ is in fact a particular instance of aggregation,
 using the aggregation function $a: K \times \Z[A] \to \Z[A \times K]$
 defined by $a(k, s) = \sum_{x \in s[k]} s[k][x] \cdot (k, x).$
-For our previous example, $\mbox{flatmap}(G_p(R)) = \{ (\code{j}, \code{joe}) \mapsto 1, 
+For our previous example, $\mbox{flatmap}(G_p(R)) = \{ (\code{j}, \code{joe}) \mapsto 1,
 (\code{a}, \code{anne}) \mapsto -1 \}$.
 
 %If we use an aggregation function $a: K \times Z[A]$ that is linear in its
 %second argument, then the aggregation operator $Agg_a$ is linear, and
-%thus fully incremental.  As a consequence, $\mbox{flatmap}$ is linear.  
-%However, many practical aggregation functions for nested relations are in fact 
+%thus fully incremental.  As a consequence, $\mbox{flatmap}$ is linear.
+%However, many practical aggregation functions for nested relations are in fact
 %not linear; an example is the $count$ function above, which is not linear
-%since it uses the $\makeset$ non-linear function.  Nevertheless, while 
-%the incremental evaluation of such functions is not fully incremental, 
-%it is at least partly incremental: when applying a change to groupings, the aggregation 
+%since it uses the $\makeset$ non-linear function.  Nevertheless, while
+%the incremental evaluation of such functions is not fully incremental,
+%it is at least partly incremental: when applying a change to groupings, the aggregation
 %function only needs to be re-evaluated \emph{for groupings that have changed}.
 
-\subsection{Antijoin}\label{sec:antijoin}\index{antijoin}
-
-Antijoins arise in the implementation of Datalog programs with stratified negation.
-Consider the following program:
-
-\begin{lstlisting}[language=ddlog,basicstyle=\small]
-O(v, z) :- I1(v, z), not I2(v).     
-\end{lstlisting}
-
-The semantics of such a rule is defined in terms of joins and set difference.
-This rule is equivalent with the following pair of rules:
-
-\begin{lstlisting}[language=ddlog,basicstyle=\small]
-C(v, z) :- I1(v, z), I2(v).
-O(v, z) :- I1(v, z), not C(v, z).     
-\end{lstlisting}
-
-This transformation reduces an antijoin to a join 
-followed by a set difference.  This produces the following \dbsp circuit:
-
-\begin{tikzpicture}[auto,>=latex]
-  \node[] (i1) {\code{I1}};
-  \node[below of=i1, node distance=.5cm] (i2) {\code{I2}};
-  \node[block, right of=i1, node distance=1.5cm] (join) {$\bowtie$};
-  \node[block, shape=circle, inner sep=0in, right of=join] (m) {---};
-  \node[block, above of=m, shape=circle, inner sep=0in, node distance=.6cm] (plus) {$+$};
-  \node[block, right of=plus, node distance=1cm] (distinct) {$\distinct$};
-  \node[right of=distinct, node distance=1cm] (output) {\code{O}};
-  \draw[->] (i1) -- node (tap) {} (join);
-  \draw[->] (i2) -| (join);
-  \draw[->] (join) -- (m);
-  \draw[->] (m) -- (plus);
-  \draw[->] (tap.south) |- (plus);
-  \draw[->] (plus) -- (distinct);
-  \draw[->] (distinct) -- (output);
-\end{tikzpicture}
-
+%\subsection{Antijoin}\label{sec:antijoin}\index{antijoin}
+%
+%Antijoins arise in the implementation of Datalog programs with stratified negation.
+%Consider the following program:
+%
+%\begin{lstlisting}[language=ddlog,basicstyle=\small]
+%O(v, z) :- I1(v, z), not I2(v).
+%\end{lstlisting}
+%
+%The semantics of such a rule is defined in terms of joins and set difference.
+%This rule is equivalent with the following pair of rules:
+%
+%\begin{lstlisting}[language=ddlog,basicstyle=\small]
+%C(v, z) :- I1(v, z), I2(v).
+%O(v, z) :- I1(v, z), not C(v, z).
+%\end{lstlisting}
+%
+%This transformation reduces an antijoin to a join
+%followed by a set difference.  This produces the following \dbsp circuit:
+%
+%\begin{tikzpicture}[auto,>=latex]
+%  \node[] (i1) {\code{I1}};
+%  \node[below of=i1, node distance=.5cm] (i2) {\code{I2}};
+%  \node[block, right of=i1, node distance=1.5cm] (join) {$\bowtie$};
+%  \node[block, shape=circle, inner sep=0in, right of=join] (m) {---};
+%  \node[block, above of=m, shape=circle, inner sep=0in, node distance=.6cm] (plus) {$+$};
+%  \node[block, right of=plus, node distance=1cm] (distinct) {$\distinct$};
+%  \node[right of=distinct, node distance=1cm] (output) {\code{O}};
+%  \draw[->] (i1) -- node (tap) {} (join);
+%  \draw[->] (i2) -| (join);
+%  \draw[->] (join) -- (m);
+%  \draw[->] (m) -- (plus);
+%  \draw[->] (tap.south) |- (plus);
+%  \draw[->] (plus) -- (distinct);
+%  \draw[->] (distinct) -- (output);
+%\end{tikzpicture}
+%
 \subsection{Streaming joins}
 
 Consider a binary query $T(s, t) = \I(s)~~\lift{\bowtie}~~t$.  This is the
@@ -237,36 +238,36 @@ or telemetry data points. $T$ discards values from $t$ after matching them again
 
 \paragraph{Streaming Window queries}
 
-Streaming databases often organize the contents of streams into windows, 
+Streaming databases often organize the contents of streams into windows,
 which store a subset of data points with a predefined range of timestamps.
-The circuit below computes a \emph{fixed-size sliding-window aggregate}
-over the last four timestamps with aggregations defined by the $T_i$ functions.
-
-\begin{center}
-\begin{tikzpicture}[>=latex]
-    \node[] (input) {$s$};
-    \node[block, right of=input, node distance=1.5cm] (f0) {$T_0$};
-    \node[below of=input, node distance=.5cm] (fake) {};
-    \node[block, right of=fake, node distance=1cm] (z0) {$\zm$};
-    \node[right of=input, node distance=.35cm] (tap) {};
-    \node[block, right of=f0, node distance=1.5cm] (f1) {$T_1$};
-    \node[block, right of=z0, node distance=1.2cm] (z1) {$\zm$};
-    \node[block, right of=f1, node distance=1.5cm] (f2) {$T_2$};
-    \node[block, right of=z1, node distance=1.5cm] (z2) {$\zm$};
-    \draw[->] (input) -- (f0);
-    \draw[->] (tap.center) |- (z0);
-    \draw[->] (z0) -| (f0);
-    \draw[->] (f0) -- (f1);
-    \draw[->] (z0) -- (z1);
-    \draw[->] (z1) -| (f1);
-    \draw[->] (f1) -- (f2);
-    \draw[->] (z1) -- (z2);
-    \draw[->] (z2) -| (f2);
-    \node[right of=f2] (output) {$o$};
-    \draw[->] (f2) -- (output);
-\end{tikzpicture}
-\end{center}
-
+%% The circuit below computes a \emph{fixed-size sliding-window aggregate}
+%% over the last four timestamps with aggregations defined by the $T_i$ functions.
+%%
+%% \begin{center}
+%% \begin{tikzpicture}[>=latex]
+%%     \node[] (input) {$s$};
+%%     \node[block, right of=input, node distance=1.5cm] (f0) {$T_0$};
+%%     \node[below of=input, node distance=.5cm] (fake) {};
+%%     \node[block, right of=fake, node distance=1cm] (z0) {$\zm$};
+%%     \node[right of=input, node distance=.35cm] (tap) {};
+%%     \node[block, right of=f0, node distance=1.5cm] (f1) {$T_1$};
+%%     \node[block, right of=z0, node distance=1.2cm] (z1) {$\zm$};
+%%     \node[block, right of=f1, node distance=1.5cm] (f2) {$T_2$};
+%%     \node[block, right of=z1, node distance=1.5cm] (z2) {$\zm$};
+%%     \draw[->] (input) -- (f0);
+%%     \draw[->] (tap.center) |- (z0);
+%%     \draw[->] (z0) -| (f0);
+%%     \draw[->] (f0) -- (f1);
+%%     \draw[->] (z0) -- (z1);
+%%     \draw[->] (z1) -| (f1);
+%%     \draw[->] (f1) -- (f2);
+%%     \draw[->] (z1) -- (z2);
+%%     \draw[->] (z2) -| (f2);
+%%     \node[right of=f2] (output) {$o$};
+%%     \draw[->] (f2) -- (output);
+%% \end{tikzpicture}
+%% \end{center}
+%%
 In practice, windowing is usually based on physical timestamps attached to
 stream values rather than logical (transaction) time as in the previous circuit.
 For instance, the CQL~\cite{arasu-tr02} query
@@ -309,24 +310,24 @@ $\cong$
 
 \noindent{}where the \emph{window operator} $W$ prunes input \zrs, only keeping values
 with timestamps less than an hour behind $\theta[t]$.  Assuming $ts: A \to \mathbb{R}$ returns
-the physical timestamp of a value, $W$ is defined as $W(v, \theta)[t] \defn \{x \in v[t] . 
+the physical timestamp of a value, $W$ is defined as $W(v, \theta)[t] \defn \{x \in v[t] .
 ts(x) \geq \theta[t] - 1hr\}$.  Assuming $\theta$ increases monotonically, $W$
 can be moved inside integration, resulting in the circuit on the right, which uses
 bounded memory to compute a window of an unbounded stream.
 This circuit is a building block of a large family of window queries, including
-window joins and window aggregation (e.g., SQL \texttt{OVER} queries).  
+window joins and window aggregation (e.g., SQL \texttt{OVER} queries).
 
 \begin{comment}
 \item[Weakening assumptions]
 
 The theory as presented requires streams to be over group elements.  However,
-this is necessary only if we want to automatically compute incremental 
+this is necessary only if we want to automatically compute incremental
 versions of the operators --- the addition and negation operations are
 required for building $\I$ and $\D$.  The streaming circuits model
 works very well on much simpler algebraic structures.  The $0$ element
 is still needed to define $\zm$ and time-invariance.  Circuits that
 mix streams over groups with arbitrary streams are well-defined.  However,
-the zero-preservation property is required even for such general computations, 
+the zero-preservation property is required even for such general computations,
 for the time-invariance of the resulting circuits.
 \end{comment}
 
@@ -337,12 +338,12 @@ The entire ``state'' of a streaming circuits is ``stored'' in its $\zm$ and $\li
 elements.  Saving this state amounts to taking a checkpoint of the streaming
 system.  Restoring the state amounts to restoring a previous state.  These
 operations can be the fundamental primitives for providing a fault-tolerant
-implementation of a streaming query system. 
+implementation of a streaming query system.
 
 \item[Materialized views:]
 
 An incremental view maintenance system is not a database -- it only computes changes
-to views when given changes to tables.  However, it can be integrated with a 
+to views when given changes to tables.  However, it can be integrated with a
 database, by providing capabilities for \emph{querying} both tables and views.
 An input table is just the integral of all the changes to the table.  This makes
 possible building a system that is both stateful (like a database) and streaming
@@ -352,7 +353,7 @@ possible building a system that is both stateful (like a database) and streaming
 \subsection{Relational while queries}
 
 \dbsp can express programs that go beyond Datalog:
-see the non-monotonic semantics for Datalog$^\neg$ and 
+see the non-monotonic semantics for Datalog$^\neg$ and
 Datalog$^{\neg\neg}$\cite{Abiteboul-book95}.
 We implement the following
 ``while'' program, where $Q$ is an arbitrary query:
@@ -386,7 +387,7 @@ The \dbsp implementation of this program is:
 \end{tikzpicture}
 \end{center}
 
-This circuit can be converted to a streaming circuit that computes a stream of values $i$ 
+This circuit can be converted to a streaming circuit that computes a stream of values $i$
 by lifting it; it can be incrementalized using Algorithm~\ref{algorithm-inc} to compute on changes of $i$:
 
 \begin{center}
@@ -410,6 +411,6 @@ by lifting it; it can be incrementalized using Algorithm~\ref{algorithm-inc} to 
 \end{tikzpicture}
 \end{center}
 
-At runtime the execution of this circuit is not guaranteed to terminate; 
-however, if the circuit does terminate, it will produce the correct 
+At runtime the execution of this circuit is not guaranteed to terminate;
+however, if the circuit does terminate, it will produce the correct
 output, i.e., the least fixpoint of $Q$ that includes~$i$.

@@ -3,10 +3,10 @@
 The core notion of our theory of IVM is the \textbf{stream}.
 In this section we introduce formally streams as a
 infinite sequences of values, and define computations on streams.
-Stream operators (\secref{sec:notation}) are the basic building block of stream 
-computations.  Operators can be composed with simple rules (\secref{sec:abelian}) 
-into complex computational circuits.  
-In (\secref{sec:abelianstreams}) we introduce two essential operations on streams: 
+Stream operators (\secref{sec:notation}) are the basic building block of stream
+computations.  Operators can be composed with simple rules (\secref{sec:abelian})
+into complex computational circuits.
+In (\secref{sec:abelianstreams}) we introduce two essential operations on streams:
 integration and differentiation.
 
 \subsection{Streams and stream operators}\label{sec:notation}
@@ -14,14 +14,14 @@ integration and differentiation.
 $\N$ is the set of natural numbers, $\B$ is the set of Booleans, $\Z$ is the set of integers, and $\R$ is the set of real numbers.
 
 \begin{definition}[stream]
-Given a set $A$, a \defined{stream} \emph{of values from $A$}, or an \emph{$A$-stream}, is a function $\N \rightarrow A$. 
-We denote by $\stream{A} \defn \{ s \,|\, s : \N \to A \}$ the set of all $A$-streams. 
+Given a set $A$, a \defined{stream} \emph{of values from $A$}, or an \emph{$A$-stream}, is a function $\N \rightarrow A$.
+We denote by $\stream{A} \defn \{ s \,|\, s : \N \to A \}$ the set of all $A$-streams.
 \end{definition}
 
-When $s\in\stream{A}$ and $t\in\N$ we 
+When $s\in\stream{A}$ and $t\in\N$ we
 write $s[t]$ for the $t$-th element of the stream $s$ instead of the usual $s(t)$
 to distinguish it from other function applications.
-We think of the index $t\in\N$ as (discrete) time and of $s[t]\in A$ 
+We think of the index $t\in\N$ as (discrete) time and of $s[t]\in A$
 as the value of the the stream $s$ ``at time'' $t$.
 \ifstreamexamples
 For example, the stream of natural numbers $id \in \stream{\N}$ given by $\id[t] = t$ is the sequence of values
@@ -29,7 +29,7 @@ $\sv{0 1 2 3 4}$.
 \fi
 
 \begin{definition}[stream operator]
-A \defined{stream operator} with $n$ inputs is a function $T:\stream{A_0}\times\cdots\times\stream{A_{n-1}}\to\stream{B}$. 
+A \defined{stream operator} with $n$ inputs is a function $T:\stream{A_0}\times\cdots\times\stream{A_{n-1}}\to\stream{B}$.
 \end{definition}
 
 In general we use ``operator'' for functions on streams, and
@@ -41,12 +41,12 @@ use circuit diagrams to depict \dbsp programs
 \footnote{Circuits however hide the \emph{order} of the inputs of an operator; for non-commutative
 operators we have to label the operator inputs.}.
 In a circuit a rectangle represents an operator application (labeled
-with the operator name, e.g., $T$), while an arrow is a stream.  
+with the operator name, e.g., $T$), while an arrow is a stream.
 
 Stream operator \emph{composition} (function composition) is shown as chained circuits.
-The composition of a binary operator $T: \stream{A} \times \stream{B} \to \stream{A}$ with the 
-unary operator $S: \stream{A} \to \stream{B}$ into the computation 
-$\lambda s. T(T(s,S(s)),S(s)) : \stream{A}\to\stream{A}$ 
+The composition of a binary operator $T: \stream{A} \times \stream{B} \to \stream{A}$ with the
+unary operator $S: \stream{A} \to \stream{B}$ into the computation
+$\lambda s. T(T(s,S(s)),S(s)) : \stream{A}\to\stream{A}$
 is:
 
 \begin{center}
@@ -57,7 +57,7 @@ is:
   \node[block, right of=S1] (T1) {$T$};
   \node[block, right of=T1] (T2) {$T$};
   \node[block, above of=T2, node distance=.7cm] (S2) {$S$};
-  \node[right of=T2] (output) {$o$}; 
+  \node[right of=T2] (output) {$o$};
   \draw[->] (input) -| (S1);
   \draw[->] (input) -| (T1);
   \draw[->] (S1) -- (T1);
@@ -70,7 +70,7 @@ is:
 
 \begin{definition}(lifting)
 Given a (scalar) function $f: A \to B$,
-we define a stream operator $\lift{f} :\stream{A} \to \stream{B}$ 
+we define a stream operator $\lift{f} :\stream{A} \to \stream{B}$
 by \emph{lifting} the function $f$ pointwise in time: $(\lift{f})(s) \defn f \circ s$.
 Equivalently, $((\lift{f})(s))[t] \defn f(s[t])$.
 This extends to functions of multiple arguments.
@@ -88,14 +88,14 @@ $\lift{(f \circ g)} = (\lift{f}) \circ (\lift{g})$.
 \begin{proof}
 This is easily proved by using associativity of function composition:
 $\forall s . (\lift{(f \circ g)})(s) = (f \circ g) \circ s =
-f \circ (g \circ s) = f \circ (\lift{g})(s) = (\lift{f})((\lift{g})(s)) = 
+f \circ (g \circ s) = f \circ (\lift{g})(s) = (\lift{f})((\lift{g})(s)) =
 (\lift{f} \circ \lift{g})(s).$
 \end{proof}
 \end{comment}
 
 We say that two \dbsp programs are \defined{equivalent} if they compute the same
 input-output function on streams.
-We use the symbol $\cong$ to indicate that two circuits are 
+We use the symbol $\cong$ to indicate that two circuits are
 equivalent.  For example, Proposition~\ref{prop:distributivity}
 states the following circuit equivalence:
 
@@ -125,8 +125,8 @@ $\cong$
 \subsection{Streams over abelian groups}\label{sec:abelian}
 
 For the rest of the technical development we require the set of values $A$
-of a stream $\stream{A}$ to form a commutative group $(A, +, 0_A, -)$. 
-We show later that this restriction is not a problem 
+of a stream $\stream{A}$ to form a commutative group $(A, +, 0_A, -)$.
+We show later that this restriction is not a problem
 for using \dbsp with relational data.
 Now we introduce some useful operators and study their properties.
 
@@ -152,7 +152,7 @@ $$
 %    \draw[->] (input) -- (z);
 %    \draw[->] (z) -- (output);
 %\end{tikzpicture}
-%\end{tabular} 
+%\end{tabular}
 \end{definition}
 
 We often omit the type parameter $A$, and write just $\zm$.
@@ -161,7 +161,7 @@ For example, $\zm(\id) = \sv{0 0 1 2 3}$.
 \fi
 
 \begin{definition}[Time invariance]
-A stream operator $S: \stream{A} \to \stream{B}$ is \defined{time-invariant} (TI) if 
+A stream operator $S: \stream{A} \to \stream{B}$ is \defined{time-invariant} (TI) if
 $S(\zm_A(s)) = \zm_B(S(s))$ for all $s \in \stream{A}$, or, in other words, if the
 following two circuits are equivalent:
 
@@ -190,20 +190,20 @@ $\cong$
 \end{tabular}
 
 \noindent
-This definition extends 
+This definition extends
 naturally to operators with multiple inputs.
 \end{definition}
 
 The composition of TI operators of any number of inputs
-is TI. The delay operator $\zm$ is TI. 
+is TI. The delay operator $\zm$ is TI.
 \dbsp only uses TI operators.
 
-\begin{definition}
-We say that a function between groups $f: A \to B$ has the \emph{zero-preservation
-property} if $f(0_A) = 0_B$.  We write $\zpp{f}$.
-\end{definition}
-
-A lifted operator $\lift{f}$ is TI iff $\zpp{f}$.
+%\begin{definition}
+%We say that a function between groups $f: A \to B$ has the \emph{zero-preservation
+%property} if $f(0_A) = 0_B$.  We write $\zpp{f}$.
+%\end{definition}
+%
+%A lifted operator $\lift{f}$ is TI iff $\zpp{f}$.
 
 \subsubsection{Causal and strict operators}\label{sec:causal}
 
@@ -217,37 +217,37 @@ $
 \end{definition}
 
 \noindent
-In other words, the output value at time $t$ can only depend on 
+In other words, the output value at time $t$ can only depend on
 input values from times $t' \leq t$.
 Operators produced by lifting are causal, and $\zm$ is causal.
 All \dbsp operators are causal.  The composition
 of causal operators of any number of inputs is causal.
 
 \begin{definition}[Strictness]
-A stream operator, $F:\stream{A}\to\stream{B}$ 
+A stream operator, $F:\stream{A}\to\stream{B}$
 is \defined{strict}
 if  $\forall s,s'\in\stream{A}, \forall t \in \N$ we have:
 $(\forall i<t . ~s[i]=s'[i]) ~~\Rightarrow \\ F(s)[t]=F(s')[t].$
 \end{definition}
 
 In other words, the $t$-th output of $F(s)$ can depend only on ``past'' values
-of the input $s$, between $0$ and $t-1$.  
+of the input $s$, between $0$ and $t-1$.
 In particular, $F(s)[0] = 0_B$ is the same for all $s \in \stream{A}$.
-Strict operators are causal. Lifted operators in general are \emph{not} strict. 
+Strict operators are causal. Lifted operators in general are \emph{not} strict.
 $\zm$ is strict.  %In \dbsp $\zm$ is the only primitive strict operator.
 
 \begin{proposition}
 \label{prop-unique-fix}
 For a strict $F: \stream{A} \to \stream{A}$ the equation ~$\alpha=F(\alpha)$~ has a unique
-solution $\alpha \in \stream{A}$, denoted by $\fix{\alpha}{F(\alpha)}$. 
+solution $\alpha \in \stream{A}$, denoted by $\fix{\alpha}{F(\alpha)}$.
 \end{proposition}
 
 Thus every strict operator from a set to itself has a unique fixed point.
-The simple proof relies on strong induction, showing that $\alpha[t]$ 
-depends only on the values of $\alpha$ prior to $t$.  
+The simple proof relies on strong induction, showing that $\alpha[t]$
+depends only on the values of $\alpha$ prior to $t$.
 
-We show that the following circuit, having a strict ``feedback'' edge $F$,
-is a well-defined function on streams:
+The next lemma show that the following circuit, having a strict
+``feedback'' edge $F$, is a well-defined function on streams:
 \begin{center}
 \begin{tikzpicture}[>=latex]
     \node[] (input) {$s$};
@@ -261,22 +261,22 @@ is a well-defined function on streams:
 \end{tikzpicture}
 \end{center}
 
-\begin{lemma} 
-\label{lemma-causal-strict}
-If $F: \stream{B} \to \stream{B}$ is strict and $T: \stream{A} \times \stream{B} \to \stream{B}$ is causal, then for fixed $s$ the operator
-$\lambda\alpha.T(s,F(\alpha)): \stream{A} \to \stream{B}$ is strict. 
-\end{lemma}
+%\begin{lemma}
+%\label{lemma-causal-strict}
+%If $F: \stream{B} \to \stream{B}$ is strict and $T: \stream{A} \times \stream{B} \to \stream{B}$ is causal, then for fixed $s$ the operator
+%$\lambda\alpha.T(s,F(\alpha)): \stream{A} \to \stream{B}$ is strict.
+%\end{lemma}
 
-\begin{corollary}\label{feedback-semantics}
+\begin{lemma}\label{feedback-semantics}
 \label{cor-loop}
 If $F: \stream{B} \to \stream{B}$ is strict and $T: \stream{A} \times \stream{B} \to \stream{B}$ is causal,
-the operator $Q(s)=\fix{\alpha}{T(s,F(\alpha))}$ is well-defined and causal. 
+the operator $Q(s)=\fix{\alpha}{T(s,F(\alpha))}$ is well-defined and causal.
 If, moreover, $F$ and $T$ are TI then so is $Q$.
-\end{corollary}
+\end{lemma}
 
-All stream computations in \dbsp are built from the primitive operators 
+All stream computations in \dbsp are built from the primitive operators
 we have described: lifted operators and delays (we add two more operators in \secref{sec:nested}).
-%Circuits composed of such operators can be efficiently implemented 
+%Circuits composed of such operators can be efficiently implemented
 %using Dataflow machines~\cite{lee-ieee95}.
 
 %Circuits with feedback are used for two purposes: defining an
@@ -286,11 +286,11 @@ we have described: lifted operators and delays (we add two more operators in \se
 
 \subsection{Integration and differentiation}\label{sec:abelianstreams}
 
-Remember that we require the elements of a stream to come from an abelian group $A$.  
+Remember that we require the elements of a stream to come from an abelian group $A$.
 Streams themselves form an abelian group:
 
 \begin{proposition}
-The structure $(\stream{A},+,0,-)$, obtained by lifting the $+$ and unary $-$ operations of $A$, 
+The structure $(\stream{A},+,0,-)$, obtained by lifting the $+$ and unary $-$ operations of $A$,
 is an abelian group.  0 is the stream with all values $0_A$.
 \end{proposition}
 
@@ -298,18 +298,18 @@ is an abelian group.  0 is the stream with all values $0_A$.
 Stream addition and negation are causal, TI operators.
 
 \begin{definition}
-Given abelian groups $A$ and $B$ we call a stream operator 
+Given abelian groups $A$ and $B$ we call a stream operator
 $S: \stream{A} \rightarrow \stream{B}$ \defined{linear} if it is a group homomorphism, that is,
-$S(a+b)=S(a)+S(b)$ (and therefore $S(0)=0$ and $S(-a)=-S(a)$). 
+$S(a+b)=S(a)+S(b)$ (and therefore $S(0)=0$ and $S(-a)=-S(a)$).
 \end{definition}
 
 Lifting a linear function $f: A \to B$ produces
 a stream operator $\lift{f}$ that is linear and TI (LTI).
-$\zm$ is also LTI.   
+$\zm$ is also LTI.
 
 \begin{definition}(bilinear)
-A function of two arguments $f: A \times B \to C$ with $A, B, C$ groups, is \emph{bilinear} 
-if it is linear separately in each argument (i.e., it distributes over addition): 
+A function of two arguments $f: A \times B \to C$ with $A, B, C$ groups, is \emph{bilinear}
+if it is linear separately in each argument (i.e., it distributes over addition):
 $\forall a, b, c, d . f(a+b, c) = f(a, c) + f(b, c)$, and $f(a, c+d) = f(a, c) + f(c, d).$
 \end{definition}
 
@@ -317,9 +317,9 @@ This definition extends to stream operators.
 Lifting a bilinear function $f: A \times B \to C$ produces
 a bilinear stream operator $\lift{f}$.  An example bilinear operator over $\stream{\Z}$
 is lifted multiplication:
-$f: \stream{\N} \times \stream{\N} \to \stream{\N}, f(a, b)[t] = a[t]\cdot b[t]$.  
+$f: \stream{\N} \times \stream{\N} \to \stream{\N}, f(a, b)[t] = a[t]\cdot b[t]$.
 
-%The composition of (bi)linear operators with linear operators 
+%The composition of (bi)linear operators with linear operators
 %is (bi)linear (since homomorphisms compose).
 
 The ``feedback loop'' of a linear operator is linear:
@@ -370,7 +370,7 @@ The value of $\D(s)[t] = s[t] - s[t-1]$ if $t > 0$.
 As an example, $\D(\id) = \sv{0 1 1 1 1}$.
 \fi
 
-If $s$ is a stream, then $\D(s)$ is the \emph{stream of changes} of $s$. 
+If $s$ is a stream, then $\D(s)$ is the \emph{stream of changes} of $s$.
 
 \begin{proposition}
 \label{prop-diff-properties}
@@ -380,7 +380,7 @@ $\D$ is causal and LTI.
 The integration operator ``reconstitutes'' a stream from its changes:
 
 \begin{definition}[Integration]
-The \defined{integration operator}  $\I_{\stream{A}} : \stream{A} \to \stream{A}$ 
+The \defined{integration operator}  $\I_{\stream{A}} : \stream{A} \to \stream{A}$
 is defined by $\I(s) \defn \lambda s . \fix{\alpha}{(s + \zm(\alpha))}$:
 \begin{center}
 \begin{tikzpicture}[auto,>=latex]
@@ -398,11 +398,11 @@ is defined by $\I(s) \defn \lambda s . \fix{\alpha}{(s + \zm(\alpha))}$:
 
 \noindent
 We also generally omit the type, and write just $\I$.
-This is the construction from Proposition~\ref{prop-rec-linear} 
+This is the construction from Proposition~\ref{prop-rec-linear}
 using the identity function for $S$.
 
 \begin{proposition}
-$\I(s)$ is the discrete (indefinite) integral applied to the stream $s$: 
+$\I(s)$ is the discrete (indefinite) integral applied to the stream $s$:
 $\I(s)[t] = \sum_{i \leq t} s[i]$.
 \end{proposition}
 \ifstreamexamples
@@ -431,7 +431,7 @@ $\forall s . \I(\D(s)) = \D(\I(s)) = s$.
     \draw[->] (I) -- (D);
     \draw[->] (D) -- (output);
 \end{tikzpicture}
-     &  
+     &
      $\cong$
      &
      \hspace{-2ex}
@@ -457,21 +457,21 @@ $\forall s . \I(\D(s)) = \D(\I(s)) = s$.
 \section{Incremental view maintenance}\label{sec:incremental}
 
 In this section we give a precise definition of IVM and analyze its properties.
- 
+
 \begin{definition}
-Given a unary stream operator $Q: \stream{A} \to \stream{B}$ we define the 
-\defined{incremental version} of $Q$ as: 
+Given a unary stream operator $Q: \stream{A} \to \stream{B}$ we define the
+\defined{incremental version} of $Q$ as:
 \begin{equation}\label{def:inc}
 \inc{Q} \defn \D \circ Q \circ \I.
 \end{equation}
 $\inc{Q}$ has the same ``type'' as $Q$: $\inc{Q}: \stream{A} \to \stream{B}$.
-For an operator with multiple inputs we define 
+For an operator with multiple inputs we define
 the incremental version by applying $\I$ to each input independently:
 e.g., if $T: \stream{A} \times \stream{B} \rightarrow \stream{C}$ then
 $\inc{T}(a, b) \defn \D (T(\I(a), \I(b)))$.
 \end{definition}
 
-The following diagram illustrates the intuition behind this definition: 
+The following diagram illustrates the intuition behind this definition:
 \begin{tikzpicture}[auto,>=latex]
     \node[] (input) {$\Delta s$};
     \node[block, right of=input] (I) {$\I$};
@@ -484,7 +484,7 @@ The following diagram illustrates the intuition behind this definition:
     \draw[->] (D) -- (output);
 \end{tikzpicture}
 
-If $Q(s) = o$ is a computation, then $\inc{Q}$ performs 
+If $Q(s) = o$ is a computation, then $\inc{Q}$ performs
 the ``same'' computation as $Q$,
 but between streams of changes $\Delta s$ and $\Delta o$.
 
@@ -509,7 +509,7 @@ For computations of appropriate types, the following hold:
 \end{description}
 \end{proposition}
 
-These properties are very useful; for example, the \defined{chain rule}  states 
+These properties are very useful; for example, the \defined{chain rule}  states
 that the following two circuits are equivalent:
 
 \noindent
@@ -540,7 +540,7 @@ $\cong$ &
 \end{tabular}
 
 \noindent In other words, \textbf{to incrementalize a composite query you can incrementalize
-each sub-query independently}.  This gives us a simple, syntax-directed, deterministic recipe  
+each sub-query independently}.  This gives us a simple, syntax-directed, deterministic recipe
 for computing the incremental version of an arbitrarily complex query.
 
 The \defined{cycle rule} states that the following circuits are equivalent:
@@ -577,7 +577,7 @@ In other words, the incremental version of a feedback loop around a query
 is just the feedback loop with the incremental query for its body.  The significance
 of this result will be apparent when we implement recursive queries.
 
-To execute incremental queries efficiently, we want to compute directly 
+To execute incremental queries efficiently, we want to compute directly
 on streams of changes, without integrating them. The invariance property above shows
 that stream operators $+$, $-$, and $\zm$ are identical to their incremental versions.
 The following theorems generalize this to linear and bi-linear operators:
@@ -588,7 +588,7 @@ For an LTI operator $Q$ we have $\inc{Q}=Q$.
 
 \begin{theorem}[Bilinear]\label{bilinear}
 For a bilinear TI operator $\times$ we have
-$\inc{(a \times b)} ~=~ a \times b ~+~ \zm(\I(a)) \times b ~+~ a \times \zm(\I(b)) 
+$\inc{(a \times b)} ~=~ a \times b ~+~ \zm(\I(a)) \times b ~+~ a \times \zm(\I(b))
 = \I(a) \times b + a \times \zm(\I(b))$.
 In pictures: \\
 \noindent

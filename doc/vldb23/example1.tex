@@ -1,18 +1,13 @@
-\subsection{Incrementalizing a relational query}\label{sec:relational-example}
+\subsection{Relational Query Example}\label{sec:relational-example}
 
 We apply the IVM algorithm~\ref{algorithm-inc} to a concrete
 relational SQL query:
 \begin{lstlisting}[language=SQL,basicstyle=\small]
 CREATE VIEW v AS
 SELECT DISTINCT a.x, b.y FROM (
-     SELECT t1.x, t1.id 
-     FROM t1 
-     WHERE t1.a > 2 
-) a  
-JOIN (
-     SELECT t2.id, t2.y
-     FROM t2 
-     WHERE t2.s > 5 
+     SELECT t1.x, t1.id FROM t1 WHERE t1.a > 2
+) a JOIN (
+     SELECT t2.id, t2.y FROM t2 WHERE t2.s > 5
 ) b ON a.id = b.id
 \end{lstlisting}
 
@@ -52,7 +47,7 @@ this circuit is essentially a dataflow implementation of the query:
     \draw[->] (d) -- (V);
 \end{tikzpicture}
 
-Step 2:  apply the rules to eliminate $\distinct$ operators; 
+Step 2:  apply the rules to eliminate $\distinct$ operators;
 first rule~\ref{prop-distinct-once}:
 
 \noindent
@@ -137,7 +132,7 @@ Applying again~\ref{prop-distinct-once} we get:
     \draw[->] (d) -- (V);
 \end{tikzpicture}
 
-Step 3: we lift the circuit using distributivity (Proposition~\ref{prop:distributivity}) 
+Step 3: we lift the circuit using distributivity (Proposition~\ref{prop:distributivity})
 of composition over lifting; we
 obtain a circuit that computes over streams, i.e., for each new input pair of relations
 \code{t1} and \code{t2} it will produce an output view \code{V}:
@@ -253,49 +248,43 @@ all linear operators no longer have a $\inc{\cdot}$):
     \draw[->] (d) -- (V);
 \end{tikzpicture}
 
-Finally, replace the incremental join using the formula for bilinear operators 
+Finally, replace the incremental join using the formula for bilinear operators
 (Theorem~\ref{bilinear}),
 and the incremental $\distinct$ (Proposition~\ref{prop-inc_distinct}),
-obtaining the circuit from Figure~\ref{fig:relational-example}.
+obtaining the following circuit (we omit the subscripts to save space):
 
-\begin{figure*}[h]
-\begin{tikzpicture}[node distance=1.5cm,>=latex]
+\noindent
+\begin{tikzpicture}[node distance=.8cm,>=latex]
     \node[] (t1) {$\Delta$\code{t1}};
-    \node[block, right of=t1, node distance=1cm] (s1) {$\lift{\sigma_{a > 2}}$};
-    \node[block, right of=s1] (p1) {$\lift{\pi_{x, d}}$};
-    \node[below of=t1, node distance=1.6cm] (t2) {$\Delta$\code{t2}};
-    \node[block, right of=t2, node distance=1cm] (s2) {$\lift{\sigma_{s > 5}}$};
-    \node[block, right of=s2] (p2) {$\lift{\pi_{y, id}}$};
-    
+    \node[block, right of=t1] (s1) {$\lift{\sigma}$};
+    \node[block, right of=s1] (p1) {$\lift{\pi}$};
+    \node[below of=t1, node distance=.8cm] (t2) {$\Delta$\code{t2}};
+    \node[block, right of=t2] (s2) {$\lift{\sigma}$};
+    \node[block, right of=s2] (p2) {$\lift{\pi}$};
+
     % join expansion
-      \node[block, right of=p1, node distance=1cm] (jI1) {$\I$};
-      \node[block, below of=p1, node distance=.8cm] (ab) {$\lift\bowtie_{id=id}$};
-      \node[block, right of=p2, node distance=1cm] (jI2) {$\I$};
+      \node[block, right of=p1] (jI1) {$\I$};
+      \node[block, right of=p2] (jI2) {$\I$};
       \draw[->] (p1) -- (jI1);
       \draw[->] (p2) -- (jI2);
-      \node[block, right of=jI1, node distance=.8cm] (ZI1) {$\zm$};
-      \node[block, right of=jI2, node distance=.8cm] (ZI2) {$\zm$};
-      \draw[->] (jI1) -- (ZI1);
+      \node[block, right of=jI2] (ZI2) {$\zm$};
       \draw[->] (jI2) -- (ZI2);
-      \node[block, right of=ZI1] (DI1) {$\lift\bowtie_{id=id}$};
-      \node[block, right of=ZI2] (DI2) {$\lift\bowtie_{id=id}$};
-      \draw[->] (ZI1) -- (DI1);
+      \node[block, right of=jI1] (DI1) {$\lift\bowtie$};
+      \node[block, right of=ZI2, node distance=1cm] (DI2) {$\lift\bowtie$};
+      \draw[->] (jI1) -- (DI1);
       \draw[->] (ZI2) -- (DI2);
-      \node[block, circle, below of=DI1, inner sep=0cm, node distance=.8cm] (sum) {$+$};
-      \draw[->] (ab) -- (sum);
+      \node[block, circle, above of=DI2, inner sep=0cm] (sum) {$+$};
       \draw[->] (DI1) -- (sum);
       \draw[->] (DI2) -- (sum);
-      \draw[->] (p1) -- (ab);
-      \draw[->] (p2) -- (ab);
       \draw[->] (p1) -- (DI2);
       \draw[->] (p2) -- (DI1);
-    
-    \node[block, right of=sum] (p) {$\lift{\pi_{x, y}}$};
+
+    \node[block, right of=sum] (p) {$\lift{\pi}$};
     \draw[->] (sum) -- (p);
     \node[block, right of=p] (Id) {$\I$};
-    \node[block, right of=Id, node distance=.8cm] (zd) {$\zm$};
-    \node[block, below of=zd, node distance=.8cm] (H) {$\lift{H}$};
-    \node[right of=H, node distance=1.3cm] (V) {$\Delta$\code{V}};.8
+    \node[block, right of=Id] (zd) {$\zm$};
+    \node[block, below of=zd] (H) {$\lift{H}$};
+    \node[right of=H] (V) {$\Delta$\code{V}};
     \draw[->] (t1) -- (s1);
     \draw[->] (s1) -- (p1);
     \draw[->] (t2) -- (s2);
@@ -306,11 +295,8 @@ obtaining the circuit from Figure~\ref{fig:relational-example}.
     \draw[->] (tapp.center) |- (H);
     \draw[->] (H) -- (V);
 \end{tikzpicture}
-\caption{Final version of the incremental query circuit from 
-\refsec{sec:relational-example}\label{fig:relational-example}.}
-\end{figure*}
 
-Notice that the resulting circuit contains three integration operations: two from
-the join, and one from the $\distinct$.  It also contains three join operators.
-However, the work performed by each operator
-for each new input is proportional to the size of change.
+Notice that the resulting circuit contains three integration
+operations: two from the join, and one from the $\distinct$.  It also
+contains two join operators.  However, the work performed by each
+operator for each new input is proportional to the size of change.
