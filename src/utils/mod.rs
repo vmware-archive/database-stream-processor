@@ -1,9 +1,11 @@
 pub(crate) mod tests;
 mod vec_ext;
 
+use crossbeam_utils::CachePadded;
 pub(crate) use vec_ext::VecExt;
 
 use std::{
+    cell::UnsafeCell,
     hint::unreachable_unchecked,
     mem::{ManuallyDrop, MaybeUninit},
 };
@@ -54,4 +56,22 @@ pub(crate) fn cast_uninit_vec<T>(vec: Vec<T>) -> Vec<MaybeUninit<T>> {
 
     // Create a new vec with the different type
     unsafe { Vec::from_raw_parts(ptr.cast::<MaybeUninit<T>>(), len, cap) }
+}
+
+/// Creates a <code>[Vec]<[CachePadded]<[UnsafeCell]<[MaybeUninit]\<T>>>></code>
+/// with a length and capacity of `length`
+#[inline]
+pub(crate) fn padded_unsafe_uninit_vec<T>(
+    length: usize,
+) -> Vec<CachePadded<UnsafeCell<MaybeUninit<T>>>> {
+    let mut vec = Vec::with_capacity(length);
+
+    // Safety: `CachePadded<UnsafeCell<MaybeUninit<T>>>` is valid to initialize as
+    // uninit
+    #[allow(clippy::uninit_vec)]
+    unsafe {
+        vec.set_len(length);
+    }
+
+    vec
 }

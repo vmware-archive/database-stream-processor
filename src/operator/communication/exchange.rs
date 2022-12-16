@@ -11,7 +11,7 @@ use crate::{
         operator_traits::{Operator, SinkOperator, SourceOperator},
         OwnershipPreference, Runtime, Scope,
     },
-    circuit_cache_key, Circuit,
+    circuit_cache_key, utils, Circuit,
 };
 use arc_swap::ArcSwap;
 use crossbeam::atomic::AtomicConsume;
@@ -52,9 +52,9 @@ pub(crate) struct Exchange<T> {
     /// for any given worker is for that worker's receiver, the second is for
     /// its sender
     notify: Box<[[ArcSwap<Box<NotifyCallback>>; 2]]>,
-    /// Contains `n^2` booleans, one for each value
+    /// Contains `n²` booleans, one for each value
     is_valid: Box<[CachePadded<AtomicBool>]>,
-    /// Contains `n^2` slots, one for each send/recv pair
+    /// Contains `n²` slots, one for each send/recv pair
     values: Box<[CachePadded<UnsafeCell<MaybeUninit<T>>>]>,
 }
 
@@ -81,23 +81,20 @@ where
             })
             .collect();
 
+        // The number of slots to create in this exchange, threads²
         let slots = threads * threads;
 
-        let is_valid = (0..slots)
+        let is_valid: Box<[_]> = (0..slots)
             .map(|_| CachePadded::new(AtomicBool::new(false)))
             .collect();
 
-        let mut values = Vec::with_capacity(slots);
-        // Safety: `CachePadded<MaybeUninit<T>>` is valid to initialize as uninit
-        #[allow(clippy::uninit_vec)]
-        unsafe {
-            values.set_len(slots);
-        }
+        let values = utils::padded_unsafe_uninit_vec(slots).into_boxed_slice();
+        debug_assert_eq!(is_valid.len(), values.len());
 
         Self {
             notify,
             is_valid,
-            values: values.into_boxed_slice(),
+            values,
         }
     }
 
@@ -113,48 +110,82 @@ where
             .clone()
     }
 
+    /// Returns the number of workers
     #[inline]
     fn workers(&self) -> usize {
         self.notify.len()
     }
 
+    /// Gets the receiver callback for the given receiver
     #[inline]
     fn receiver_callback(&self, receiver: usize) -> &ArcSwap<Box<NotifyCallback>> {
         &self.notify[receiver][0]
     }
 
+    /// Gets the sender callback for the given sender
     #[inline]
     fn sender_callback(&self, sender: usize) -> &ArcSwap<Box<NotifyCallback>> {
         &self.notify[sender][1]
     }
 
+    /// Runs the notification callback for all receivers
+    #[inline]
+    fn notify_all_receivers(&self) {
+        for [notify, _] in self.notify.iter() {
+            notify.load()();
+        }
+    }
+
+    /// Runs the notification callback for all senders
+    #[inline]
+    fn notify_all_senders(&self) {
+        for [_, notify] in self.notify.iter() {
+            notify.load()();
+        }
+    }
+
+    /// Returns the slot index for the given sender and receiver
     #[inline]
     fn slot_index(&self, sender: usize, receiver: usize) -> usize {
         debug_assert!(sender < self.workers());
         debug_assert!(receiver < self.workers());
 
-        debug_assert!(
-            sender * self.workers() + receiver < self.is_valid.len(),
-            "sender: {sender}, receiver: {receiver}",
-        );
-        sender * self.workers() + receiver
+        let slot = sender * self.workers() + receiver;
+        debug_assert!(slot < self.is_valid.len());
+
+        slot
     }
 
+    /// Returns `true` if the given sender has all of its outputs empty
     fn ready_to_send(&self, sender: usize) -> bool {
         debug_assert!(sender < self.workers());
 
-        (0..self.workers())
-            .all(|receiver| !self.is_valid[self.slot_index(sender, receiver)].load_consume())
+        (0..self.workers()).all(|receiver| {
+            let slot = self.slot_index(sender, receiver);
+            debug_assert!(slot < self.is_valid.len());
+
+            unsafe { !self.is_valid.get_unchecked(slot).load_consume() }
+        })
     }
 
+    /// Returns `true` if the given receiver has all of its inputs filled
     fn ready_to_receive(&self, receiver: usize) -> bool {
         debug_assert!(receiver < self.workers());
 
-        (0..self.workers())
-            .all(|sender| self.is_valid[self.slot_index(sender, receiver)].load_consume())
+        (0..self.workers()).all(|sender| {
+            let slot = self.slot_index(sender, receiver);
+            debug_assert!(slot < self.is_valid.len());
+
+            unsafe { self.is_valid.get_unchecked(slot).load_consume() }
+        })
     }
 
-    /// Returns a reference to a mailbox for the sender/receiver pair.
+    /// Pushes a value to the given channel, does not notify the receiver
+    ///
+    /// # Safety
+    ///
+    /// - The given channel must be unoccupied
+    /// - `sender` and `receiver` must be valid worker indices
     unsafe fn push(&self, sender: usize, receiver: usize, value: T) {
         let slot = self.slot_index(sender, receiver);
 
@@ -169,18 +200,22 @@ where
             self.values
                 .get_unchecked(slot)
                 .get()
-                .write(MaybeUninit::new(value));
+                .cast::<T>()
+                .write(value);
 
             // Mark the slot as valid
             self.is_valid
                 .get_unchecked(slot)
                 .store(true, Ordering::Release);
         }
-
-        // Notify the receiver
-        (self.receiver_callback(receiver).load())();
     }
 
+    /// Takes the value from the given channel, does not notify the sender
+    ///
+    /// # Safety
+    ///
+    /// - The given channel must be occupied
+    /// - `sender` and `receiver` must be valid worker indices
     unsafe fn pop(&self, sender: usize, receiver: usize) -> T {
         let slot = self.slot_index(sender, receiver);
 
@@ -198,9 +233,6 @@ where
             // Set the slot to be invalid
             slot_is_valid.store(false, Ordering::Relaxed);
 
-            // Notify the sender
-            (self.sender_callback(sender).load())();
-
             value
         }
     }
@@ -217,7 +249,7 @@ where
     ///
     /// # Panics
     ///
-    /// Panics if `data` yields fewer than `self.npeers` items.
+    /// Panics if `data` yields fewer than `self.workers()` items.
     pub(crate) fn try_send<I>(&self, sender: usize, data: &mut I) -> bool
     where
         I: Iterator<Item = T>,
@@ -226,14 +258,22 @@ where
             return false;
         }
 
+        // Send a value to each thread
         for receiver in 0..self.workers() {
             let data = data.next().unwrap();
             unsafe { self.push(sender, receiver, data) };
         }
 
+        // Notify all receivers that they have a new message
+        self.notify_all_receivers();
+
         true
     }
 
+    /// Broadcasts `data` to all other workers
+    ///
+    /// Returns `true` if the message was sent to all receivers, returns `false`
+    /// (and sends nothing) if any receivers were already full
     pub(crate) fn try_broadcast(&self, sender: usize, data: T) -> bool
     where
         T: Clone,
@@ -242,9 +282,13 @@ where
             return false;
         }
 
+        // Send the value to each thread
         for receiver in 0..self.workers() {
             unsafe { self.push(sender, receiver, data.clone()) };
         }
+
+        // Notify all receivers that they have a new message
+        self.notify_all_receivers();
 
         true
     }
@@ -268,6 +312,9 @@ where
             let data = unsafe { self.pop(sender, receiver) };
             callback(data);
         }
+
+        // Notify all receivers that they have a new message
+        self.notify_all_senders();
 
         true
     }

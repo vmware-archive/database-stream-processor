@@ -6,7 +6,7 @@ use crate::{
     },
     circuit_cache_key,
     trace::{spine_fueled::Spine, Batch, Trace},
-    Circuit, Runtime, Stream,
+    utils, Circuit, Runtime, Stream,
 };
 use arc_swap::ArcSwap;
 use crossbeam::atomic::AtomicConsume;
@@ -123,16 +123,11 @@ impl<T> GatherData<T> {
             .map(|_| CachePadded::new(AtomicBool::new(false)))
             .collect();
 
-        let mut values = Vec::with_capacity(length);
-        // Safety: `CachePadded<MaybeUninit<T>>` is valid to initialize as uninit
-        #[allow(clippy::uninit_vec)]
-        unsafe {
-            values.set_len(length);
-        }
+        let values = utils::padded_unsafe_uninit_vec(length).into_boxed_slice();
 
         Self {
             is_valid,
-            values: values.into_boxed_slice(),
+            values,
             notify: ArcSwap::new(Arc::new(Box::new(noop_notify))),
             location,
         }
@@ -176,7 +171,8 @@ impl<T> GatherData<T> {
             self.values
                 .get_unchecked(worker)
                 .get()
-                .write(MaybeUninit::new(value));
+                .cast::<T>()
+                .write(value);
 
             // Mark the slot as valid
             self.is_valid
