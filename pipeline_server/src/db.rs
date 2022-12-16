@@ -1,10 +1,9 @@
+use anyhow::{Error as AnyError, Result as AnyResult};
+use log::error;
+use serde::Serialize;
+use std::collections::BTreeMap;
 use tokio_postgres;
 use tokio_postgres::{Client, NoTls};
-use anyhow::{
-    Result as AnyResult,
-    Error as AnyError,
-};
-use log::error;
 
 pub struct DBConfig {
     pub connection_string: String,
@@ -16,6 +15,7 @@ pub struct ProjectDB {
 
 pub type ProjectId = i64;
 
+#[derive(Serialize)]
 pub enum ProjectStatus {
     None,
     Success,
@@ -46,50 +46,88 @@ impl ProjectDB {
             }
         });
 
-        Ok(Self {
-            dbclient
-        })
+        Ok(Self { dbclient })
     }
 
-    pub async fn list_projects(&self) -> AnyResult<Vec<(ProjectId, String)>> {
-        let rows = self.dbclient.query("SELECT id, name FROM project", &[]).await?;
-        let mut result: Vec<(ProjectId, String)> = Vec::with_capacity(rows.len());
+    pub async fn list_projects(&self) -> AnyResult<BTreeMap<ProjectId, String>> {
+        let rows = self
+            .dbclient
+            .query("SELECT id, name FROM project", &[])
+            .await?;
+        let mut result = BTreeMap::new();
 
         for row in rows.into_iter() {
-            result.push((row.try_get(0)?, row.try_get(1)?));
+            result.insert(row.try_get(0)?, row.try_get(1)?);
         }
 
         Ok(result)
     }
 
-    pub async fn get_project_code(&self, project_id: ProjectId) -> AnyResult<String> {
-        let row = self.dbclient.query_one("SELECT code FROM project WHERE id = $1", &[&project_id]).await?;
+    pub async fn project_code(&self, project_id: ProjectId) -> AnyResult<String> {
+        let row = self
+            .dbclient
+            .query_opt("SELECT code FROM project WHERE id = $1", &[&project_id])
+            .await?
+            .ok_or_else(|| AnyError::msg(format!("unkown project id '{project_id}'")))?;
         let code = row.try_get(0)?;
 
         Ok(code)
     }
 
-    pub async fn new_project(&self, project_name: &str, project_code: &str) -> AnyResult<ProjectId> {
-        let row = self.dbclient.query_one("SELECT nextval('project_id_seq')", &[]).await?;
+    pub async fn new_project(
+        &self,
+        project_name: &str,
+        project_code: &str,
+    ) -> AnyResult<ProjectId> {
+        let row = self
+            .dbclient
+            .query_one("SELECT nextval('project_id_seq')", &[])
+            .await?;
         let id: ProjectId = row.try_get(0)?;
 
-        self.dbclient.execute("INSERT INTO project (id, name, code) VALUES($1, $2, $3)", &[&id, &project_name, &project_code]).await?;
+        self.dbclient
+            .execute(
+                "INSERT INTO project (id, name, code) VALUES($1, $2, $3)",
+                &[&id, &project_name, &project_code],
+            )
+            .await?;
 
         Ok(id)
     }
 
-    pub async fn update_project(&self, project_id: ProjectId, project_name: &str, project_code: Option<String>) -> AnyResult<()> {
+    pub async fn update_project(
+        &self,
+        project_id: ProjectId,
+        project_name: &str,
+        project_code: &Option<String>,
+    ) -> AnyResult<()> {
         if let Some(code) = project_code {
-            self.dbclient.execute("UPDATE project SET name = $1, code = $2 WHERE id = $3", &[&project_name, &code, &project_id]).await?;
+            self.dbclient
+                .execute(
+                    "UPDATE project SET name = $1, code = $2 WHERE id = $3",
+                    &[&project_name, code, &project_id],
+                )
+                .await?;
         } else {
-            self.dbclient.execute("UPDATE project SET name = $1 WHERE id = $2", &[&project_name, &project_id]).await?;
+            self.dbclient
+                .execute(
+                    "UPDATE project SET name = $1 WHERE id = $2",
+                    &[&project_name, &project_id],
+                )
+                .await?;
         }
 
         Ok(())
     }
 
     pub async fn project_status(&self, project_id: ProjectId) -> AnyResult<ProjectStatus> {
-        let row = self.dbclient.query_one("SELECT status, error FROM project WHERE id = $1", &[&project_id]).await?;
+        let row = self
+            .dbclient
+            .query_one(
+                "SELECT status, error FROM project WHERE id = $1",
+                &[&project_id],
+            )
+            .await?;
 
         let status: Option<&str> = row.try_get(0)?;
         let error: Option<String> = row.try_get(1)?;
@@ -98,7 +136,11 @@ impl ProjectDB {
         Ok(status)
     }
 
-    pub async fn set_project_status(&self, project_id: ProjectId, status: ProjectStatus) -> AnyResult<()> {
+    pub async fn set_project_status(
+        &self,
+        project_id: ProjectId,
+        status: ProjectStatus,
+    ) -> AnyResult<()> {
         let (status, error) = match status {
             ProjectStatus::None => (None, None),
             ProjectStatus::Success => (Some("success"), None),
@@ -106,7 +148,12 @@ impl ProjectDB {
             ProjectStatus::RustError(error) => (Some("rust_error"), Some(error)),
         };
 
-        self.dbclient.execute("UPDATE project SET status = $1, error = $2 WHERE id = $3", &[&status, &error, &project_id]).await?;
+        self.dbclient
+            .execute(
+                "UPDATE project SET status = $1, error = $2 WHERE id = $3",
+                &[&status, &error, &project_id],
+            )
+            .await?;
 
         Ok(())
     }
