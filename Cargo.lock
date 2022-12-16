@@ -1191,6 +1191,9 @@ dependencies = [
  "actix-web",
  "anyhow",
  "log",
+ "mime",
+ "serde",
+ "serde_json",
  "tokio",
  "tokio-postgres",
 ]

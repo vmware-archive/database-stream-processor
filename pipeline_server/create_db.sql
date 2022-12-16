@@ -1,5 +1,5 @@
-CREATE DATABASE dbsp;
-\c dbsp;
+CREATE DATABASE dbsp WITH OWNER dbsp;
+\c dbsp dbsp;
 
 CREATE TABLE project (
     id bigint,
@@ -11,5 +11,3 @@ CREATE TABLE project (
 );
 
 CREATE SEQUENCE project_id_seq AS bigint;
-
-ALTER DATABASE dbsp OWNER to dbsp;
