@@ -37,6 +37,7 @@ use std::{
 circuit_cache_key!(local ExchangeId<T>(usize => Arc<Exchange<T>>));
 
 type NotifyCallback = dyn Fn() + Send + Sync + 'static;
+type Slot<T> = UnsafeCell<MaybeUninit<T>>;
 
 /// `Exchange` is an N-to-N communication primitive that partitions data across
 /// multiple concurrent threads.
@@ -52,10 +53,8 @@ pub(crate) struct Exchange<T> {
     /// for any given worker is for that worker's receiver, the second is for
     /// its sender
     notify: Box<[[ArcSwap<Box<NotifyCallback>>; 2]]>,
-    /// Contains `n²` booleans, one for each value
-    is_valid: Box<[CachePadded<AtomicBool>]>,
-    /// Contains `n²` slots, one for each send/recv pair
-    values: Box<[CachePadded<UnsafeCell<MaybeUninit<T>>>]>,
+    /// Contains `n²` booleans and their slots, one for each send/recv pair
+    values: Box<[CachePadded<(AtomicBool, Slot<T>)>]>,
 }
 
 impl<T> Exchange<T>
@@ -81,21 +80,17 @@ where
             })
             .collect();
 
-        // The number of slots to create in this exchange, threads²
-        let slots = threads * threads;
-
-        let is_valid: Box<[_]> = (0..slots)
-            .map(|_| CachePadded::new(AtomicBool::new(false)))
+        // TODO: Replace with `Box::new_zeroed_slice()`
+        let values: Box<[_]> = (0..threads * threads)
+            .map(|_| {
+                CachePadded::new((
+                    AtomicBool::new(false),
+                    UnsafeCell::new(MaybeUninit::uninit()),
+                ))
+            })
             .collect();
 
-        let values = utils::padded_unsafe_uninit_vec(slots).into_boxed_slice();
-        debug_assert_eq!(is_valid.len(), values.len());
-
-        Self {
-            notify,
-            is_valid,
-            values,
-        }
+        Self { notify, values }
     }
 
     /// Create a new `Exchange` instance if an instance with the same id
@@ -151,7 +146,7 @@ where
         debug_assert!(receiver < self.workers());
 
         let slot = sender * self.workers() + receiver;
-        debug_assert!(slot < self.is_valid.len());
+        debug_assert!(slot < self.values.len());
 
         slot
     }
@@ -162,9 +157,9 @@ where
 
         (0..self.workers()).all(|receiver| {
             let slot = self.slot_index(sender, receiver);
-            debug_assert!(slot < self.is_valid.len());
+            debug_assert!(slot < self.values.len());
 
-            unsafe { !self.is_valid.get_unchecked(slot).load_consume() }
+            unsafe { !self.values.get_unchecked(slot).0.load_consume() }
         })
     }
 
@@ -174,9 +169,9 @@ where
 
         (0..self.workers()).all(|sender| {
             let slot = self.slot_index(sender, receiver);
-            debug_assert!(slot < self.is_valid.len());
+            debug_assert!(slot < self.values.len());
 
-            unsafe { self.is_valid.get_unchecked(slot).load_consume() }
+            unsafe { self.values.get_unchecked(slot).0.load_consume() }
         })
     }
 
@@ -191,22 +186,18 @@ where
 
         if cfg!(debug_assertions) {
             // There shouldn't be any value stored within the channel when we're pushing
-            let currently_filled = self.is_valid[slot].load_consume();
+            let currently_filled = self.values[slot].0.load_consume();
             assert!(!currently_filled);
         }
 
         unsafe {
             // Write the value to the slot
-            self.values
-                .get_unchecked(slot)
-                .get()
-                .cast::<T>()
-                .write(value);
+            let (is_valid, slot) = &**self.values.get_unchecked(slot);
+
+            slot.get().cast::<T>().write(value);
 
             // Mark the slot as valid
-            self.is_valid
-                .get_unchecked(slot)
-                .store(true, Ordering::Release);
+            is_valid.store(true, Ordering::Release);
         }
     }
 
@@ -220,18 +211,18 @@ where
         let slot = self.slot_index(sender, receiver);
 
         unsafe {
-            let slot_is_valid = self.is_valid.get_unchecked(slot);
+            let (is_valid, slot) = &**self.values.get_unchecked(slot);
 
             // Load the value currently stored in the channel (and synchronize against
             // previous writes)
-            let is_valid = slot_is_valid.load_consume();
-            debug_assert!(is_valid);
+            let valid = is_valid.load_consume();
+            debug_assert!(valid);
 
             // Read the value from the channel
-            let value = (*self.values.get_unchecked(slot).get()).assume_init_read();
+            let value = (*slot.get()).assume_init_read();
 
             // Set the slot to be invalid
-            slot_is_valid.store(false, Ordering::Relaxed);
+            is_valid.store(false, Ordering::Relaxed);
 
             value
         }
