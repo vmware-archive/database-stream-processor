@@ -14,12 +14,14 @@ use anyhow::Result as AnyResult;
 use serde::Deserialize;
 
 mod db;
+mod compiler;
 
 pub use db::{DBConfig, ProjectDB, ProjectId};
+pub use compiler::{Compiler, CompilerConfig};
 
 struct ServerConfig {
     port: u16,
-    // compiler_config: CompilerConfig,
+    compiler_config: CompilerConfig,
     db_config: DBConfig,
 }
 
@@ -36,24 +38,24 @@ async fn main() -> AnyResult<()> {
 }
 
 struct ServerState {
-    db: ProjectDB,
-    // compiler: Compiler,
+    db: Arc<Mutex<ProjectDB>>,
+    compiler: Compiler,
 }
 
 impl ServerState {
-    fn new(db: ProjectDB /* , compiler: Compiler */) -> Self {
+    fn new(db: ProjectDB, compiler: Compiler) -> Self {
         Self {
-            db,
-            // compiler,
+            db: Arc::new(Mutex::new(db)),
+            compiler,
         }
     }
 }
 
 async fn run(config: ServerConfig) -> AnyResult<()> {
     let db = ProjectDB::connect(&config.db_config).await?;
-    // let compiler = Compiler::new(&config.compiler_config)?;
+    let compiler = Compiler::new(&config.compiler_config)?;
 
-    let state = WebData::new(ServerState::new(db /* , compiler */));
+    let state = WebData::new(ServerState::new(db, compiler));
 
     HttpServer::new(move || build_app(App::new().wrap(Logger::default()), state.clone()))
         .bind(("127.0.0.1", config.port))?
@@ -76,6 +78,7 @@ where
         .service(project_status)
         .service(new_project)
         .service(update_project)
+        .service(compile_project)
 }
 
 async fn index() -> ActixResult<NamedFile> {
@@ -84,7 +87,7 @@ async fn index() -> ActixResult<NamedFile> {
 
 #[get("/list_projects")]
 async fn list_projects(state: WebData<ServerState>) -> impl Responder {
-    match state.db.list_projects().await {
+    match state.db.lock().await.list_projects().await {
         Ok(projects) => {
             let json_string = serde_json::to_string(&projects).unwrap();
             HttpResponse::Ok()
@@ -112,7 +115,7 @@ async fn project_code(state: WebData<ServerState>, req: HttpRequest) -> impl Res
         },
     };
 
-    match state.db.project_code(project_id).await {
+    match state.db.lock().await.project_code(project_id).await {
         Ok(code) => HttpResponse::Ok()
             .insert_header(CacheControl(vec![CacheDirective::NoCache]))
             .body(code),
@@ -136,7 +139,7 @@ async fn project_status(state: WebData<ServerState>, req: HttpRequest) -> impl R
         },
     };
 
-    match state.db.project_status(project_id).await {
+    match state.db.lock().await.project_status(project_id).await {
         Ok(status) => {
             let json_string = serde_json::to_string(&status).unwrap();
             HttpResponse::Ok()
@@ -161,7 +164,7 @@ async fn new_project(
     state: WebData<ServerState>,
     request: web::Json<NewProjectRequest>,
 ) -> impl Responder {
-    match state.db.new_project(&request.name, &request.code).await {
+    match state.db.lock().await.new_project(&request.name, &request.code).await {
         Ok(project_id) => HttpResponse::Ok().body(project_id.to_string()),
         Err(e) => {
             HttpResponse::InternalServerError().body(format!("failed to create project: {e}"))
@@ -184,12 +187,61 @@ async fn update_project(
 ) -> impl Responder {
     match state
         .db
+        .lock()
+        .await
         .update_project(request.project_id, &request.name, &request.code)
         .await
     {
         Ok(()) => HttpResponse::Ok().finish(),
         Err(e) => {
             HttpResponse::InternalServerError().body(format!("failed to update project: {e}"))
+        }
+    }
+}
+
+struct CompileProjectRequest {
+    project_id: ProjectId,
+    version: Version,
+}
+
+#[post("/compile_project")]
+async fn compile_project(
+    state: WebData<ServerState>,
+    request: web::Json<CompileProjectRequest>,
+) -> impl Responder {
+    let db = state.db.lock().await;
+    
+    match state
+        .db
+        .lock()
+        .await
+        .set_project_pending(request.project_id, &request.version)
+        .await
+    {
+        Ok(()) => HttpResponse::Ok().finish(),
+        Err(e) => {
+            HttpResponse::InternalServerError().body(format!("failed to queue project for compilation: {e}"))
+        }
+    }
+}
+
+#[post("/cancel_project")]
+async fn compile_project(
+    state: WebData<ServerState>,
+    request: web::Json<CompileProjectRequest>,
+) -> impl Responder {
+    let db = state.db.lock().await;
+    
+    match state
+        .db
+        .lock()
+        .await
+        .cancel_project(request.project_id, &request.version)
+        .await
+    {
+        Ok(()) => HttpResponse::Ok().finish(),
+        Err(e) => {
+            HttpResponse::InternalServerError().body(format!("failed to cancel compilation: {e}"))
         }
     }
 }
