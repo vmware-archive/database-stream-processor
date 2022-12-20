@@ -11,7 +11,7 @@ use crate::{
         operator_traits::{Operator, SinkOperator, SourceOperator},
         OwnershipPreference, Runtime, Scope,
     },
-    circuit_cache_key, utils, Circuit,
+    circuit_cache_key, Circuit,
 };
 use arc_swap::ArcSwap;
 use crossbeam::atomic::AtomicConsume;
