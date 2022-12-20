@@ -3,10 +3,12 @@ CREATE DATABASE dbsp WITH OWNER dbsp;
 
 CREATE TABLE project (
     id bigint,
+    version bigint,
     name varchar,
     code varchar,
     status varchar,
     error varchar,
+    status_since timestamp,
     primary key (id)
 );
 
