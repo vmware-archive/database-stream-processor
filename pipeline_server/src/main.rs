@@ -11,18 +11,30 @@ use actix_web::{
     Result as ActixResult,
 };
 use anyhow::Result as AnyResult;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+use std::sync::Arc;
+use tokio::sync::Mutex;
 
-mod db;
 mod compiler;
+mod db;
 
-pub use db::{DBConfig, ProjectDB, ProjectId};
 pub use compiler::{Compiler, CompilerConfig};
+pub use db::{DBConfig, ProjectDB, ProjectId, Version};
 
 struct ServerConfig {
     port: u16,
     compiler_config: CompilerConfig,
     db_config: DBConfig,
+}
+
+#[derive(Serialize, Eq, PartialEq)]
+pub enum ProjectStatus {
+    None,
+    Pending,
+    Compiling,
+    Success,
+    SqlError(String),
+    RustError(String),
 }
 
 #[actix_web::main]
@@ -32,6 +44,10 @@ async fn main() -> AnyResult<()> {
         db_config: DBConfig {
             connection_string: "host=localhost user=dbsp".to_string(),
         },
+        compiler_config: CompilerConfig {
+            workspace_directory: "~/projects/dbsp_workspace".to_string(),
+            sql_compiler_home: "~/projects/sql-to-dbsp-compiler".to_string(),
+        },
     };
 
     run(config).await
@@ -39,21 +55,21 @@ async fn main() -> AnyResult<()> {
 
 struct ServerState {
     db: Arc<Mutex<ProjectDB>>,
-    compiler: Compiler,
+    _compiler: Compiler,
 }
 
 impl ServerState {
-    fn new(db: ProjectDB, compiler: Compiler) -> Self {
+    fn new(db: Arc<Mutex<ProjectDB>>, compiler: Compiler) -> Self {
         Self {
-            db: Arc::new(Mutex::new(db)),
-            compiler,
+            db,
+            _compiler: compiler,
         }
     }
 }
 
 async fn run(config: ServerConfig) -> AnyResult<()> {
-    let db = ProjectDB::connect(&config.db_config).await?;
-    let compiler = Compiler::new(&config.compiler_config)?;
+    let db = Arc::new(Mutex::new(ProjectDB::connect(&config.db_config).await?));
+    let compiler = Compiler::new(&config.compiler_config, db.clone());
 
     let state = WebData::new(ServerState::new(db, compiler));
 
@@ -100,6 +116,12 @@ async fn list_projects(state: WebData<ServerState>) -> impl Responder {
     }
 }
 
+#[derive(Serialize)]
+struct ProjectCodeResponse {
+    version: Version,
+    code: String,
+}
+
 #[get("/project_code/{project_id}")]
 async fn project_code(state: WebData<ServerState>, req: HttpRequest) -> impl Responder {
     let project_id = match req.match_info().get("project_id") {
@@ -116,12 +138,23 @@ async fn project_code(state: WebData<ServerState>, req: HttpRequest) -> impl Res
     };
 
     match state.db.lock().await.project_code(project_id).await {
-        Ok(code) => HttpResponse::Ok()
-            .insert_header(CacheControl(vec![CacheDirective::NoCache]))
-            .body(code),
+        Ok((version, code)) => {
+            let json_string =
+                serde_json::to_string(&ProjectCodeResponse { version, code }).unwrap();
+            HttpResponse::Ok()
+                .insert_header(CacheControl(vec![CacheDirective::NoCache]))
+                .content_type(mime::APPLICATION_JSON)
+                .body(json_string)
+        }
         Err(e) => HttpResponse::InternalServerError()
             .body(format!("failed to retrieve project code: {e}")),
     }
+}
+
+#[derive(Serialize)]
+struct ProjectStatusResponse {
+    version: Version,
+    status: ProjectStatus,
 }
 
 #[get("/project_status/{project_id}")]
@@ -140,12 +173,16 @@ async fn project_status(state: WebData<ServerState>, req: HttpRequest) -> impl R
     };
 
     match state.db.lock().await.project_status(project_id).await {
-        Ok(status) => {
-            let json_string = serde_json::to_string(&status).unwrap();
+        Ok(Some((version, status))) => {
+            let json_string =
+                serde_json::to_string(&ProjectStatusResponse { version, status }).unwrap();
             HttpResponse::Ok()
                 .insert_header(CacheControl(vec![CacheDirective::NoCache]))
                 .content_type(mime::APPLICATION_JSON)
                 .body(json_string)
+        }
+        Ok(None) => {
+            HttpResponse::BadRequest().body(format!("project id {project_id} does not exist"))
         }
         Err(e) => HttpResponse::InternalServerError()
             .body(format!("failed to retrieve project status: {e}")),
@@ -158,14 +195,36 @@ struct NewProjectRequest {
     code: String,
 }
 
+#[derive(Serialize)]
+struct NewProjectResponse {
+    project_id: ProjectId,
+    version: Version,
+}
+
 // curl -X POST http://localhost:8080/new_project  -H 'Content-Type: application/json' -d '{"name":"my_name","code":"my_code"}'
 #[post("/new_project")]
 async fn new_project(
     state: WebData<ServerState>,
     request: web::Json<NewProjectRequest>,
 ) -> impl Responder {
-    match state.db.lock().await.new_project(&request.name, &request.code).await {
-        Ok(project_id) => HttpResponse::Ok().body(project_id.to_string()),
+    match state
+        .db
+        .lock()
+        .await
+        .new_project(&request.name, &request.code)
+        .await
+    {
+        Ok((project_id, version)) => {
+            let json_string = serde_json::to_string(&NewProjectResponse {
+                project_id,
+                version,
+            })
+            .unwrap();
+            HttpResponse::Ok()
+                .insert_header(CacheControl(vec![CacheDirective::NoCache]))
+                .content_type(mime::APPLICATION_JSON)
+                .body(json_string)
+        }
         Err(e) => {
             HttpResponse::InternalServerError().body(format!("failed to create project: {e}"))
         }
@@ -177,6 +236,11 @@ struct UpdateProjectRequest {
     project_id: ProjectId,
     name: String,
     code: Option<String>,
+}
+
+#[derive(Serialize)]
+struct UpdateProjectResponse {
+    version: Version,
 }
 
 // curl -X POST http://localhost:8080/update_project -H 'Content-Type: application/json' -d '{"project_id"=2,"name":"my_name2","code":"my_code2"}'
@@ -192,13 +256,20 @@ async fn update_project(
         .update_project(request.project_id, &request.name, &request.code)
         .await
     {
-        Ok(()) => HttpResponse::Ok().finish(),
+        Ok(version) => {
+            let json_string = serde_json::to_string(&UpdateProjectResponse { version }).unwrap();
+            HttpResponse::Ok()
+                .insert_header(CacheControl(vec![CacheDirective::NoCache]))
+                .content_type(mime::APPLICATION_JSON)
+                .body(json_string)
+        }
         Err(e) => {
             HttpResponse::InternalServerError().body(format!("failed to update project: {e}"))
         }
     }
 }
 
+#[derive(Deserialize)]
 struct CompileProjectRequest {
     project_id: ProjectId,
     version: Version,
@@ -209,37 +280,38 @@ async fn compile_project(
     state: WebData<ServerState>,
     request: web::Json<CompileProjectRequest>,
 ) -> impl Responder {
-    let db = state.db.lock().await;
-    
     match state
         .db
         .lock()
         .await
-        .set_project_pending(request.project_id, &request.version)
+        .set_project_pending(request.project_id, request.version)
         .await
     {
-        Ok(()) => HttpResponse::Ok().finish(),
-        Err(e) => {
-            HttpResponse::InternalServerError().body(format!("failed to queue project for compilation: {e}"))
-        }
+        Ok(_) => HttpResponse::Ok().finish(),
+        Err(e) => HttpResponse::InternalServerError()
+            .body(format!("failed to queue project for compilation: {e}")),
     }
 }
 
+#[derive(Deserialize)]
+struct CancelProjectRequest {
+    project_id: ProjectId,
+    version: Version,
+}
+
 #[post("/cancel_project")]
-async fn compile_project(
+async fn cancel_project(
     state: WebData<ServerState>,
-    request: web::Json<CompileProjectRequest>,
+    request: web::Json<CancelProjectRequest>,
 ) -> impl Responder {
-    let db = state.db.lock().await;
-    
     match state
         .db
         .lock()
         .await
-        .cancel_project(request.project_id, &request.version)
+        .cancel_project(request.project_id, request.version)
         .await
     {
-        Ok(()) => HttpResponse::Ok().finish(),
+        Ok(_) => HttpResponse::Ok().finish(),
         Err(e) => {
             HttpResponse::InternalServerError().body(format!("failed to cancel compilation: {e}"))
         }
