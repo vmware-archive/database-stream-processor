@@ -107,7 +107,13 @@ impl Compiler {
                         job = None;
                     }
                 }
-                exit_status = job.as_mut().unwrap().wait(), if job.is_some() => {
+                Some(exit_status) = async {
+                    if let Some(job) = &mut job {
+                        Some(job.wait().await)
+                    } else {
+                        None
+                    }
+                }, if job.is_some() => {
                     let project_id = job.as_ref().unwrap().project_id;
                     let version = job.as_ref().unwrap().version;
                     let mut db = db.lock().await;
