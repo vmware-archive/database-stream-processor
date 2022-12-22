@@ -73,7 +73,7 @@ impl ProjectDB {
         let row = self
             .dbclient
             .query_opt(
-                "SELECT code, version FROM project WHERE id = $1",
+                "SELECT version, code FROM project WHERE id = $1",
                 &[&project_id],
             )
             .await?
