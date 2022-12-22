@@ -1,5 +1,6 @@
 use crate::{ProjectDB, ProjectId, ProjectStatus, Version};
-use anyhow::Result as AnyResult;
+use anyhow::{Error as AnyError, Result as AnyResult};
+use log::{debug, error, trace};
 use std::{
     path::{Path, PathBuf},
     process::{ExitStatus, Stdio},
@@ -24,8 +25,12 @@ pub struct CompilerConfig {
 }
 
 impl CompilerConfig {
+    fn crate_name(project_id: ProjectId) -> String {
+        format!("project{project_id}")
+    }
+
     fn project_dir(&self, project_id: ProjectId) -> PathBuf {
-        Path::new(&self.workspace_directory).join(project_id.to_string())
+        Path::new(&self.workspace_directory).join(Self::crate_name(project_id))
     }
 
     fn sql_file_path(&self, project_id: ProjectId) -> PathBuf {
@@ -86,7 +91,14 @@ impl Compiler {
         }
     }
 
-    async fn compiler_task(
+    async fn compiler_task(config: CompilerConfig, db: Arc<Mutex<ProjectDB>>) -> AnyResult<()> {
+        Self::do_compiler_task(config, db).await.map_err(|e| {
+            error!("compiler task failed; error: '{e}'");
+            e
+        })
+    }
+
+    async fn do_compiler_task(
         /* command_receiver: Receiver<CompilerCommand>, */ config: CompilerConfig,
         db: Arc<Mutex<ProjectDB>>,
     ) -> AnyResult<()> {
@@ -155,6 +167,7 @@ impl Compiler {
             if job.is_none() {
                 let mut db = db.lock().await;
                 if let Some((project_id, version)) = db.next_job().await? {
+                    trace!("next project in the queue: '{project_id}', version '{version}'");
                     job = Some(CompilationJob::sql(&config, &db, project_id, version).await?);
                     db.set_project_status_guarded(project_id, version, ProjectStatus::Compiling)
                         .await?;
@@ -192,13 +205,21 @@ impl CompilationJob {
         project_id: ProjectId,
         version: Version,
     ) -> AnyResult<Self> {
+        debug!("running SQL compiler on project '{project_id}', version '{version}'");
+
         // Read code from DB (we assume that the DB is locked by the caller,
         // so no need for a version check).
         let (_version, code) = db.project_code(project_id).await?;
 
         // Create project directory.
         let sql_file_path = config.sql_file_path(project_id);
-        fs::create_dir_all(sql_file_path.parent().unwrap()).await?;
+        let project_directory = sql_file_path.parent().unwrap();
+        fs::create_dir_all(&project_directory).await.map_err(|e| {
+            AnyError::msg(format!(
+                "failed to create project directory '{}': '{e}'",
+                project_directory.display()
+            ))
+        })?;
 
         // Write SQL code to file.
         fs::write(&sql_file_path, code).await?;
@@ -206,8 +227,20 @@ impl CompilationJob {
         let rust_file_path = config.rust_program_path(project_id);
         fs::create_dir_all(rust_file_path.parent().unwrap()).await?;
 
-        let err_file = File::create(config.stderr_path(project_id)).await?;
-        let rust_file = File::create(rust_file_path).await?;
+        let stderr_path = config.stderr_path(project_id);
+        let err_file = File::create(&stderr_path).await.map_err(|e| {
+            AnyError::msg(format!(
+                "failed to create error log '{}': '{e}'",
+                stderr_path.display()
+            ))
+        })?;
+
+        let rust_file = File::create(&rust_file_path).await.map_err(|e| {
+            AnyError::msg(format!(
+                "failed to create '{}': '{e}'",
+                rust_file_path.display()
+            ))
+        })?;
 
         // Run compiler, direct output to lib.rs, direct stderr to file.
         let compiler_process = Command::new(config.sql_compiler_path())
@@ -216,7 +249,13 @@ impl CompilationJob {
             .stdin(Stdio::null())
             .stderr(Stdio::from(err_file.into_std().await))
             .stdout(Stdio::from(rust_file.into_std().await))
-            .spawn()?;
+            .spawn()
+            .map_err(|e| {
+                AnyError::msg(format!(
+                    "failed to start SQL compiler '{}': '{e}'",
+                    sql_file_path.display()
+                ))
+            })?;
 
         Ok(Self {
             stage: Stage::Sql,
@@ -231,9 +270,11 @@ impl CompilationJob {
         project_id: ProjectId,
         version: Version,
     ) -> AnyResult<Self> {
+        debug!("running Rust compiler on project '{project_id}', version '{version}'");
+
         // Write `project/Cargo.toml`.
         let template_toml = fs::read_to_string(&config.project_toml_template_path()).await?;
-        let project_name = format!("name = \"{project_id}\"");
+        let project_name = format!("name = \"{}\"", CompilerConfig::crate_name(project_id));
         let project_toml_code = template_toml
             .replace("name = \"temp\"", &project_name)
             .replace("../lib", config.sql_lib_path().to_str().unwrap());
@@ -241,7 +282,10 @@ impl CompilationJob {
         fs::write(&config.project_toml_path(project_id), project_toml_code).await?;
 
         // Write `Cargo.toml`.
-        let workspace_toml_code = format!("[workspace]\n members = [\"{project_id}\"]");
+        let workspace_toml_code = format!(
+            "[workspace]\n members = [\"{}\"]",
+            CompilerConfig::crate_name(project_id)
+        );
 
         fs::write(&config.workspace_toml_path(), workspace_toml_code).await?;
 
@@ -250,6 +294,7 @@ impl CompilationJob {
 
         // Run cargo, direct stdout and stderr to the same file.
         let compiler_process = Command::new("cargo")
+            .current_dir(&config.workspace_directory)
             .arg("build")
             .arg("--release")
             .arg("--workspace")
