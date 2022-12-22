@@ -11,6 +11,7 @@ use actix_web::{
     Result as ActixResult,
 };
 use anyhow::Result as AnyResult;
+use log::{LevelFilter, Log, Metadata, Record};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -37,16 +38,35 @@ pub enum ProjectStatus {
     RustError(String),
 }
 
+// FIXME: Use a real logger.
+pub struct TestLogger;
+pub static TEST_LOGGER: TestLogger = TestLogger;
+
+impl Log for TestLogger {
+    fn enabled(&self, _metadata: &Metadata) -> bool {
+        true
+    }
+
+    fn log(&self, record: &Record) {
+        println!("{} - {}", record.level(), record.args());
+    }
+
+    fn flush(&self) {}
+}
+
 #[actix_web::main]
 async fn main() -> AnyResult<()> {
+    let _ = log::set_logger(&TEST_LOGGER);
+    log::set_max_level(LevelFilter::Debug);
+
     let config = ServerConfig {
         port: 8080,
         db_config: DBConfig {
             connection_string: "host=localhost user=dbsp".to_string(),
         },
         compiler_config: CompilerConfig {
-            workspace_directory: "/home/lryzhyk/projects/dbsp_workspace".to_string(),
-            sql_compiler_home: "/home/lryzhyk/projects/sql-to-dbsp-compiler".to_string(),
+            workspace_directory: "/home/leonid/projects/dbsp_workspace".to_string(),
+            sql_compiler_home: "/home/leonid/projects/sql-to-dbsp-compiler".to_string(),
         },
     };
 
@@ -112,11 +132,14 @@ struct ProjectDescr {
 async fn list_projects(state: WebData<ServerState>) -> impl Responder {
     match state.db.lock().await.list_projects().await {
         Ok(projects) => {
-            let project_list = projects.into_iter().map(|(project_id, (name, version))| ProjectDescr {
-                project_id,
-                name,
-                version,
-            }).collect::<Vec<_>>();
+            let project_list = projects
+                .into_iter()
+                .map(|(project_id, (name, version))| ProjectDescr {
+                    project_id,
+                    name,
+                    version,
+                })
+                .collect::<Vec<_>>();
             let json_string = serde_json::to_string(&project_list).unwrap();
             HttpResponse::Ok()
                 .insert_header(CacheControl(vec![CacheDirective::NoCache]))
