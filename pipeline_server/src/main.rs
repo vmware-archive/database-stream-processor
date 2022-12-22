@@ -45,8 +45,8 @@ async fn main() -> AnyResult<()> {
             connection_string: "host=localhost user=dbsp".to_string(),
         },
         compiler_config: CompilerConfig {
-            workspace_directory: "~/projects/dbsp_workspace".to_string(),
-            sql_compiler_home: "~/projects/sql-to-dbsp-compiler".to_string(),
+            workspace_directory: "/home/lryzhyk/projects/dbsp_workspace".to_string(),
+            sql_compiler_home: "/home/lryzhyk/projects/sql-to-dbsp-compiler".to_string(),
         },
     };
 
@@ -101,11 +101,23 @@ async fn index() -> ActixResult<NamedFile> {
     Ok(NamedFile::open("static/index.html")?)
 }
 
+#[derive(Serialize)]
+struct ProjectDescr {
+    project_id: ProjectId,
+    name: String,
+    version: Version,
+}
+
 #[get("/list_projects")]
 async fn list_projects(state: WebData<ServerState>) -> impl Responder {
     match state.db.lock().await.list_projects().await {
         Ok(projects) => {
-            let json_string = serde_json::to_string(&projects).unwrap();
+            let project_list = projects.into_iter().map(|(project_id, (name, version))| ProjectDescr {
+                project_id,
+                name,
+                version,
+            }).collect::<Vec<_>>();
+            let json_string = serde_json::to_string(&project_list).unwrap();
             HttpResponse::Ok()
                 .insert_header(CacheControl(vec![CacheDirective::NoCache]))
                 .content_type(mime::APPLICATION_JSON)
