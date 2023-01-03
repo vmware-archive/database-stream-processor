@@ -9,6 +9,7 @@ pub struct ProjectDB {
 }
 
 pub type ProjectId = i64;
+pub type PipelineId = i64;
 pub type Version = i64;
 
 impl ProjectStatus {
@@ -49,6 +50,14 @@ impl ProjectDB {
         });
 
         Ok(Self { dbclient })
+    }
+
+    pub async fn clear_pending_projects(&self) -> AnyResult<()> {
+        self.dbclient
+            .execute("UPDATE project SET status = NULL, error = NULL;", &[])
+            .await?;
+
+        Ok(())
     }
 
     pub async fn list_projects(&self) -> AnyResult<BTreeMap<ProjectId, (String, Version)>> {
@@ -196,10 +205,13 @@ impl ProjectDB {
 
         let res = transaction
             .query_opt("SELECT version FROM project where id = $1", &[&project_id])
-            .await?
-            .ok_or_else(|| AnyError::msg(format!("unknown project id '{project_id}'")))?;
+            .await?;
 
-        let version: Version = res.try_get(0)?;
+        if res.is_none() {
+            return Ok(false);
+        }
+
+        let version: Version = res.unwrap().try_get(0)?;
 
         if expected_version == version {
             transaction.execute(
@@ -266,6 +278,20 @@ impl ProjectDB {
         Ok(true)
     }
 
+    pub async fn delete_project(
+        &self,
+        project_id: ProjectId
+    ) -> AnyResult<bool> {
+        let num_deleted = self.dbclient
+            .execute(
+                "DELETE FROM project WHERE id = $1",
+                &[&project_id],
+            )
+            .await?;
+
+        Ok(num_deleted > 0)
+    }
+
     pub async fn next_job(&self) -> AnyResult<Option<(ProjectId, Version)>> {
         // Find the oldest pending project.
         let rows = self
@@ -281,5 +307,34 @@ impl ProjectDB {
         let version: Version = rows[0].try_get(1)?;
 
         Ok(Some((project_id, version)))
+    }
+
+
+    pub async fn new_pipeline(&self, project_id: ProjectId, project_version: Version) -> AnyResult<PipelineId> {
+        let row = self
+            .dbclient
+            .query_one("SELECT nextval('pipeline_id_seq')", &[])
+            .await?;
+        let id: PipelineId = row.try_get(0)?;
+
+        self.dbclient
+            .execute(
+                "INSERT INTO pipeline (id, project_id, project_version, created) VALUES($1, $2, $3, now())",
+                &[&id, &project_id, &project_version],
+            )
+            .await?;
+
+        Ok(id)
+    }
+
+    pub async fn delete_pipeline(&self, pipeline_id: PipelineId) -> AnyResult<bool> {
+        let num_deleted = self.dbclient
+            .execute(
+                "DELETE FROM pipeline WHERE id = $1",
+                &[&pipeline_id],
+            )
+            .await?;
+
+        Ok(num_deleted > 0)
     }
 }
