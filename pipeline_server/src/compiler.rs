@@ -8,7 +8,8 @@ use std::{
 };
 use tokio::{
     fs,
-    fs::File,
+    fs::{File, OpenOptions},
+    io::AsyncWriteExt,
     process::{Child, Command},
     select, spawn,
     sync::Mutex,
@@ -23,6 +24,15 @@ pub struct Compiler {
     // command_sender: Sender<CompilerCommand>,
     compiler_task: JoinHandle<AnyResult<()>>,
 }
+
+const MAIN_FUNCTION: &'static str = r#"
+fn main() {
+    dbsp_adapters::server::server_main(&circuit).or_else(|e| {
+        eprintln!("{e}");
+        exit(1);
+    });
+}"#;
+
 
 impl ServerConfig {
     fn crate_name(project_id: ProjectId) -> String {
@@ -60,7 +70,7 @@ impl ServerConfig {
     }
 
     fn rust_program_path(&self, project_id: ProjectId) -> PathBuf {
-        self.project_dir(project_id).join("src").join("lib.rs")
+        self.project_dir(project_id).join("src").join("main.rs")
     }
 
     fn project_toml_template_path(&self) -> PathBuf {
@@ -240,7 +250,7 @@ impl CompilationJob {
             ))
         })?;
 
-        // Run compiler, direct output to lib.rs, direct stderr to file.
+        // Run compiler, direct output to main.rs, direct stderr to file.
         let compiler_process = Command::new(config.sql_compiler_path())
             .arg(sql_file_path.as_os_str())
             .arg("-i")
@@ -270,12 +280,17 @@ impl CompilationJob {
     ) -> AnyResult<Self> {
         debug!("running Rust compiler on project '{project_id}', version '{version}'");
 
+        let mut main_rs = OpenOptions::new().append(true).open(&config.rust_program_path(project_id)).await?;
+        main_rs.write(MAIN_FUNCTION.as_bytes()).await?;
+        drop(main_rs);
+
         // Write `project/Cargo.toml`.
         let template_toml = fs::read_to_string(&config.project_toml_template_path()).await?;
         let project_name = format!("name = \"{}\"", ServerConfig::crate_name(project_id));
         let project_toml_code = template_toml
             .replace("name = \"temp\"", &project_name)
-            .replace("../lib", config.sql_lib_path().to_str().unwrap());
+            .replace("../lib", config.sql_lib_path().to_str().unwrap())
+            .replace("[lib]\npath = \"src/lib.rs\"", &format!("\n\n[[bin]]\n{project_name}\npath = \"src/main.rs\""));
 
         fs::write(&config.project_toml_path(project_id), project_toml_code).await?;
 

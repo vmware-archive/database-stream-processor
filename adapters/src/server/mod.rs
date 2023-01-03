@@ -2,35 +2,110 @@ use crate::{Catalog, Controller, ControllerConfig, ControllerError};
 use actix_files as fs;
 use actix_files::NamedFile;
 use actix_web::{
-    dev::{ServiceFactory, ServiceRequest},
+    dev::{ServiceFactory, ServiceRequest, Server},
     get,
     middleware::Logger,
     rt, web,
     web::Data as WebData,
     App, Error as ActixError, HttpResponse, HttpServer, Responder, Result as ActixResult,
 };
-use anyhow::Result as AnyResult;
+use anyhow::{
+    Error as AnyError,
+    Result as AnyResult
+};
 use dbsp::DBSPHandle;
-use log::error;
-use std::sync::Mutex;
+use log::{error, info};
+use std::{
+    net::TcpListener,
+    sync::Mutex
+};
+use clap::Parser;
+use env_logger::Env;
 
 // TODO:
 //
 // - grafana
 
 struct ServerState {
+    metadata: String,
     controller: Mutex<Option<Controller>>,
 }
 
 impl ServerState {
-    fn new(controller: Controller) -> Self {
+    fn new(controller: Controller, meta: String) -> Self {
         Self {
+            metadata: meta,
             controller: Mutex::new(Some(controller)),
         }
     }
 }
 
-pub fn run(circuit: DBSPHandle, catalog: Catalog, yaml_config: &str, port: u16) -> AnyResult<()> {
+#[derive(Parser, Debug)]
+#[command(author, version, about, long_about = None)]
+struct Args {
+    /// Pipeline configuration YAML file
+    #[arg(short, long)]
+    config_file: String,
+
+    /// Pipeline metadata JSON file
+    #[arg(short, long)]
+    metadata_file: Option<String>,
+
+    /// Run the server on this port if it is available. If the port is in
+    /// use or no default port is specified, an unused TCP port is allocated
+    /// automatically
+    #[arg(short = 'p', long)]
+    default_port: Option<u16>,
+
+    /// Number of DBSP worker threads
+    #[arg(short = 'w', long, default_value_t = 1)]
+    workers: usize,
+}
+
+pub fn server_main<F>(circuit_factory: &F) -> AnyResult<()>
+where
+    F: Fn(usize) -> (DBSPHandle, Catalog) 
+{
+    // Create env logger.
+    env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
+
+    {
+        let args = Args::try_parse()?;
+
+        let (circuit, catalog) = circuit_factory(args.workers);
+
+        let yaml_config = std::fs::read(&args.config_file)?;
+        let yaml_config = String::from_utf8(yaml_config)?;
+
+        let meta = match args.metadata_file {
+            None => String::new(),
+            Some(metadata_file) => {
+                let meta = std::fs::read(metadata_file)?;
+                String::from_utf8(meta)?
+            }
+        };
+
+        run_server(circuit, catalog, &yaml_config, meta, args.default_port)?;
+
+        Ok(())
+    }.map_err(|e| {
+        error!("{e}");
+        e
+    })
+}
+
+pub fn run_server(circuit: DBSPHandle, catalog: Catalog, yaml_config: &str, meta: String, default_port: Option<u16>) -> AnyResult<()> {
+    let (port, server) = create_server(circuit, catalog, yaml_config, meta, default_port).map_err(|e| {
+        AnyError::msg(format!("Failed to create server: {e}"))
+    })?;
+
+    info!("Started HTTP server on port {port}");
+
+    rt::System::new().block_on(server)?;
+    Ok(())
+}
+
+pub fn create_server(circuit: DBSPHandle, catalog: Catalog, yaml_config: &str, meta: String, default_port: Option<u16>) -> AnyResult<(u16, Server)> {
     let config: ControllerConfig = serde_yaml::from_str(yaml_config)?;
     let controller = Controller::with_config(
         circuit,
@@ -39,15 +114,19 @@ pub fn run(circuit: DBSPHandle, catalog: Catalog, yaml_config: &str, port: u16) 
         Box::new(|e| error!("{e}")) as Box<dyn Fn(ControllerError) + Send + Sync>,
     )?;
 
-    let state = WebData::new(ServerState::new(controller));
+    let listener = match default_port {
+        Some(port) => TcpListener::bind(("127.0.0.1", port)).or_else(|_| TcpListener::bind(("127.0.0.1", 0)))?,
+        None => TcpListener::bind(("127.0.0.1", 0))?,
+    };
 
-    rt::System::new().block_on(
-        HttpServer::new(move || build_app(App::new().wrap(Logger::default()), state.clone()))
-            .bind(("127.0.0.1", port))?
-            .run(),
-    )?;
+    let port = listener.local_addr()?.port();
 
-    Ok(())
+    let state = WebData::new(ServerState::new(controller, meta));
+    let server = HttpServer::new(move || build_app(App::new().wrap(Logger::default()), state.clone()))
+            .listen(listener)?
+            .run();
+
+    Ok((port, server))
 }
 
 fn build_app<T>(app: App<T>, state: WebData<ServerState>) -> App<T>
@@ -62,6 +141,7 @@ where
         .service(pause)
         .service(shutdown)
         .service(status)
+        .service(metadata)
 }
 
 async fn index() -> ActixResult<NamedFile> {
@@ -102,6 +182,14 @@ async fn status(state: WebData<ServerState>) -> impl Responder {
         None => HttpResponse::Conflict().body("The pipeline has been terminated"),
     }
 }
+
+#[get("/metadata")]
+async fn metadata(state: WebData<ServerState>) -> impl Responder {
+        HttpResponse::Ok()
+            .content_type(mime::APPLICATION_JSON)
+            .body(state.metadata.clone())
+}
+
 
 #[get("/shutdown")]
 async fn shutdown(state: WebData<ServerState>) -> impl Responder {
@@ -211,7 +299,7 @@ outputs:
 
         // Create service
         println!("Creating HTTP server");
-        let state = WebData::new(ServerState::new(controller));
+        let state = WebData::new(ServerState::new(controller, "metadata".to_string()));
         let app =
             test::init_service(build_app(App::new().wrap(Logger::default()), state.clone())).await;
 
@@ -234,6 +322,11 @@ outputs:
 
         println!("/status");
         let req = test::TestRequest::get().uri("/status").to_request();
+        let resp = test::call_service(&app, req).await;
+        assert!(resp.status().is_success());
+
+        println!("/metadata");
+        let req = test::TestRequest::get().uri("/metadata").to_request();
         let resp = test::call_service(&app, req).await;
         assert!(resp.status().is_success());
 

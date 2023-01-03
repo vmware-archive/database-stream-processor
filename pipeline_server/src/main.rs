@@ -137,6 +137,8 @@ async fn run(config: ServerConfig) -> AnyResult<()> {
     let db = Arc::new(Mutex::new(ProjectDB::connect(&config).await?));
     let compiler = Compiler::new(&config, db.clone());
 
+    db.lock().await.clear_pending_projects().await?;
+
     let state = WebData::new(ServerState::new(db, compiler));
 
     HttpServer::new(move || build_app(App::new().wrap(Logger::default()), state.clone()))
@@ -161,6 +163,7 @@ where
         .service(new_project)
         .service(update_project)
         .service(compile_project)
+        .service(delete_project)
 }
 
 async fn index() -> ActixResult<NamedFile> {
@@ -399,6 +402,110 @@ async fn cancel_project(
     }
 }
 
+#[derive(Deserialize)]
+struct DeleteProjectRequest {
+    project_id: ProjectId,
+}
+
+#[post("/delete_project")]
+async fn delete_project(
+    state: WebData<ServerState>,
+    request: web::Json<DeleteProjectRequest>,
+) -> impl Responder {
+    match state
+        .db
+        .lock()
+        .await
+        .delete_project(request.project_id)
+        .await
+    {
+        Ok(true) => HttpResponse::Ok().finish(),
+        Ok(false) => HttpResponse::NotFound().body(format!("unknown project id '{}'", request.project_id)),
+        Err(e) => {
+            HttpResponse::InternalServerError().body(format!("failed to delete project: {e}"))
+        }
+    }
+}
+
+#[derive(Deserialize)]
+struct NewPipelineRequest {
+    project_id: ProjectId,
+    project_version: Version,
+    config_yaml: String,
+}
+
+#[derive(Serialize)]
+struct NewPipelineResponse {
+    pipeline_id: PipelineId,
+    port: u16,
+}
+
+/*
+#[post("/new_pipeline")]
+async fn new_pipeline(
+    state: WebData<ServerState>,
+    request: web::Json<NewPipelineRequest>,
+) -> impl Responder {
+    // Lock db
+
+    // Check: project exists, version = current version, compilation completed.
+
+    // Locate project executable.
+
+    // Create pipeline directory (delete old directory if exists); write metadata file to it.
+
+    // Run executable, set current directory to pipeline directory, pass metadata file as argument.
+
+    // Record pipeline in the database.
+
+    // Unlock db -- the next part can take a while.
+
+    // Wait for status file or for the child to exit
+
+    // Lock database.
+    // Update pipeline in the database (assign port number or delete).
+
+    todo!()
+}
+
+async fn list_pipelines(
+)
+
+enum PipelineStatus {
+    Running,
+    Terminated,
+}
+
+#[derive(Serialize)]
+struct PipelineStatusResponse {
+    status: PipelineStatus
+}
+
+
+#[get("/pipeline_status/{pipeline_id}")]
+async fn pipeline_status() {
+}
+
+async fn delete_pipeline() {
+    // lock db.
+
+    match PipelineRunner::pipeline_status {
+        PipelineStatus::Running => {
+            // http kill command?
+        }
+    }
+
+    delete pipeline from db.
+
+    // No server or metadata doesn't match
+}
+
+impl PipelineRunner {
+    fn pipeline_status(pipeline_id) -> PipelineStatus {
+        // Check that there is a server on the port and its metadata matches pipeline description.
+    }
+}
+*/
 /*
    /list_pipelines -> list of running pipelines, with links to their HTTP endpoints
    /start_pipeline?project_name,config -> pipeline_id
