@@ -18,9 +18,10 @@ CREATE TABLE pipeline (
     id bigint,
     project_id bigint,
     project_version bigint,
+    port smallint,
     created timestamp,
     PRIMARY KEY (id),
-    FOREIGN KEY (project_id) REFERENCEC project(id) ON DELETE SET NULL
+    FOREIGN KEY (project_id) REFERENCES project(id) ON DELETE SET NULL
 );
 
 CREATE SEQUENCE pipeline_id_seq AS bigint;
