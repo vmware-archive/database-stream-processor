@@ -278,15 +278,10 @@ impl ProjectDB {
         Ok(true)
     }
 
-    pub async fn delete_project(
-        &self,
-        project_id: ProjectId
-    ) -> AnyResult<bool> {
-        let num_deleted = self.dbclient
-            .execute(
-                "DELETE FROM project WHERE id = $1",
-                &[&project_id],
-            )
+    pub async fn delete_project(&self, project_id: ProjectId) -> AnyResult<bool> {
+        let num_deleted = self
+            .dbclient
+            .execute("DELETE FROM project WHERE id = $1", &[&project_id])
             .await?;
 
         Ok(num_deleted > 0)
@@ -309,30 +304,40 @@ impl ProjectDB {
         Ok(Some((project_id, version)))
     }
 
-
-    pub async fn new_pipeline(&self, project_id: ProjectId, project_version: Version) -> AnyResult<PipelineId> {
+    pub async fn alloc_pipeline_id(&self) -> AnyResult<PipelineId> {
         let row = self
             .dbclient
             .query_one("SELECT nextval('pipeline_id_seq')", &[])
             .await?;
         let id: PipelineId = row.try_get(0)?;
 
-        self.dbclient
-            .execute(
-                "INSERT INTO pipeline (id, project_id, project_version, created) VALUES($1, $2, $3, now())",
-                &[&id, &project_id, &project_version],
-            )
-            .await?;
-
         Ok(id)
     }
 
-    pub async fn delete_pipeline(&self, pipeline_id: PipelineId) -> AnyResult<bool> {
-        let num_deleted = self.dbclient
+    pub async fn new_pipeline(
+        &self,
+        pipeline_id: PipelineId,
+        project_id: ProjectId,
+        project_version: Version,
+        port: u16,
+    ) -> AnyResult<()> {
+        // Convert port to a SQL-compatible type (see `trait ToSql`).
+        let port = port as i16;
+
+        self.dbclient
             .execute(
-                "DELETE FROM pipeline WHERE id = $1",
-                &[&pipeline_id],
+                "INSERT INTO pipeline (id, project_id, project_version, port, created) VALUES($1, $2, $3, $4, now())",
+                &[&pipeline_id, &project_id, &project_version, &port],
             )
+            .await?;
+
+        Ok(())
+    }
+
+    pub async fn delete_pipeline(&self, pipeline_id: PipelineId) -> AnyResult<bool> {
+        let num_deleted = self
+            .dbclient
+            .execute("DELETE FROM pipeline WHERE id = $1", &[&pipeline_id])
             .await?;
 
         Ok(num_deleted > 0)

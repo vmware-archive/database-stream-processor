@@ -22,6 +22,7 @@ use tokio::{
 
 mod compiler;
 mod db;
+mod runner;
 
 const fn default_server_port() -> u16 {
     8080
@@ -37,6 +38,7 @@ fn default_working_directory() -> String {
 
 pub use compiler::Compiler;
 pub use db::{ProjectDB, ProjectId, Version};
+use runner::{run_pipeline, RunnerConfig};
 
 #[derive(Deserialize, Clone)]
 pub(self) struct ServerConfig {
@@ -120,13 +122,15 @@ async fn main() -> AnyResult<()> {
 }
 
 struct ServerState {
+    config: ServerConfig,
     db: Arc<Mutex<ProjectDB>>,
     _compiler: Compiler,
 }
 
 impl ServerState {
-    fn new(db: Arc<Mutex<ProjectDB>>, compiler: Compiler) -> Self {
+    fn new(config: ServerConfig, db: Arc<Mutex<ProjectDB>>, compiler: Compiler) -> Self {
         Self {
+            config,
             db,
             _compiler: compiler,
         }
@@ -140,9 +144,11 @@ async fn run(config: ServerConfig) -> AnyResult<()> {
     db.lock().await.clear_pending_projects().await?;
 
     let state = WebData::new(ServerState::new(db, compiler));
+    let port = config.port;
+
 
     HttpServer::new(move || build_app(App::new().wrap(Logger::default()), state.clone()))
-        .bind(("127.0.0.1", config.port))?
+        .bind(("127.0.0.1", port))?
         .run()
         .await?;
 
@@ -164,6 +170,7 @@ where
         .service(update_project)
         .service(compile_project)
         .service(delete_project)
+        .service(new_pipeline)
 }
 
 async fn index() -> ActixResult<NamedFile> {
@@ -420,7 +427,9 @@ async fn delete_project(
         .await
     {
         Ok(true) => HttpResponse::Ok().finish(),
-        Ok(false) => HttpResponse::NotFound().body(format!("unknown project id '{}'", request.project_id)),
+        Ok(false) => {
+            HttpResponse::NotFound().body(format!("unknown project id '{}'", request.project_id))
+        }
         Err(e) => {
             HttpResponse::InternalServerError().body(format!("failed to delete project: {e}"))
         }
@@ -428,9 +437,9 @@ async fn delete_project(
 }
 
 #[derive(Deserialize)]
-struct NewPipelineRequest {
+pub(self) struct NewPipelineRequest {
     project_id: ProjectId,
-    project_version: Version,
+    version: Version,
     config_yaml: String,
 }
 
@@ -440,34 +449,19 @@ struct NewPipelineResponse {
     port: u16,
 }
 
-/*
 #[post("/new_pipeline")]
 async fn new_pipeline(
     state: WebData<ServerState>,
     request: web::Json<NewPipelineRequest>,
 ) -> impl Responder {
-    // Lock db
-
-    // Check: project exists, version = current version, compilation completed.
-
-    // Locate project executable.
-
-    // Create pipeline directory (delete old directory if exists); write metadata file to it.
-
-    // Run executable, set current directory to pipeline directory, pass metadata file as argument.
-
-    // Record pipeline in the database.
-
-    // Unlock db -- the next part can take a while.
-
-    // Wait for status file or for the child to exit
-
-    // Lock database.
-    // Update pipeline in the database (assign port number or delete).
-
-    todo!()
+    run_pipeline(&state.config, &state.db, &request)
+        .await
+        .unwrap_or_else(|e| {
+            HttpResponse::InternalServerError().body(format!("failed to start pipeline: {e}"))
+        })
 }
 
+/*
 async fn list_pipelines(
 )
 
@@ -500,11 +494,6 @@ async fn delete_pipeline() {
     // No server or metadata doesn't match
 }
 
-impl PipelineRunner {
-    fn pipeline_status(pipeline_id) -> PipelineStatus {
-        // Check that there is a server on the port and its metadata matches pipeline description.
-    }
-}
 */
 /*
    /list_pipelines -> list of running pipelines, with links to their HTTP endpoints

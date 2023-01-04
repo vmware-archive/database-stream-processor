@@ -27,9 +27,9 @@ pub struct Compiler {
 
 const MAIN_FUNCTION: &'static str = r#"
 fn main() {
-    dbsp_adapters::server::server_main(&circuit).or_else(|e| {
+    dbsp_adapters::server::server_main(&circuit).unwrap_or_else(|e| {
         eprintln!("{e}");
-        exit(1);
+        std::process::exit(1);
     });
 }"#;
 
@@ -43,48 +43,55 @@ impl ServerConfig {
         Path::new(&self.working_directory).join("cargo_workspace")
     }
 
-    fn project_dir(&self, project_id: ProjectId) -> PathBuf {
+    pub fn project_dir(&self, project_id: ProjectId) -> PathBuf {
         self.workspace_dir().join(Self::crate_name(project_id))
     }
 
-    fn sql_file_path(&self, project_id: ProjectId) -> PathBuf {
+    pub fn sql_file_path(&self, project_id: ProjectId) -> PathBuf {
         self.project_dir(project_id).join("project.sql")
     }
 
-    fn sql_compiler_path(&self) -> PathBuf {
+    pub fn sql_compiler_path(&self) -> PathBuf {
         Path::new(&self.sql_compiler_home)
             .join("SQL-compiler")
             .join("sql-to-dbsp")
     }
 
-    fn sql_lib_path(&self) -> PathBuf {
+    pub fn sql_lib_path(&self) -> PathBuf {
         Path::new(&self.sql_compiler_home).join("lib")
     }
 
-    fn stderr_path(&self, project_id: ProjectId) -> PathBuf {
+    pub fn stderr_path(&self, project_id: ProjectId) -> PathBuf {
         self.project_dir(project_id).join("err.log")
     }
 
-    fn stdout_path(&self, project_id: ProjectId) -> PathBuf {
+    pub fn stdout_path(&self, project_id: ProjectId) -> PathBuf {
         self.project_dir(project_id).join("out.log")
     }
 
-    fn rust_program_path(&self, project_id: ProjectId) -> PathBuf {
+    pub fn rust_program_path(&self, project_id: ProjectId) -> PathBuf {
         self.project_dir(project_id).join("src").join("main.rs")
     }
 
-    fn project_toml_template_path(&self) -> PathBuf {
+    pub fn project_toml_template_path(&self) -> PathBuf {
         Path::new(&self.sql_compiler_home)
             .join("temp")
             .join("Cargo.toml")
     }
 
-    fn project_toml_path(&self, project_id: ProjectId) -> PathBuf {
+    pub fn project_toml_path(&self, project_id: ProjectId) -> PathBuf {
         self.project_dir(project_id).join("Cargo.toml")
     }
 
-    fn workspace_toml_path(&self) -> PathBuf {
+    pub fn workspace_toml_path(&self) -> PathBuf {
         self.workspace_dir().join("Cargo.toml")
+    }
+
+    pub fn project_executable(&self, project_id: ProjectId) -> PathBuf {
+        Path::new(&self.workspace_directory)
+            .join("target")
+            .join("release")
+            .join(Self::crate_name(project_id))
     }
 }
 
@@ -280,7 +287,10 @@ impl CompilationJob {
     ) -> AnyResult<Self> {
         debug!("running Rust compiler on project '{project_id}', version '{version}'");
 
-        let mut main_rs = OpenOptions::new().append(true).open(&config.rust_program_path(project_id)).await?;
+        let mut main_rs = OpenOptions::new()
+            .append(true)
+            .open(&config.rust_program_path(project_id))
+            .await?;
         main_rs.write(MAIN_FUNCTION.as_bytes()).await?;
         drop(main_rs);
 
@@ -290,7 +300,10 @@ impl CompilationJob {
         let project_toml_code = template_toml
             .replace("name = \"temp\"", &project_name)
             .replace("../lib", config.sql_lib_path().to_str().unwrap())
-            .replace("[lib]\npath = \"src/lib.rs\"", &format!("\n\n[[bin]]\n{project_name}\npath = \"src/main.rs\""));
+            .replace(
+                "[lib]\npath = \"src/lib.rs\"",
+                &format!("\n\n[[bin]]\n{project_name}\npath = \"src/main.rs\""),
+            );
 
         fs::write(&config.project_toml_path(project_id), project_toml_code).await?;
 
