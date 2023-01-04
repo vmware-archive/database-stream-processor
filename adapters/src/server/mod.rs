@@ -56,23 +56,17 @@ struct Args {
     /// automatically
     #[arg(short = 'p', long)]
     default_port: Option<u16>,
-
-    /// Number of DBSP worker threads
-    #[arg(short = 'w', long, default_value_t = 1)]
-    workers: usize,
 }
 
 pub fn server_main<F>(circuit_factory: &F) -> AnyResult<()>
 where
-    F: Fn(usize) -> (DBSPHandle, Catalog) 
+    F: Fn(usize) -> (DBSPHandle, Catalog)
 {
     // Create env logger.
     env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
 
     {
         let args = Args::try_parse()?;
-
-        let (circuit, catalog) = circuit_factory(args.workers);
 
         let yaml_config = std::fs::read(&args.config_file)?;
         let yaml_config = String::from_utf8(yaml_config)?;
@@ -85,7 +79,7 @@ where
             }
         };
 
-        run_server(circuit, catalog, &yaml_config, meta, args.default_port)?;
+        run_server(circuit_factory, &yaml_config, meta, args.default_port)?;
 
         Ok(())
     }.map_err(|e| {
@@ -94,8 +88,11 @@ where
     })
 }
 
-pub fn run_server(circuit: DBSPHandle, catalog: Catalog, yaml_config: &str, meta: String, default_port: Option<u16>) -> AnyResult<()> {
-    let (port, server) = create_server(circuit, catalog, yaml_config, meta, default_port).map_err(|e| {
+pub fn run_server<F>(circuit_factory: &F, yaml_config: &str, meta: String, default_port: Option<u16>) -> AnyResult<()>
+where
+    F: Fn(usize) -> (DBSPHandle, Catalog)
+{
+    let (port, server) = create_server(circuit_factory, yaml_config, meta, default_port).map_err(|e| {
         AnyError::msg(format!("Failed to create server: {e}"))
     })?;
 
@@ -105,8 +102,14 @@ pub fn run_server(circuit: DBSPHandle, catalog: Catalog, yaml_config: &str, meta
     Ok(())
 }
 
-pub fn create_server(circuit: DBSPHandle, catalog: Catalog, yaml_config: &str, meta: String, default_port: Option<u16>) -> AnyResult<(u16, Server)> {
+pub fn create_server<F>(circuit_factory: &F, yaml_config: &str, meta: String, default_port: Option<u16>) -> AnyResult<(u16, Server)>
+where
+    F: Fn(usize) -> (DBSPHandle, Catalog)
+{
     let config: ControllerConfig = serde_yaml::from_str(yaml_config)?;
+
+    let (circuit, catalog) = circuit_factory(config.global.workers as usize);
+
     let controller = Controller::with_config(
         circuit,
         catalog,

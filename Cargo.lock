@@ -1233,6 +1233,7 @@ dependencies = [
  "fs_extra",
  "log",
  "mime",
+ "regex",
  "serde",
  "serde_json",
  "serde_yaml",
