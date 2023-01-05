@@ -62,10 +62,10 @@ pub(crate) async fn run_pipeline(
             return Ok(HttpResponse::BadRequest()
                 .body(format!("unknown project id '{}'", request.project_id)));
         }
-        Some((version, _status)) if version != request.version => {
+        Some((version, _status)) if version != request.project_version => {
             return Ok(HttpResponse::Conflict().body(format!(
-                "specified version '{}' does not match the latest project version '{}'",
-                request.version, version
+                "specified version '{}' does not match the latest project version '{version}'",
+                request.project_version
             )));
         }
         Some((_version, status)) if status != ProjectStatus::Success => {
@@ -73,10 +73,32 @@ pub(crate) async fn run_pipeline(
         }
         _ => {}
     }
+    
+    let config_yaml = match db.get_project_config(request.config_id).await? {
+        None => {
+            return Ok(HttpResponse::BadRequest()
+                .body(format!("unknown project config id '{}'", request.config_id)));
+        }
+        Some((project_id, _version, _name, _config)) if project_id != request.project_id => {
+            return Ok(HttpResponse::BadRequest().body(format!(
+                "config '{}' does not belong to project '{}'",
+                request.config_id, request.project_id
+            )));
+        }
+        Some((_project_id, version, _name, _config)) if version != request.config_version => {
+            return Ok(HttpResponse::Conflict().body(format!(
+                "specified config version '{}' does not match the latest config version '{version}'",
+                request.config_version,
+            )));
+        }
+        Some((_project_id, _version, _name, config)) => {
+            config
+        }
+    };
 
     let pipeline_id = db.alloc_pipeline_id().await?;
 
-    let mut pipeline_process = start(config, &db, request, pipeline_id).await?;
+    let mut pipeline_process = start(config, &db, request, &config_yaml, pipeline_id).await?;
 
     // Unlock db -- the next part can be slow.
     drop(db);
@@ -89,7 +111,7 @@ pub(crate) async fn run_pipeline(
             if let Err(e) = dblock
                 .lock()
                 .await
-                .new_pipeline(pipeline_id, request.project_id, request.version, port)
+                .new_pipeline(pipeline_id, request.project_id, request.project_version, port)
                 .await
             {
                 let _ = pipeline_process.kill().await;
@@ -113,6 +135,7 @@ async fn start(
     config: &ServerConfig,
     db: &ProjectDB,
     request: &NewPipelineRequest,
+    config_yaml: &str,
     pipeline_id: PipelineId,
 ) -> AnyResult<Child> {
     // Create pipeline directory (delete old directory if exists); write metadata
@@ -121,13 +144,13 @@ async fn start(
     create_dir_all(&pipeline_dir).await?;
 
     let config_file_path = config.config_file_path(pipeline_id);
-    fs::write(&config_file_path, &request.config_yaml).await?;
+    fs::write(&config_file_path, config_yaml).await?;
 
     let (_version, code) = db.project_code(request.project_id).await?;
 
     let metadata = PipelineMetadata {
         project_id: request.project_id,
-        version: request.version,
+        version: request.project_version,
         code,
     };
     let metadata_file_path = config.metadata_file_path(pipeline_id);

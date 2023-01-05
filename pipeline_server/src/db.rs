@@ -319,6 +319,18 @@ impl ProjectDB {
         Ok(result)
     }
 
+    pub async fn get_project_config(&self, config_id: ConfigId) -> AnyResult<Option<(ProjectId, Version, String, String)>> {
+        let res = self
+            .dbclient
+            .query_opt("SELECT project_id, version, name, config FROM project_config WHERE config_id = $1", &[&config_id])
+            .await?;
+
+        match res {
+            None => Ok(None),
+            Some(row) => Ok(Some((row.try_get(0)?, row.try_get(1)?, row.try_get(2)?, row.try_get(3)?)))
+        }
+    }
+
     pub async fn new_config(
         &self,
         project_id: ProjectId,

@@ -1,0 +1,12 @@
+#!/bin/bash
+
+# Create a new pipeline.
+
+set -e
+
+if [ "$#" -ne 4 ]; then
+    echo "Usage '$0 <project_id> <project_version> <config_id> <config_version>'"
+    exit 1
+fi
+
+curl -X POST http://localhost:8080/new_pipeline  -H 'Content-Type: application/json' -d '{"project_id":'$1',"project_version":'$2',"config_id":'$3', "config_version":'$4'}'
