@@ -322,7 +322,7 @@ impl ProjectDB {
     pub async fn get_project_config(&self, config_id: ConfigId) -> AnyResult<Option<(ProjectId, Version, String, String)>> {
         let res = self
             .dbclient
-            .query_opt("SELECT project_id, version, name, config FROM project_config WHERE config_id = $1", &[&config_id])
+            .query_opt("SELECT project_id, version, name, config FROM project_config WHERE id = $1", &[&config_id])
             .await?;
 
         match res {
