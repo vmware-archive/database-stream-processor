@@ -33,7 +33,6 @@ fn main() {
     });
 }"#;
 
-
 impl ServerConfig {
     fn crate_name(project_id: ProjectId) -> String {
         format!("project{project_id}")
@@ -88,7 +87,7 @@ impl ServerConfig {
     }
 
     pub fn project_executable(&self, project_id: ProjectId) -> PathBuf {
-        Path::new(&self.workspace_directory)
+        Path::new(&self.workspace_dir())
             .join("target")
             .join("release")
             .join(Self::crate_name(project_id))

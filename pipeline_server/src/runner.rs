@@ -22,13 +22,11 @@ use tokio::{
 
 const STARTUP_TIMEOUT: Duration = Duration::from_millis(10_000);
 
-pub struct RunnerConfig {
-    pub pipeline_directory: String,
-}
-
-impl RunnerConfig {
+impl ServerConfig {
     fn pipeline_dir(&self, pipeline_id: PipelineId) -> PathBuf {
-        Path::new(&self.pipeline_directory).join(format!("pipeline{pipeline_id}"))
+        Path::new(&self.working_directory)
+            .join("pipelines")
+            .join(format!("pipeline{pipeline_id}"))
     }
 
     fn config_file_path(&self, pipeline_id: PipelineId) -> PathBuf {
@@ -85,7 +83,7 @@ pub(crate) async fn run_pipeline(
 
     // Start listening to log file until either port number or error shows up or
     // child process exits.
-    match wait_for_startup(&config.runner_config.log_file_path(pipeline_id)).await {
+    match wait_for_startup(&config.log_file_path(pipeline_id)).await {
         Ok(port) => {
             // Store pipeline in the database.
             if let Err(e) = dblock
@@ -119,10 +117,10 @@ async fn start(
 ) -> AnyResult<Child> {
     // Create pipeline directory (delete old directory if exists); write metadata
     // and config files to it.
-    let pipeline_dir = config.runner_config.pipeline_dir(pipeline_id);
+    let pipeline_dir = config.pipeline_dir(pipeline_id);
     create_dir_all(&pipeline_dir).await?;
 
-    let config_file_path = config.runner_config.config_file_path(pipeline_id);
+    let config_file_path = config.config_file_path(pipeline_id);
     fs::write(&config_file_path, &request.config_yaml).await?;
 
     let (_version, code) = db.project_code(request.project_id).await?;
@@ -132,21 +130,19 @@ async fn start(
         version: request.version,
         code,
     };
-    let metadata_file_path = config.runner_config.metadata_file_path(pipeline_id);
+    let metadata_file_path = config.metadata_file_path(pipeline_id);
     fs::write(
         &metadata_file_path,
         serde_json::to_string(&metadata).unwrap(),
     )
     .await?;
 
-    let log_file_path = config.runner_config.log_file_path(pipeline_id);
+    let log_file_path = config.log_file_path(pipeline_id);
     let log_file = File::create(&log_file_path).await?;
     let out_file = log_file.try_clone().await?;
 
     // Locate project executable.
-    let executable = config
-        .compiler_config
-        .project_executable(request.project_id);
+    let executable = config.project_executable(request.project_id);
 
     // Run executable, set current directory to pipeline directory, pass metadata
     // file and config as arguments.
