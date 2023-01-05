@@ -25,7 +25,7 @@ mod db;
 mod runner;
 
 pub use compiler::Compiler;
-pub use db::{PipelineId, ProjectDB, ProjectId, Version};
+pub use db::{ConfigId, PipelineId, ProjectDB, ProjectId, Version};
 use runner::run_pipeline;
 
 const fn default_server_port() -> u16 {
@@ -169,6 +169,10 @@ where
         .service(update_project)
         .service(compile_project)
         .service(delete_project)
+        .service(new_config)
+        .service(update_config)
+        .service(delete_config)
+        .service(list_project_configs)
         .service(new_pipeline)
 }
 
@@ -432,6 +436,152 @@ async fn delete_project(
         Err(e) => {
             HttpResponse::InternalServerError().body(format!("failed to delete project: {e}"))
         }
+    }
+}
+
+#[derive(Deserialize)]
+struct NewConfigRequest {
+    project_id: ProjectId,
+    name: String,
+    config: String,
+}
+
+#[derive(Serialize)]
+struct NewConfigResponse {
+    config_id: ConfigId,
+    version: Version,
+}
+
+#[post("/new_config")]
+async fn new_config(
+    state: WebData<ServerState>,
+    request: web::Json<NewConfigRequest>,
+) -> impl Responder {
+    match state
+        .db
+        .lock()
+        .await
+        .new_config(request.project_id, &request.name, &request.config)
+        .await
+    {
+        Ok((config_id, version)) => {
+            let json_string = serde_json::to_string(&NewConfigResponse {
+                config_id,
+                version,
+            })
+            .unwrap();
+            HttpResponse::Ok()
+                .insert_header(CacheControl(vec![CacheDirective::NoCache]))
+                .content_type(mime::APPLICATION_JSON)
+                .body(json_string)
+        }
+        Err(e) => {
+            HttpResponse::InternalServerError().body(format!("failed to create config: {e}"))
+        }
+    }
+}
+
+#[derive(Deserialize)]
+struct UpdateConfigRequest {
+    config_id: ConfigId,
+    name: String,
+    config: Option<String>,
+}
+
+#[derive(Serialize)]
+struct UpdateConfigResponse {
+    version: Version,
+}
+
+#[post("/update_config")]
+async fn update_config(
+    state: WebData<ServerState>,
+    request: web::Json<UpdateConfigRequest>,
+) -> impl Responder {
+    match state
+        .db
+        .lock()
+        .await
+        .update_config(request.config_id, &request.name, &request.config)
+        .await
+    {
+        Ok(version) => {
+            let json_string = serde_json::to_string(&UpdateConfigResponse { version }).unwrap();
+            HttpResponse::Ok()
+                .insert_header(CacheControl(vec![CacheDirective::NoCache]))
+                .content_type(mime::APPLICATION_JSON)
+                .body(json_string)
+        }
+        Err(e) => {
+            HttpResponse::InternalServerError().body(format!("failed to update config: {e}"))
+        }
+    }
+}
+
+#[derive(Deserialize)]
+struct DeleteConfigRequest {
+    config_id: ConfigId,
+}
+
+#[post("/delete_config")]
+async fn delete_config(
+    state: WebData<ServerState>,
+    request: web::Json<DeleteConfigRequest>,
+) -> impl Responder {
+    match state
+        .db
+        .lock()
+        .await
+        .delete_config(request.config_id)
+        .await
+    {
+        Ok(true) => HttpResponse::Ok().finish(),
+        Ok(false) => {
+            HttpResponse::NotFound().body(format!("unknown config id '{}'", request.config_id))
+        }
+        Err(e) => {
+            HttpResponse::InternalServerError().body(format!("failed to delete config: {e}"))
+        }
+    }
+}
+
+#[derive(Deserialize)]
+struct ListProjectConfigsRequest {
+    project_id: ProjectId,
+}
+
+#[derive(Serialize)]
+struct ConfigDescr {
+    config_id: ConfigId,
+    version: Version,
+    name: String,
+    config: String,
+}
+
+#[post("/list_project_configs")]
+async fn list_project_configs(
+    state: WebData<ServerState>,
+    request: web::Json<ListProjectConfigsRequest>,
+) -> impl Responder {
+    match state.db.lock().await.list_project_configs(request.project_id).await {
+        Ok(configs) => {
+            let config_list = configs
+                .into_iter()
+                .map(|(config_id, (version, name, config))| ConfigDescr {
+                    config_id,
+                    version,
+                    name,
+                    config,
+                })
+                .collect::<Vec<_>>();
+            let json_string = serde_json::to_string(&config_list).unwrap();
+            HttpResponse::Ok()
+                .insert_header(CacheControl(vec![CacheDirective::NoCache]))
+                .content_type(mime::APPLICATION_JSON)
+                .body(json_string)
+        }
+        Err(e) => HttpResponse::InternalServerError()
+            .body(format!("failed to retrieve project configs list: {e}")),
     }
 }
 

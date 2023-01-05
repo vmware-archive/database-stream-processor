@@ -25,3 +25,15 @@ CREATE TABLE pipeline (
 );
 
 CREATE SEQUENCE pipeline_id_seq AS bigint;
+
+CREATE TABLE project_config (
+    id bigint,
+    project_id bigint,
+    version bigint,
+    name varchar,
+    config varchar,
+    PRIMARY KEY (id),
+    FOREIGN KEY (project_id) REFERENCES project(id) ON DELETE CASCADE
+);
+
+CREATE SEQUENCE project_config_id_seq AS bigint;
