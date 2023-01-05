@@ -588,8 +588,9 @@ async fn list_project_configs(
 #[derive(Deserialize)]
 pub(self) struct NewPipelineRequest {
     project_id: ProjectId,
-    version: Version,
-    config_yaml: String,
+    project_version: Version,
+    config_id: ConfigId,
+    config_version: Version,
 }
 
 #[derive(Serialize)]
