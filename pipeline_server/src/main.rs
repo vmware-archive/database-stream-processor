@@ -10,22 +10,59 @@ use actix_web::{
     App, Error as ActixError, HttpRequest, HttpResponse, HttpServer, Responder,
     Result as ActixResult,
 };
-use anyhow::Result as AnyResult;
+use anyhow::{Error as AnyError, Result as AnyResult};
+use clap::Parser;
 use log::{LevelFilter, Log, Metadata, Record};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use tokio::sync::Mutex;
+use tokio::{
+    fs::{canonicalize, read},
+    sync::Mutex,
+};
 
 mod compiler;
 mod db;
 
-pub use compiler::{Compiler, CompilerConfig};
-pub use db::{DBConfig, ProjectDB, ProjectId, Version};
+const fn default_server_port() -> u16 {
+    8080
+}
 
-struct ServerConfig {
+fn default_pg_connection_string() -> String {
+    "host=localhost user=dbsp".to_string()
+}
+
+fn default_working_directory() -> String {
+    ".".to_string()
+}
+
+pub use compiler::Compiler;
+pub use db::{ProjectDB, ProjectId, Version};
+
+#[derive(Deserialize, Clone)]
+pub(self) struct ServerConfig {
+    #[serde(default = "default_server_port")]
     port: u16,
-    compiler_config: CompilerConfig,
-    db_config: DBConfig,
+    #[serde(default = "default_pg_connection_string")]
+    pg_connection_string: String,
+    #[serde(default = "default_working_directory")]
+    working_directory: String,
+    sql_compiler_home: String,
+}
+
+impl ServerConfig {
+    async fn canonicalize(self) -> AnyResult<Self> {
+        let mut result = self.clone();
+        result.working_directory = canonicalize(result.working_directory)
+            .await?
+            .to_string_lossy()
+            .into_owned();
+        result.sql_compiler_home = canonicalize(result.sql_compiler_home)
+            .await?
+            .to_string_lossy()
+            .into_owned();
+
+        Ok(result)
+    }
 }
 
 #[derive(Serialize, Eq, PartialEq)]
@@ -54,21 +91,30 @@ impl Log for TestLogger {
     fn flush(&self) {}
 }
 
+#[derive(Parser, Debug)]
+#[command(author, version, about, long_about = None)]
+struct Args {
+    /// Server configuration YAML file
+    #[arg(short, long)]
+    config_file: Option<String>,
+}
+
 #[actix_web::main]
 async fn main() -> AnyResult<()> {
     let _ = log::set_logger(&TEST_LOGGER);
     log::set_max_level(LevelFilter::Debug);
 
-    let config = ServerConfig {
-        port: 8080,
-        db_config: DBConfig {
-            connection_string: "host=localhost user=dbsp".to_string(),
-        },
-        compiler_config: CompilerConfig {
-            workspace_directory: "/home/leonid/projects/dbsp_workspace".to_string(),
-            sql_compiler_home: "/home/leonid/projects/sql-to-dbsp-compiler".to_string(),
-        },
-    };
+    let args = Args::try_parse()?;
+    let config_file = &args
+        .config_file
+        .unwrap_or_else(|| "config.yaml".to_string());
+    let config_yaml = read(config_file)
+        .await
+        .map_err(|e| AnyError::msg(format!("error reading config file '{config_file}': {e}")))?;
+    let config_yaml = String::from_utf8_lossy(&config_yaml);
+    let config: ServerConfig = serde_yaml::from_str(&config_yaml)
+        .map_err(|e| AnyError::msg(format!("error parsing config file '{config_file}': {e}")))?;
+    let config = config.canonicalize().await?;
 
     run(config).await
 }
@@ -88,8 +134,8 @@ impl ServerState {
 }
 
 async fn run(config: ServerConfig) -> AnyResult<()> {
-    let db = Arc::new(Mutex::new(ProjectDB::connect(&config.db_config).await?));
-    let compiler = Compiler::new(&config.compiler_config, db.clone());
+    let db = Arc::new(Mutex::new(ProjectDB::connect(&config).await?));
+    let compiler = Compiler::new(&config, db.clone());
 
     let state = WebData::new(ServerState::new(db, compiler));
 
