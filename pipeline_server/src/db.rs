@@ -1,12 +1,8 @@
-use crate::ProjectStatus;
+use crate::{ProjectStatus, ServerConfig};
 use anyhow::{Error as AnyError, Result as AnyResult};
 use log::error;
 use std::collections::BTreeMap;
 use tokio_postgres::{Client, NoTls};
-
-pub struct DBConfig {
-    pub connection_string: String,
-}
 
 pub struct ProjectDB {
     dbclient: Client,
@@ -42,9 +38,9 @@ impl ProjectStatus {
 }
 
 impl ProjectDB {
-    pub async fn connect(config: &DBConfig) -> AnyResult<Self> {
+    pub(crate) async fn connect(config: &ServerConfig) -> AnyResult<Self> {
         let (dbclient, connection) =
-            tokio_postgres::connect(&config.connection_string, NoTls).await?;
+            tokio_postgres::connect(&config.pg_connection_string, NoTls).await?;
 
         tokio::spawn(async move {
             if let Err(e) = connection.await {

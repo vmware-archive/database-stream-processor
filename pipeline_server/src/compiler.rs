@@ -1,4 +1,4 @@
-use crate::{ProjectDB, ProjectId, ProjectStatus, Version};
+use crate::{ProjectDB, ProjectId, ProjectStatus, ServerConfig, Version};
 use anyhow::{Error as AnyError, Result as AnyResult};
 use log::{debug, error, trace};
 use std::{
@@ -18,19 +18,23 @@ use tokio::{
 
 const COMPILER_POLL_INTERVAL: Duration = Duration::from_millis(1000);
 
-#[derive(Clone)]
-pub struct CompilerConfig {
-    pub workspace_directory: String,
-    pub sql_compiler_home: String,
+pub struct Compiler {
+    // config: CompilerConfig,
+    // command_sender: Sender<CompilerCommand>,
+    compiler_task: JoinHandle<AnyResult<()>>,
 }
 
-impl CompilerConfig {
+impl ServerConfig {
     fn crate_name(project_id: ProjectId) -> String {
         format!("project{project_id}")
     }
 
+    fn workspace_dir(&self) -> PathBuf {
+        Path::new(&self.working_directory).join("cargo_workspace")
+    }
+
     fn project_dir(&self, project_id: ProjectId) -> PathBuf {
-        Path::new(&self.workspace_directory).join(Self::crate_name(project_id))
+        self.workspace_dir().join(Self::crate_name(project_id))
     }
 
     fn sql_file_path(&self, project_id: ProjectId) -> PathBuf {
@@ -70,18 +74,12 @@ impl CompilerConfig {
     }
 
     fn workspace_toml_path(&self) -> PathBuf {
-        Path::new(&self.workspace_directory).join("Cargo.toml")
+        self.workspace_dir().join("Cargo.toml")
     }
 }
 
-pub struct Compiler {
-    // config: CompilerConfig,
-    // command_sender: Sender<CompilerCommand>,
-    compiler_task: JoinHandle<AnyResult<()>>,
-}
-
 impl Compiler {
-    pub fn new(config: &CompilerConfig, db: Arc<Mutex<ProjectDB>>) -> Self {
+    pub(crate) fn new(config: &ServerConfig, db: Arc<Mutex<ProjectDB>>) -> Self {
         // let (command_sender, command_receiver) = channel(100);
 
         let compiler_task = spawn(Self::compiler_task(config.clone(), db));
@@ -91,7 +89,7 @@ impl Compiler {
         }
     }
 
-    async fn compiler_task(config: CompilerConfig, db: Arc<Mutex<ProjectDB>>) -> AnyResult<()> {
+    async fn compiler_task(config: ServerConfig, db: Arc<Mutex<ProjectDB>>) -> AnyResult<()> {
         Self::do_compiler_task(config, db).await.map_err(|e| {
             error!("compiler task failed; error: '{e}'");
             e
@@ -99,7 +97,7 @@ impl Compiler {
     }
 
     async fn do_compiler_task(
-        /* command_receiver: Receiver<CompilerCommand>, */ config: CompilerConfig,
+        /* command_receiver: Receiver<CompilerCommand>, */ config: ServerConfig,
         db: Arc<Mutex<ProjectDB>>,
     ) -> AnyResult<()> {
         let mut job: Option<CompilationJob> = None;
@@ -200,7 +198,7 @@ impl CompilationJob {
     }
 
     async fn sql(
-        config: &CompilerConfig,
+        config: &ServerConfig,
         db: &ProjectDB,
         project_id: ProjectId,
         version: Version,
@@ -266,7 +264,7 @@ impl CompilationJob {
     }
 
     async fn rust(
-        config: &CompilerConfig,
+        config: &ServerConfig,
         project_id: ProjectId,
         version: Version,
     ) -> AnyResult<Self> {
@@ -274,7 +272,7 @@ impl CompilationJob {
 
         // Write `project/Cargo.toml`.
         let template_toml = fs::read_to_string(&config.project_toml_template_path()).await?;
-        let project_name = format!("name = \"{}\"", CompilerConfig::crate_name(project_id));
+        let project_name = format!("name = \"{}\"", ServerConfig::crate_name(project_id));
         let project_toml_code = template_toml
             .replace("name = \"temp\"", &project_name)
             .replace("../lib", config.sql_lib_path().to_str().unwrap());
@@ -284,7 +282,7 @@ impl CompilationJob {
         // Write `Cargo.toml`.
         let workspace_toml_code = format!(
             "[workspace]\n members = [\"{}\"]",
-            CompilerConfig::crate_name(project_id)
+            ServerConfig::crate_name(project_id)
         );
 
         fs::write(&config.workspace_toml_path(), workspace_toml_code).await?;
@@ -294,7 +292,7 @@ impl CompilationJob {
 
         // Run cargo, direct stdout and stderr to the same file.
         let compiler_process = Command::new("cargo")
-            .current_dir(&config.workspace_directory)
+            .current_dir(&config.workspace_dir())
             .arg("build")
             .arg("--release")
             .arg("--workspace")
@@ -317,7 +315,7 @@ impl CompilationJob {
         // doesn't update status
     }
 
-    async fn error_output(&self, config: &CompilerConfig) -> AnyResult<String> {
+    async fn error_output(&self, config: &ServerConfig) -> AnyResult<String> {
         let output = match self.stage {
             Stage::Sql => fs::read_to_string(config.stderr_path(self.project_id)).await?,
             Stage::Rust => {
