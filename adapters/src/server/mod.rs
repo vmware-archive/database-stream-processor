@@ -65,27 +65,32 @@ where
     // Create env logger.
     env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
 
-    {
-        let args = Args::try_parse()?;
-
-        let yaml_config = std::fs::read(&args.config_file)?;
-        let yaml_config = String::from_utf8(yaml_config)?;
-
-        let meta = match args.metadata_file {
-            None => String::new(),
-            Some(metadata_file) => {
-                let meta = std::fs::read(metadata_file)?;
-                String::from_utf8(meta)?
-            }
-        };
-
-        run_server(circuit_factory, &yaml_config, meta, args.default_port)?;
-
-        Ok(())
-    }.map_err(|e| {
+    server_main_inner(circuit_factory).map_err(|e| {
         error!("{e}");
         e
     })
+}
+
+pub fn server_main_inner<F>(circuit_factory: &F) -> AnyResult<()>
+where
+    F: Fn(usize) -> (DBSPHandle, Catalog)
+{
+    let args = Args::try_parse()?;
+
+    let yaml_config = std::fs::read(&args.config_file)?;
+    let yaml_config = String::from_utf8(yaml_config)?;
+
+    let meta = match args.metadata_file {
+        None => String::new(),
+        Some(metadata_file) => {
+            let meta = std::fs::read(metadata_file)?;
+            String::from_utf8(meta)?
+        }
+    };
+
+    run_server(circuit_factory, &yaml_config, meta, args.default_port)?;
+
+    Ok(())
 }
 
 pub fn run_server<F>(circuit_factory: &F, yaml_config: &str, meta: String, default_port: Option<u16>) -> AnyResult<()>
@@ -106,7 +111,9 @@ pub fn create_server<F>(circuit_factory: &F, yaml_config: &str, meta: String, de
 where
     F: Fn(usize) -> (DBSPHandle, Catalog)
 {
-    let config: ControllerConfig = serde_yaml::from_str(yaml_config)?;
+    let config: ControllerConfig = serde_yaml::from_str(yaml_config).map_err(|e| {
+        AnyError::msg(format!("error parsing pipeline configuration: {e}"))
+    })?;
 
     let (circuit, catalog) = circuit_factory(config.global.workers as usize);
 
