@@ -24,6 +24,10 @@ mod compiler;
 mod db;
 mod runner;
 
+pub use compiler::Compiler;
+pub use db::{PipelineId, ProjectDB, ProjectId, Version};
+use runner::run_pipeline;
+
 const fn default_server_port() -> u16 {
     8080
 }
@@ -35,10 +39,6 @@ fn default_pg_connection_string() -> String {
 fn default_working_directory() -> String {
     ".".to_string()
 }
-
-pub use compiler::Compiler;
-pub use db::{ProjectDB, ProjectId, Version};
-use runner::{run_pipeline, RunnerConfig};
 
 #[derive(Deserialize, Clone)]
 pub(self) struct ServerConfig {
@@ -143,9 +143,8 @@ async fn run(config: ServerConfig) -> AnyResult<()> {
 
     db.lock().await.clear_pending_projects().await?;
 
-    let state = WebData::new(ServerState::new(db, compiler));
     let port = config.port;
-
+    let state = WebData::new(ServerState::new(config, db, compiler));
 
     HttpServer::new(move || build_app(App::new().wrap(Logger::default()), state.clone()))
         .bind(("127.0.0.1", port))?
