@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Create a new project.
+# Delete a project.
 
 set -e
 
