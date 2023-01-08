@@ -24,7 +24,7 @@ mod runner;
 
 pub use compiler::Compiler;
 pub use db::{ConfigId, PipelineId, ProjectDB, ProjectId, Version};
-use runner::run_pipeline;
+use runner::Runner;
 
 const fn default_server_port() -> u16 {
     8080
@@ -122,14 +122,18 @@ struct ServerState {
     config: ServerConfig,
     db: Arc<Mutex<ProjectDB>>,
     _compiler: Compiler,
+    runner: Runner,
 }
 
 impl ServerState {
     fn new(config: ServerConfig, db: Arc<Mutex<ProjectDB>>, compiler: Compiler) -> Self {
+        let runner = Runner::new(db.clone(), &config);
+
         Self {
             config,
             db,
             _compiler: compiler,
+            runner,
         }
     }
 }
@@ -187,6 +191,7 @@ where
         .service(delete_config)
         .service(list_project_configs)
         .service(new_pipeline)
+        .service(delete_pipeline)
 }
 
 #[derive(Serialize)]
@@ -604,11 +609,25 @@ async fn new_pipeline(
     state: WebData<ServerState>,
     request: web::Json<NewPipelineRequest>,
 ) -> impl Responder {
-    run_pipeline(&state.config, &state.db, &request)
+    state.runner
+        .run_pipeline(&request)
         .await
         .unwrap_or_else(|e| {
             HttpResponse::InternalServerError().body(format!("failed to start pipeline: {e}"))
         })
+}
+
+#[derive(Deserialize)]
+pub(self) struct DeletePipelineRequest {
+    pipeline_id: PipelineId
+}
+
+#[post("/delete_pipeline")]
+async fn delete_pipeline(
+    state: WebData<ServerState>,
+    request: web::Json<DeletePipelineRequest>,
+) -> HttpResponse {
+    todo!()
 }
 
 /*
