@@ -41,7 +41,7 @@ pub struct ControllerConfig {
 #[derive(Clone, Serialize, Deserialize)]
 pub struct GlobalControllerConfig {
     /// Number of DBSP worker threads.
-    #[serde(default="default_workers")]
+    #[serde(default = "default_workers")]
     pub workers: u16,
 
     /// Minimal input batch size.

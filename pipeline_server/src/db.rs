@@ -305,29 +305,49 @@ impl ProjectDB {
         Ok(Some((project_id, version)))
     }
 
-    pub async fn list_project_configs(&self, project_id: ProjectId) -> AnyResult<BTreeMap<ConfigId, (Version, String, String)>> {
+    pub async fn list_project_configs(
+        &self,
+        project_id: ProjectId,
+    ) -> AnyResult<BTreeMap<ConfigId, (Version, String, String)>> {
         let rows = self
             .dbclient
-            .query("SELECT id, version, name, config FROM project_config WHERE project_id = $1", &[&project_id])
+            .query(
+                "SELECT id, version, name, config FROM project_config WHERE project_id = $1",
+                &[&project_id],
+            )
             .await?;
         let mut result = BTreeMap::new();
 
         for row in rows.into_iter() {
-            result.insert(row.try_get(0)?, (row.try_get(1)?, row.try_get(2)?, row.try_get(3)?));
+            result.insert(
+                row.try_get(0)?,
+                (row.try_get(1)?, row.try_get(2)?, row.try_get(3)?),
+            );
         }
 
         Ok(result)
     }
 
-    pub async fn get_project_config(&self, config_id: ConfigId) -> AnyResult<Option<(ProjectId, Version, String, String)>> {
+    pub async fn get_project_config(
+        &self,
+        config_id: ConfigId,
+    ) -> AnyResult<Option<(ProjectId, Version, String, String)>> {
         let res = self
             .dbclient
-            .query_opt("SELECT project_id, version, name, config FROM project_config WHERE id = $1", &[&config_id])
+            .query_opt(
+                "SELECT project_id, version, name, config FROM project_config WHERE id = $1",
+                &[&config_id],
+            )
             .await?;
 
         match res {
             None => Ok(None),
-            Some(row) => Ok(Some((row.try_get(0)?, row.try_get(1)?, row.try_get(2)?, row.try_get(3)?)))
+            Some(row) => Ok(Some((
+                row.try_get(0)?,
+                row.try_get(1)?,
+                row.try_get(2)?,
+                row.try_get(3)?,
+            ))),
         }
     }
 

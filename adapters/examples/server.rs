@@ -81,7 +81,13 @@ outputs:
         }
     });
 
-    server::run_server(&test_circuit, &config_str, "{\"name\": \"example\"}".to_string(), Some(8080)).unwrap();
+    server::run_server(
+        &test_circuit,
+        &config_str,
+        "{\"name\": \"example\"}".to_string(),
+        Some(8080),
+    )
+    .unwrap();
 
     drop(kafka_resources);
 }

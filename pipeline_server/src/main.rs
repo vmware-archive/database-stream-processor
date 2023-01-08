@@ -1,5 +1,3 @@
-use actix_files as fs;
-use actix_files::NamedFile;
 use actix_web::{
     dev::{ServiceFactory, ServiceRequest},
     get,
@@ -8,15 +6,15 @@ use actix_web::{
     post, web,
     web::Data as WebData,
     App, Error as ActixError, HttpRequest, HttpResponse, HttpServer, Responder,
-    Result as ActixResult,
 };
+use actix_web_static_files::ResourceFiles;
 use anyhow::{Error as AnyError, Result as AnyResult};
 use clap::Parser;
 use env_logger::Env;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::{
-    fs::{canonicalize, read},
+    fs::{canonicalize, create_dir_all, read},
     sync::Mutex,
 };
 
@@ -54,12 +52,27 @@ pub(self) struct ServerConfig {
 impl ServerConfig {
     async fn canonicalize(self) -> AnyResult<Self> {
         let mut result = self.clone();
-        result.working_directory = canonicalize(result.working_directory)
-            .await?
+        create_dir_all(&result.working_directory)
+            .await
+            .map_err(|e| AnyError::msg(format!("unable to create or open working directry '{}': {e}", result.working_directory)))?;
+
+        result.working_directory = canonicalize(&result.working_directory)
+            .await
+            .map_err(|e| {
+                AnyError::msg(format!(
+                    "error canonicalizing working directory path '{}': {e}", result.working_directory
+                ))
+            })?
             .to_string_lossy()
             .into_owned();
-        result.sql_compiler_home = canonicalize(result.sql_compiler_home)
-            .await?
+        result.sql_compiler_home = canonicalize(&result.sql_compiler_home)
+            .await
+            .map_err(|e| {
+                AnyError::msg(format!(
+                    "failed to access SQL compiler home '{}': {e}",
+                    result.sql_compiler_home
+                ))
+            })?
             .to_string_lossy()
             .into_owned();
 
@@ -138,14 +151,30 @@ async fn run(config: ServerConfig) -> AnyResult<()> {
     Ok(())
 }
 
+include!(concat!(env!("OUT_DIR"), "/generated.rs"));
+
 fn build_app<T>(app: App<T>, state: WebData<ServerState>) -> App<T>
 where
     T: ServiceFactory<ServiceRequest, Config = (), Error = ActixError, InitError = ()>,
 {
+    let generated = generate();
+
+    let index_data = match generated.get("index.html") {
+        None => "<html><head><title>DBSP server</title></head></html>"
+            .as_bytes()
+            .to_owned(),
+        Some(resource) => resource.data.to_owned(),
+    };
+
     app.app_data(state)
-        .route("/", web::get().to(index))
-        .route("/index.html", web::get().to(index))
-        .service(fs::Files::new("/static", "static").show_files_listing())
+        .route(
+            "/",
+            web::get().to(move || {
+                let index_data = index_data.clone();
+                async { HttpResponse::Ok().body(index_data) }
+            }),
+        )
+        .service(ResourceFiles::new("/static", generated))
         .service(list_projects)
         .service(project_code)
         .service(project_status)
@@ -158,10 +187,6 @@ where
         .service(delete_config)
         .service(list_project_configs)
         .service(new_pipeline)
-}
-
-async fn index() -> ActixResult<NamedFile> {
-    Ok(NamedFile::open("static/index.html")?)
 }
 
 #[derive(Serialize)]
@@ -449,19 +474,14 @@ async fn new_config(
         .await
     {
         Ok((config_id, version)) => {
-            let json_string = serde_json::to_string(&NewConfigResponse {
-                config_id,
-                version,
-            })
-            .unwrap();
+            let json_string =
+                serde_json::to_string(&NewConfigResponse { config_id, version }).unwrap();
             HttpResponse::Ok()
                 .insert_header(CacheControl(vec![CacheDirective::NoCache]))
                 .content_type(mime::APPLICATION_JSON)
                 .body(json_string)
         }
-        Err(e) => {
-            HttpResponse::InternalServerError().body(format!("failed to create config: {e}"))
-        }
+        Err(e) => HttpResponse::InternalServerError().body(format!("failed to create config: {e}")),
     }
 }
 
@@ -496,9 +516,7 @@ async fn update_config(
                 .content_type(mime::APPLICATION_JSON)
                 .body(json_string)
         }
-        Err(e) => {
-            HttpResponse::InternalServerError().body(format!("failed to update config: {e}"))
-        }
+        Err(e) => HttpResponse::InternalServerError().body(format!("failed to update config: {e}")),
     }
 }
 
@@ -512,20 +530,12 @@ async fn delete_config(
     state: WebData<ServerState>,
     request: web::Json<DeleteConfigRequest>,
 ) -> impl Responder {
-    match state
-        .db
-        .lock()
-        .await
-        .delete_config(request.config_id)
-        .await
-    {
+    match state.db.lock().await.delete_config(request.config_id).await {
         Ok(true) => HttpResponse::Ok().finish(),
         Ok(false) => {
             HttpResponse::NotFound().body(format!("unknown config id '{}'", request.config_id))
         }
-        Err(e) => {
-            HttpResponse::InternalServerError().body(format!("failed to delete config: {e}"))
-        }
+        Err(e) => HttpResponse::InternalServerError().body(format!("failed to delete config: {e}")),
     }
 }
 
@@ -547,7 +557,13 @@ async fn list_project_configs(
     state: WebData<ServerState>,
     request: web::Json<ListProjectConfigsRequest>,
 ) -> impl Responder {
-    match state.db.lock().await.list_project_configs(request.project_id).await {
+    match state
+        .db
+        .lock()
+        .await
+        .list_project_configs(request.project_id)
+        .await
+    {
         Ok(configs) => {
             let config_list = configs
                 .into_iter()
