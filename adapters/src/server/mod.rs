@@ -9,6 +9,7 @@ use actix_web::{
     web::Data as WebData,
     App, Error as ActixError, HttpResponse, HttpServer, Responder, Result as ActixResult,
 };
+use actix_web_static_files::ResourceFiles;
 use anyhow::{
     Error as AnyError,
     Result as AnyResult
@@ -139,23 +140,36 @@ where
     Ok((port, server))
 }
 
+include!(concat!(env!("OUT_DIR"), "/generated.rs"));
+
 fn build_app<T>(app: App<T>, state: WebData<ServerState>) -> App<T>
 where
     T: ServiceFactory<ServiceRequest, Config = (), Error = ActixError, InitError = ()>,
 {
+    let generated = generate();
+
+    let index_data = match generated.get("index.html") {
+        None => {
+            "<html><head><title>DBSP server</title></head></html>".as_bytes().to_owned()
+        }
+        Some(resource) => {
+            resource.data.to_owned()
+        }
+    };
+
     app.app_data(state)
-        .route("/", web::get().to(index))
-        .route("/index.html", web::get().to(index))
-        .service(fs::Files::new("/static", "static").show_files_listing())
+        .route("/", web::get().to(move || {
+            let index_data = index_data.clone();
+            async {
+                HttpResponse::Ok().body(index_data)
+            }
+        }))
+        .service(ResourceFiles::new("/static", generated))
         .service(start)
         .service(pause)
         .service(shutdown)
         .service(status)
         .service(metadata)
-}
-
-async fn index() -> ActixResult<NamedFile> {
-    Ok(NamedFile::open("static/index.html")?)
 }
 
 #[get("/start")]
