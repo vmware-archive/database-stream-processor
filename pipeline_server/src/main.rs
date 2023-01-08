@@ -12,7 +12,7 @@ use actix_web::{
 };
 use anyhow::{Error as AnyError, Result as AnyResult};
 use clap::Parser;
-use log::{LevelFilter, Log, Metadata, Record};
+use env_logger::Env;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::{
@@ -77,22 +77,6 @@ pub enum ProjectStatus {
     RustError(String),
 }
 
-// FIXME: Use a real logger.
-pub struct TestLogger;
-pub static TEST_LOGGER: TestLogger = TestLogger;
-
-impl Log for TestLogger {
-    fn enabled(&self, _metadata: &Metadata) -> bool {
-        true
-    }
-
-    fn log(&self, record: &Record) {
-        println!("{} - {}", record.level(), record.args());
-    }
-
-    fn flush(&self) {}
-}
-
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
@@ -103,8 +87,8 @@ struct Args {
 
 #[actix_web::main]
 async fn main() -> AnyResult<()> {
-    let _ = log::set_logger(&TEST_LOGGER);
-    log::set_max_level(LevelFilter::Debug);
+    // Create env logger.
+    env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
 
     let args = Args::try_parse()?;
     let config_file = &args
