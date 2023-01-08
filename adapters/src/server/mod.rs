@@ -1,27 +1,23 @@
 use crate::{Catalog, Controller, ControllerConfig, ControllerError};
-use actix_files as fs;
-use actix_files::NamedFile;
 use actix_web::{
-    dev::{ServiceFactory, ServiceRequest, Server},
+    dev::{Server, ServiceFactory, ServiceRequest},
     get,
     middleware::Logger,
     rt, web,
     web::Data as WebData,
-    App, Error as ActixError, HttpResponse, HttpServer, Responder, Result as ActixResult,
+    App, Error as ActixError, HttpResponse, HttpServer, Responder,
 };
 use actix_web_static_files::ResourceFiles;
-use anyhow::{
-    Error as AnyError,
-    Result as AnyResult
-};
-use dbsp::DBSPHandle;
-use log::{error, info};
-use std::{
-    net::TcpListener,
-    sync::Mutex
-};
+use anyhow::{Error as AnyError, Result as AnyResult};
 use clap::Parser;
+use dbsp::DBSPHandle;
 use env_logger::Env;
+use log::{error, info};
+use std::{net::TcpListener, sync::Mutex};
+use tokio::{
+    spawn,
+    sync::mpsc::{channel, Receiver, Sender},
+};
 
 // TODO:
 //
@@ -30,13 +26,15 @@ use env_logger::Env;
 struct ServerState {
     metadata: String,
     controller: Mutex<Option<Controller>>,
+    terminate_sender: Option<Sender<()>>,
 }
 
 impl ServerState {
-    fn new(controller: Controller, meta: String) -> Self {
+    fn new(controller: Controller, meta: String, terminate_sender: Option<Sender<()>>) -> Self {
         Self {
             metadata: meta,
             controller: Mutex::new(Some(controller)),
+            terminate_sender,
         }
     }
 }
@@ -61,7 +59,7 @@ struct Args {
 
 pub fn server_main<F>(circuit_factory: &F) -> AnyResult<()>
 where
-    F: Fn(usize) -> (DBSPHandle, Catalog)
+    F: Fn(usize) -> (DBSPHandle, Catalog),
 {
     // Create env logger.
     env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
@@ -74,7 +72,7 @@ where
 
 pub fn server_main_inner<F>(circuit_factory: &F) -> AnyResult<()>
 where
-    F: Fn(usize) -> (DBSPHandle, Catalog)
+    F: Fn(usize) -> (DBSPHandle, Catalog),
 {
     let args = Args::try_parse()?;
 
@@ -94,27 +92,45 @@ where
     Ok(())
 }
 
-pub fn run_server<F>(circuit_factory: &F, yaml_config: &str, meta: String, default_port: Option<u16>) -> AnyResult<()>
+pub fn run_server<F>(
+    circuit_factory: &F,
+    yaml_config: &str,
+    meta: String,
+    default_port: Option<u16>,
+) -> AnyResult<()>
 where
-    F: Fn(usize) -> (DBSPHandle, Catalog)
+    F: Fn(usize) -> (DBSPHandle, Catalog),
 {
-    let (port, server) = create_server(circuit_factory, yaml_config, meta, default_port).map_err(|e| {
-        AnyError::msg(format!("Failed to create server: {e}"))
-    })?;
+    let (port, server, mut terminate_receiver) =
+        create_server(circuit_factory, yaml_config, meta, default_port)
+            .map_err(|e| AnyError::msg(format!("Failed to create server: {e}")))?;
 
     info!("Started HTTP server on port {port}");
 
-    rt::System::new().block_on(server)?;
+    rt::System::new().block_on(async {
+        // Spawn a task that will shutdown the server on `/kill`.
+        let server_handle = server.handle();
+        spawn(async move {
+            terminate_receiver.recv().await;
+            server_handle.stop(true).await
+        });
+
+        server.await
+    })?;
     Ok(())
 }
 
-pub fn create_server<F>(circuit_factory: &F, yaml_config: &str, meta: String, default_port: Option<u16>) -> AnyResult<(u16, Server)>
+pub fn create_server<F>(
+    circuit_factory: &F,
+    yaml_config: &str,
+    meta: String,
+    default_port: Option<u16>,
+) -> AnyResult<(u16, Server, Receiver<()>)>
 where
-    F: Fn(usize) -> (DBSPHandle, Catalog)
+    F: Fn(usize) -> (DBSPHandle, Catalog),
 {
-    let config: ControllerConfig = serde_yaml::from_str(yaml_config).map_err(|e| {
-        AnyError::msg(format!("error parsing pipeline configuration: {e}"))
-    })?;
+    let config: ControllerConfig = serde_yaml::from_str(yaml_config)
+        .map_err(|e| AnyError::msg(format!("error parsing pipeline configuration: {e}")))?;
 
     let (circuit, catalog) = circuit_factory(config.global.workers as usize);
 
@@ -126,18 +142,22 @@ where
     )?;
 
     let listener = match default_port {
-        Some(port) => TcpListener::bind(("127.0.0.1", port)).or_else(|_| TcpListener::bind(("127.0.0.1", 0)))?,
+        Some(port) => TcpListener::bind(("127.0.0.1", port))
+            .or_else(|_| TcpListener::bind(("127.0.0.1", 0)))?,
         None => TcpListener::bind(("127.0.0.1", 0))?,
     };
 
     let port = listener.local_addr()?.port();
 
-    let state = WebData::new(ServerState::new(controller, meta));
-    let server = HttpServer::new(move || build_app(App::new().wrap(Logger::default()), state.clone()))
+    let (terminate_sender, terminate_receiver) = channel(1);
+    let state = WebData::new(ServerState::new(controller, meta, Some(terminate_sender)));
+    let server =
+        HttpServer::new(move || build_app(App::new().wrap(Logger::default()), state.clone()))
+            .workers(1)
             .listen(listener)?
             .run();
 
-    Ok((port, server))
+    Ok((port, server, terminate_receiver))
 }
 
 include!(concat!(env!("OUT_DIR"), "/generated.rs"));
@@ -149,27 +169,27 @@ where
     let generated = generate();
 
     let index_data = match generated.get("index.html") {
-        None => {
-            "<html><head><title>DBSP server</title></head></html>".as_bytes().to_owned()
-        }
-        Some(resource) => {
-            resource.data.to_owned()
-        }
+        None => "<html><head><title>DBSP server</title></head></html>"
+            .as_bytes()
+            .to_owned(),
+        Some(resource) => resource.data.to_owned(),
     };
 
     app.app_data(state)
-        .route("/", web::get().to(move || {
-            let index_data = index_data.clone();
-            async {
-                HttpResponse::Ok().body(index_data)
-            }
-        }))
+        .route(
+            "/",
+            web::get().to(move || {
+                let index_data = index_data.clone();
+                async { HttpResponse::Ok().body(index_data) }
+            }),
+        )
         .service(ResourceFiles::new("/static", generated))
         .service(start)
         .service(pause)
         .service(shutdown)
         .service(status)
         .service(metadata)
+        .service(kill)
 }
 
 #[get("/start")]
@@ -209,11 +229,10 @@ async fn status(state: WebData<ServerState>) -> impl Responder {
 
 #[get("/metadata")]
 async fn metadata(state: WebData<ServerState>) -> impl Responder {
-        HttpResponse::Ok()
-            .content_type(mime::APPLICATION_JSON)
-            .body(state.metadata.clone())
+    HttpResponse::Ok()
+        .content_type(mime::APPLICATION_JSON)
+        .body(state.metadata.clone())
 }
-
 
 #[get("/shutdown")]
 async fn shutdown(state: WebData<ServerState>) -> impl Responder {
@@ -227,6 +246,14 @@ async fn shutdown(state: WebData<ServerState>) -> impl Responder {
     } else {
         HttpResponse::Ok().body("Pipeline already terminated")
     }
+}
+
+#[get("/kill")]
+async fn kill(state: WebData<ServerState>) -> impl Responder {
+    if let Some(sender) = &state.terminate_sender {
+        let _ = sender.send(()).await;
+    }
+    HttpResponse::Ok()
 }
 
 #[cfg(test)]
@@ -323,7 +350,7 @@ outputs:
 
         // Create service
         println!("Creating HTTP server");
-        let state = WebData::new(ServerState::new(controller, "metadata".to_string()));
+        let state = WebData::new(ServerState::new(controller, "metadata".to_string(), None));
         let app =
             test::init_service(build_app(App::new().wrap(Logger::default()), state.clone())).await;
 

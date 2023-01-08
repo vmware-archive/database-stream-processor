@@ -1244,6 +1244,7 @@ dependencies = [
  "size-of",
  "static-files",
  "tempfile",
+ "tokio",
 ]
 
 [[package]]
@@ -1252,6 +1253,7 @@ version = "0.1.0"
 dependencies = [
  "actix-files",
  "actix-web",
+ "actix-web-static-files",
  "anyhow",
  "clap 4.0.32",
  "env_logger",
@@ -1261,6 +1263,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml",
+ "static-files",
  "tokio",
  "tokio-postgres",
 ]

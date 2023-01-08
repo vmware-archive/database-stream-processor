@@ -73,7 +73,7 @@ pub(crate) async fn run_pipeline(
         }
         _ => {}
     }
-    
+
     let config_yaml = match db.get_project_config(request.config_id).await? {
         None => {
             return Ok(HttpResponse::BadRequest()
@@ -91,9 +91,7 @@ pub(crate) async fn run_pipeline(
                 request.config_version,
             )));
         }
-        Some((_project_id, _version, _name, config)) => {
-            config
-        }
+        Some((_project_id, _version, _name, config)) => config,
     };
 
     let pipeline_id = db.alloc_pipeline_id().await?;
@@ -111,7 +109,12 @@ pub(crate) async fn run_pipeline(
             if let Err(e) = dblock
                 .lock()
                 .await
-                .new_pipeline(pipeline_id, request.project_id, request.project_version, port)
+                .new_pipeline(
+                    pipeline_id,
+                    request.project_id,
+                    request.project_version,
+                    port,
+                )
                 .await
             {
                 let _ = pipeline_process.kill().await;
