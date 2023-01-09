@@ -23,7 +23,7 @@ mod db;
 mod runner;
 
 pub use compiler::Compiler;
-pub use db::{ConfigId, PipelineId, ProjectDB, ProjectId, Version};
+use db::{ConfigId, PipelineId, ProjectDB, ProjectId, Version};
 use runner::Runner;
 
 const fn default_server_port() -> u16 {
@@ -197,28 +197,14 @@ where
         .service(new_pipeline)
         .service(kill_pipeline)
         .service(delete_pipeline)
-}
-
-#[derive(Serialize)]
-struct ProjectDescr {
-    project_id: ProjectId,
-    name: String,
-    version: Version,
+        .service(list_project_pipelines)
 }
 
 #[get("/list_projects")]
 async fn list_projects(state: WebData<ServerState>) -> impl Responder {
     match state.db.lock().await.list_projects().await {
         Ok(projects) => {
-            let project_list = projects
-                .into_iter()
-                .map(|(project_id, (name, version))| ProjectDescr {
-                    project_id,
-                    name,
-                    version,
-                })
-                .collect::<Vec<_>>();
-            let json_string = serde_json::to_string(&project_list).unwrap();
+            let json_string = serde_json::to_string(&projects).unwrap();
             HttpResponse::Ok()
                 .insert_header(CacheControl(vec![CacheDirective::NoCache]))
                 .content_type(mime::APPLICATION_JSON)
@@ -441,13 +427,24 @@ async fn delete_project(
     state: WebData<ServerState>,
     request: web::Json<DeleteProjectRequest>,
 ) -> impl Responder {
-    match state
-        .db
-        .lock()
-        .await
-        .delete_project(request.project_id)
-        .await
-    {
+    let db = state.db.lock().await;
+
+    match db.list_project_pipelines(request.project_id).await {
+        Ok(pipelines) => {
+            if pipelines.iter().any(|pipeline| !pipeline.killed) {
+                return HttpResponse::BadRequest().body(format!(
+                    "cannot delete a project while some of its pipelines are running"
+                ));
+            }
+        }
+        Err(e) => {
+            return HttpResponse::InternalServerError().body(format!(
+                "failed to fetch the list of project pipelines: {e}"
+            ));
+        }
+    }
+
+    match db.delete_project(request.project_id).await {
         Ok(true) => HttpResponse::Ok().finish(),
         Ok(false) => {
             HttpResponse::NotFound().body(format!("unknown project id '{}'", request.project_id))
@@ -554,14 +551,6 @@ struct ListProjectConfigsRequest {
     project_id: ProjectId,
 }
 
-#[derive(Serialize)]
-struct ConfigDescr {
-    config_id: ConfigId,
-    version: Version,
-    name: String,
-    config: String,
-}
-
 #[post("/list_project_configs")]
 async fn list_project_configs(
     state: WebData<ServerState>,
@@ -575,16 +564,7 @@ async fn list_project_configs(
         .await
     {
         Ok(configs) => {
-            let config_list = configs
-                .into_iter()
-                .map(|(config_id, (version, name, config))| ConfigDescr {
-                    config_id,
-                    version,
-                    name,
-                    config,
-                })
-                .collect::<Vec<_>>();
-            let json_string = serde_json::to_string(&config_list).unwrap();
+            let json_string = serde_json::to_string(&configs).unwrap();
             HttpResponse::Ok()
                 .insert_header(CacheControl(vec![CacheDirective::NoCache]))
                 .content_type(mime::APPLICATION_JSON)
@@ -621,6 +601,35 @@ async fn new_pipeline(
         .unwrap_or_else(|e| {
             HttpResponse::InternalServerError().body(format!("failed to start pipeline: {e}"))
         })
+}
+
+#[derive(Deserialize)]
+struct ListProjectPipelinesRequest {
+    project_id: ProjectId,
+}
+
+#[post("/list_project_pipelines")]
+async fn list_project_pipelines(
+    state: WebData<ServerState>,
+    request: web::Json<ListProjectPipelinesRequest>,
+) -> impl Responder {
+    match state
+        .db
+        .lock()
+        .await
+        .list_project_pipelines(request.project_id)
+        .await
+    {
+        Ok(pipelines) => {
+            let json_string = serde_json::to_string(&pipelines).unwrap();
+            HttpResponse::Ok()
+                .insert_header(CacheControl(vec![CacheDirective::NoCache]))
+                .content_type(mime::APPLICATION_JSON)
+                .body(json_string)
+        }
+        Err(e) => HttpResponse::InternalServerError()
+            .body(format!("failed to retrieve project pipeline list: {e}")),
+    }
 }
 
 #[derive(Deserialize)]

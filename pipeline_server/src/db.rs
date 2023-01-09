@@ -1,7 +1,8 @@
 use crate::{ProjectStatus, ServerConfig};
 use anyhow::{Error as AnyError, Result as AnyResult};
 use log::error;
-use std::collections::BTreeMap;
+use serde::Serialize;
+use std::time::SystemTime;
 use tokio_postgres::{Client, NoTls};
 
 pub struct ProjectDB {
@@ -39,6 +40,32 @@ impl ProjectStatus {
     }
 }
 
+#[derive(Serialize)]
+pub(crate) struct PipelineDescr {
+    pub pipeline_id: ConfigId,
+    pub project_id: ProjectId,
+    pub project_version: Version,
+    pub port: u16,
+    pub killed: bool,
+    pub created: SystemTime,
+}
+
+#[derive(Serialize)]
+pub(crate) struct ConfigDescr {
+    pub config_id: ConfigId,
+    pub project_id: ProjectId,
+    pub version: Version,
+    pub name: String,
+    pub config: String,
+}
+
+#[derive(Serialize)]
+pub(crate) struct ProjectDescr {
+    pub project_id: ProjectId,
+    pub name: String,
+    pub version: Version,
+}
+
 impl ProjectDB {
     pub(crate) async fn connect(config: &ServerConfig) -> AnyResult<Self> {
         let (dbclient, connection) =
@@ -53,7 +80,7 @@ impl ProjectDB {
         Ok(Self { dbclient })
     }
 
-    pub async fn clear_pending_projects(&self) -> AnyResult<()> {
+    pub(crate) async fn clear_pending_projects(&self) -> AnyResult<()> {
         self.dbclient
             .execute("UPDATE project SET status = NULL, error = NULL;", &[])
             .await?;
@@ -61,21 +88,25 @@ impl ProjectDB {
         Ok(())
     }
 
-    pub async fn list_projects(&self) -> AnyResult<BTreeMap<ProjectId, (String, Version)>> {
+    pub(crate) async fn list_projects(&self) -> AnyResult<Vec<ProjectDescr>> {
         let rows = self
             .dbclient
             .query("SELECT id, name, version FROM project", &[])
             .await?;
-        let mut result = BTreeMap::new();
+        let mut result = Vec::with_capacity(rows.len());
 
         for row in rows.into_iter() {
-            result.insert(row.try_get(0)?, (row.try_get(1)?, row.try_get(2)?));
+            result.push(ProjectDescr {
+                project_id: row.try_get(0)?,
+                name: row.try_get(1)?,
+                version: row.try_get(2)?,
+            });
         }
 
         Ok(result)
     }
 
-    pub async fn project_code(&self, project_id: ProjectId) -> AnyResult<(Version, String)> {
+    pub(crate) async fn project_code(&self, project_id: ProjectId) -> AnyResult<(Version, String)> {
         let row = self
             .dbclient
             .query_opt(
@@ -88,7 +119,7 @@ impl ProjectDB {
         Ok((row.try_get(0)?, row.try_get(1)?))
     }
 
-    pub async fn new_project(
+    pub(crate) async fn new_project(
         &self,
         project_name: &str,
         project_code: &str,
@@ -109,7 +140,7 @@ impl ProjectDB {
         Ok((id, 1))
     }
 
-    pub async fn update_project(
+    pub(crate) async fn update_project(
         &mut self,
         project_id: ProjectId,
         project_name: &str,
@@ -153,7 +184,7 @@ impl ProjectDB {
         Ok(version)
     }
 
-    pub async fn project_status(
+    pub(crate) async fn project_status(
         &self,
         project_id: ProjectId,
     ) -> AnyResult<Option<(Version, ProjectStatus)>> {
@@ -177,7 +208,7 @@ impl ProjectDB {
         }
     }
 
-    pub async fn set_project_status(
+    pub(crate) async fn set_project_status(
         &self,
         project_id: ProjectId,
         status: ProjectStatus,
@@ -194,7 +225,7 @@ impl ProjectDB {
         Ok(())
     }
 
-    pub async fn set_project_status_guarded(
+    pub(crate) async fn set_project_status_guarded(
         &mut self,
         project_id: ProjectId,
         expected_version: Version,
@@ -227,7 +258,7 @@ impl ProjectDB {
         Ok(expected_version == version)
     }
 
-    pub async fn set_project_pending(
+    pub(crate) async fn set_project_pending(
         &self,
         project_id: ProjectId,
         expected_version: Version,
@@ -253,7 +284,7 @@ impl ProjectDB {
         Ok(true)
     }
 
-    pub async fn cancel_project(
+    pub(crate) async fn cancel_project(
         &self,
         project_id: ProjectId,
         expected_version: Version,
@@ -279,7 +310,7 @@ impl ProjectDB {
         Ok(true)
     }
 
-    pub async fn delete_project(&self, project_id: ProjectId) -> AnyResult<bool> {
+    pub(crate) async fn delete_project(&self, project_id: ProjectId) -> AnyResult<bool> {
         let num_deleted = self
             .dbclient
             .execute("DELETE FROM project WHERE id = $1", &[&project_id])
@@ -288,7 +319,7 @@ impl ProjectDB {
         Ok(num_deleted > 0)
     }
 
-    pub async fn next_job(&self) -> AnyResult<Option<(ProjectId, Version)>> {
+    pub(crate) async fn next_job(&self) -> AnyResult<Option<(ProjectId, Version)>> {
         // Find the oldest pending project.
         let rows = self
             .dbclient
@@ -305,10 +336,10 @@ impl ProjectDB {
         Ok(Some((project_id, version)))
     }
 
-    pub async fn list_project_configs(
+    pub(crate) async fn list_project_configs(
         &self,
         project_id: ProjectId,
-    ) -> AnyResult<BTreeMap<ConfigId, (Version, String, String)>> {
+    ) -> AnyResult<Vec<ConfigDescr>> {
         let rows = self
             .dbclient
             .query(
@@ -316,19 +347,22 @@ impl ProjectDB {
                 &[&project_id],
             )
             .await?;
-        let mut result = BTreeMap::new();
+        let mut result = Vec::with_capacity(rows.len());
 
         for row in rows.into_iter() {
-            result.insert(
-                row.try_get(0)?,
-                (row.try_get(1)?, row.try_get(2)?, row.try_get(3)?),
-            );
+            result.push(ConfigDescr {
+                config_id: row.try_get(0)?,
+                project_id,
+                version: row.try_get(1)?,
+                name: row.try_get(2)?,
+                config: row.try_get(3)?,
+            });
         }
 
         Ok(result)
     }
 
-    pub async fn get_project_config(
+    pub(crate) async fn get_project_config(
         &self,
         config_id: ConfigId,
     ) -> AnyResult<Option<(ProjectId, Version, String, String)>> {
@@ -351,7 +385,7 @@ impl ProjectDB {
         }
     }
 
-    pub async fn new_config(
+    pub(crate) async fn new_config(
         &self,
         project_id: ProjectId,
         config_name: &str,
@@ -373,7 +407,7 @@ impl ProjectDB {
         Ok((id, 1))
     }
 
-    pub async fn update_config(
+    pub(crate) async fn update_config(
         &mut self,
         config_id: ConfigId,
         config_name: &str,
@@ -407,7 +441,7 @@ impl ProjectDB {
         Ok(version)
     }
 
-    pub async fn delete_config(&self, config_id: ConfigId) -> AnyResult<bool> {
+    pub(crate) async fn delete_config(&self, config_id: ConfigId) -> AnyResult<bool> {
         let num_deleted = self
             .dbclient
             .execute("DELETE FROM project_config WHERE id = $1", &[&config_id])
@@ -416,7 +450,7 @@ impl ProjectDB {
         Ok(num_deleted > 0)
     }
 
-    pub async fn alloc_pipeline_id(&self) -> AnyResult<PipelineId> {
+    pub(crate) async fn alloc_pipeline_id(&self) -> AnyResult<PipelineId> {
         let row = self
             .dbclient
             .query_one("SELECT nextval('pipeline_id_seq')", &[])
@@ -426,7 +460,7 @@ impl ProjectDB {
         Ok(id)
     }
 
-    pub async fn new_pipeline(
+    pub(crate) async fn new_pipeline(
         &self,
         pipeline_id: PipelineId,
         project_id: ProjectId,
@@ -446,7 +480,10 @@ impl ProjectDB {
         Ok(())
     }
 
-    pub async fn pipeline_status(&self, pipeline_id: PipelineId) -> AnyResult<Option<(u16, bool)>> {
+    pub(crate) async fn pipeline_status(
+        &self,
+        pipeline_id: PipelineId,
+    ) -> AnyResult<Option<(u16, bool)>> {
         let row = self
             .dbclient
             .query_opt(
@@ -465,7 +502,7 @@ impl ProjectDB {
         }
     }
 
-    pub async fn set_pipeline_killed(&self, pipeline_id: PipelineId) -> AnyResult<bool> {
+    pub(crate) async fn set_pipeline_killed(&self, pipeline_id: PipelineId) -> AnyResult<bool> {
         let num_updated = self
             .dbclient
             .execute(
@@ -477,12 +514,39 @@ impl ProjectDB {
         Ok(num_updated > 0)
     }
 
-    pub async fn delete_pipeline(&self, pipeline_id: PipelineId) -> AnyResult<bool> {
+    pub(crate) async fn delete_pipeline(&self, pipeline_id: PipelineId) -> AnyResult<bool> {
         let num_deleted = self
             .dbclient
             .execute("DELETE FROM pipeline WHERE id = $1", &[&pipeline_id])
             .await?;
 
         Ok(num_deleted > 0)
+    }
+
+    pub(crate) async fn list_project_pipelines(
+        &self,
+        project_id: ProjectId,
+    ) -> AnyResult<Vec<PipelineDescr>> {
+        let rows = self
+            .dbclient
+            .query(
+                "SELECT id, project_version, port, killed, created FROM pipeline WHERE project_id = $1",
+                &[&project_id],
+            )
+            .await?;
+        let mut result = Vec::with_capacity(rows.len());
+
+        for row in rows.into_iter() {
+            result.push(PipelineDescr {
+                pipeline_id: row.try_get(0)?,
+                project_id,
+                project_version: row.try_get(1)?,
+                port: row.try_get::<_, i32>(2)? as u16,
+                killed: row.try_get(3)?,
+                created: row.try_get(4)?,
+            });
+        }
+
+        Ok(result)
     }
 }

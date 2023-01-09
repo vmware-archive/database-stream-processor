@@ -22,7 +22,7 @@ CREATE TABLE pipeline (
     killed bool NOT NULL,
     created timestamp,
     PRIMARY KEY (id),
-    FOREIGN KEY (project_id) REFERENCES project(id) ON DELETE SET NULL
+    FOREIGN KEY (project_id) REFERENCES project(id) ON DELETE CASCADE
 );
 
 CREATE SEQUENCE pipeline_id_seq AS bigint;
