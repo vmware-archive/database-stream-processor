@@ -54,13 +54,19 @@ impl ServerConfig {
         let mut result = self.clone();
         create_dir_all(&result.working_directory)
             .await
-            .map_err(|e| AnyError::msg(format!("unable to create or open working directry '{}': {e}", result.working_directory)))?;
+            .map_err(|e| {
+                AnyError::msg(format!(
+                    "unable to create or open working directry '{}': {e}",
+                    result.working_directory
+                ))
+            })?;
 
         result.working_directory = canonicalize(&result.working_directory)
             .await
             .map_err(|e| {
                 AnyError::msg(format!(
-                    "error canonicalizing working directory path '{}': {e}", result.working_directory
+                    "error canonicalizing working directory path '{}': {e}",
+                    result.working_directory
                 ))
             })?
             .to_string_lossy()
@@ -119,7 +125,6 @@ async fn main() -> AnyResult<()> {
 }
 
 struct ServerState {
-    config: ServerConfig,
     db: Arc<Mutex<ProjectDB>>,
     _compiler: Compiler,
     runner: Runner,
@@ -130,7 +135,6 @@ impl ServerState {
         let runner = Runner::new(db.clone(), &config);
 
         Self {
-            config,
             db,
             _compiler: compiler,
             runner,
@@ -191,6 +195,7 @@ where
         .service(delete_config)
         .service(list_project_configs)
         .service(new_pipeline)
+        .service(kill_pipeline)
         .service(delete_pipeline)
 }
 
@@ -538,7 +543,7 @@ async fn delete_config(
     match state.db.lock().await.delete_config(request.config_id).await {
         Ok(true) => HttpResponse::Ok().finish(),
         Ok(false) => {
-            HttpResponse::NotFound().body(format!("unknown config id '{}'", request.config_id))
+            HttpResponse::BadRequest().body(format!("unknown config id '{}'", request.config_id))
         }
         Err(e) => HttpResponse::InternalServerError().body(format!("failed to delete config: {e}")),
     }
@@ -609,7 +614,8 @@ async fn new_pipeline(
     state: WebData<ServerState>,
     request: web::Json<NewPipelineRequest>,
 ) -> impl Responder {
-    state.runner
+    state
+        .runner
         .run_pipeline(&request)
         .await
         .unwrap_or_else(|e| {
@@ -618,16 +624,41 @@ async fn new_pipeline(
 }
 
 #[derive(Deserialize)]
+pub(self) struct KillPipelineRequest {
+    pipeline_id: PipelineId,
+}
+
+#[post("/kill_pipeline")]
+async fn kill_pipeline(
+    state: WebData<ServerState>,
+    request: web::Json<KillPipelineRequest>,
+) -> impl Responder {
+    state
+        .runner
+        .kill_pipeline(request.pipeline_id)
+        .await
+        .unwrap_or_else(|e| {
+            HttpResponse::InternalServerError().body(format!("failed to stop the pipeline: {e}"))
+        })
+}
+
+#[derive(Deserialize)]
 pub(self) struct DeletePipelineRequest {
-    pipeline_id: PipelineId
+    pipeline_id: PipelineId,
 }
 
 #[post("/delete_pipeline")]
 async fn delete_pipeline(
     state: WebData<ServerState>,
     request: web::Json<DeletePipelineRequest>,
-) -> HttpResponse {
-    todo!()
+) -> impl Responder {
+    state
+        .runner
+        .delete_pipeline(request.pipeline_id)
+        .await
+        .unwrap_or_else(|e| {
+            HttpResponse::InternalServerError().body(format!("failed to delete the pipeline: {e}"))
+        })
 }
 
 /*
@@ -649,7 +680,7 @@ struct PipelineStatusResponse {
 async fn pipeline_status() {
 }
 
-async fn delete_pipeline() {
+async fn kill_pipeline() {
     // lock db.
 
     match PipelineRunner::pipeline_status {

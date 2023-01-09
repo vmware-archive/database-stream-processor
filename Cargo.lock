@@ -1260,6 +1260,7 @@ dependencies = [
  "log",
  "mime",
  "regex",
+ "reqwest",
  "serde",
  "serde_json",
  "serde_yaml",
