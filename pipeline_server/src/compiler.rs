@@ -25,7 +25,7 @@ pub struct Compiler {
     compiler_task: JoinHandle<AnyResult<()>>,
 }
 
-const MAIN_FUNCTION: &'static str = r#"
+const MAIN_FUNCTION: &str = r#"
 fn main() {
     dbsp_adapters::server::server_main(&circuit).unwrap_or_else(|e| {
         eprintln!("{e}");
@@ -290,7 +290,7 @@ impl CompilationJob {
             .append(true)
             .open(&config.rust_program_path(project_id))
             .await?;
-        main_rs.write(MAIN_FUNCTION.as_bytes()).await?;
+        main_rs.write_all(MAIN_FUNCTION.as_bytes()).await?;
         drop(main_rs);
 
         // Write `project/Cargo.toml`.
