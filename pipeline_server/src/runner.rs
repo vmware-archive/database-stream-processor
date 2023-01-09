@@ -161,6 +161,8 @@ impl Runner {
         let pipeline_dir = self.config.pipeline_dir(pipeline_id);
         create_dir_all(&pipeline_dir).await?;
 
+        // let config_yaml = self.create_topics(config_yaml).await?;
+
         let config_file_path = self.config.config_file_path(pipeline_id);
         fs::write(&config_file_path, config_yaml).await?;
 
@@ -237,6 +239,44 @@ impl Runner {
         }
     }
 
+    /*
+    async fn create_topics(&self, config_yaml: &str) -> AnyResult<(KafkaResources, String)> {
+        let mut config: ControllerConfig = serde_yaml::from_str(config_yaml)
+            .map_err(|e| AnyError::msg(format!("error parsing pipeline configuration: {e}")))?;
+
+        for (_, input_config) in config.inputs.iter_mut() {
+            if input_config.transport.name == "kafka" {
+                if let Some(topics) = input_config.transport.config.get("topics") {
+                    let topics_string = serde_yaml::to_string(topics);
+                    let topics: Vec<String> = serde_yaml::from_value(topics)
+                        .map_err(|e| AnyError::msg(format!("error parsing Kafka topic list '{topics_string}': {e}")))?;
+                    for topic in topics.iter_mut() {
+                        if topic == "?" {
+                            *topic = self.generate_topic_name("input_");
+                        }
+                    }
+                    input_config.transport.config.set("topics", serde_yaml::to_value(topics))
+                }
+            }
+        }
+
+        for (_, output_config) in config.outputs.iter_mut() {
+            if input_config.transport.name == "kafka" {
+                if let Some(YamlValue::String(topic) = input_config.transport.config.get_mut("topic") {
+                    if topic == "?" {
+                        topic = Self::generate_topic_name("output_");
+                    }
+                }
+            }
+        }
+
+        let new_config = serde_yaml::to_string(config);
+
+        Ok((kafka_resources, new_config))
+
+    }
+    */
+
     async fn log_suffix_inner(log_file_path: &Path) -> AnyResult<String> {
         let mut buf = Vec::with_capacity(10000);
 
@@ -308,8 +348,3 @@ impl Runner {
         Ok(HttpResponse::Ok().finish())
     }
 }
-/*
-fn pipeline_status(pipeline_id) -> PipelineStatus {
-    // Check that there is a server on the port and its metadata matches pipeline description.
-}
-*/
