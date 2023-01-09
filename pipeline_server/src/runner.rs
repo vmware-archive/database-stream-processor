@@ -83,9 +83,7 @@ impl Runner {
                 )));
             }
             Some((_version, status)) if status != ProjectStatus::Success => {
-                return Ok(
-                    HttpResponse::Conflict().body(format!("project hasn't been compiled yet"))
-                );
+                return Ok(HttpResponse::Conflict().body("project hasn't been compiled yet"));
             }
             _ => {}
         }
@@ -270,7 +268,7 @@ impl Runner {
     ) -> AnyResult<HttpResponse> {
         if let Some((port, killed)) = db.pipeline_status(pipeline_id).await? {
             if killed {
-                return Ok(HttpResponse::Ok().body(format!("pipeline already killed")));
+                return Ok(HttpResponse::Ok().body("pipeline already killed"));
             };
 
             let url = format!("http://localhost:{port}/kill");

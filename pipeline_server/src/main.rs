@@ -432,9 +432,8 @@ async fn delete_project(
     match db.list_project_pipelines(request.project_id).await {
         Ok(pipelines) => {
             if pipelines.iter().any(|pipeline| !pipeline.killed) {
-                return HttpResponse::BadRequest().body(format!(
-                    "cannot delete a project while some of its pipelines are running"
-                ));
+                return HttpResponse::BadRequest()
+                    .body("cannot delete a project while some of its pipelines are running");
             }
         }
         Err(e) => {
