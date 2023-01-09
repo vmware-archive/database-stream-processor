@@ -5,6 +5,7 @@ use crate::{
 use actix_web::HttpResponse;
 use anyhow::{Error as AnyError, Result as AnyResult};
 use regex::Regex;
+use reqwest::StatusCode;
 use serde::Serialize;
 use std::{
     path::{Path, PathBuf},
@@ -14,7 +15,7 @@ use std::{
 };
 use tokio::{
     fs,
-    fs::{create_dir_all, File},
+    fs::{create_dir_all, remove_dir_all, File},
     io::{AsyncBufReadExt, AsyncReadExt, AsyncSeek, BufReader, SeekFrom},
     process::{Child, Command},
     sync::Mutex,
@@ -59,7 +60,7 @@ impl Runner {
     pub(crate) fn new(db: Arc<Mutex<ProjectDB>>, config: &ServerConfig) -> Self {
         Self {
             db,
-            config: config.clone()
+            config: config.clone(),
         }
     }
 
@@ -82,7 +83,9 @@ impl Runner {
                 )));
             }
             Some((_version, status)) if status != ProjectStatus::Success => {
-                return Ok(HttpResponse::Conflict().body(format!("project hasn't been compiled yet")));
+                return Ok(
+                    HttpResponse::Conflict().body(format!("project hasn't been compiled yet"))
+                );
             }
             _ => {}
         }
@@ -119,7 +122,8 @@ impl Runner {
         match Self::wait_for_startup(&self.config.log_file_path(pipeline_id)).await {
             Ok(port) => {
                 // Store pipeline in the database.
-                if let Err(e) = self.db
+                if let Err(e) = self
+                    .db
                     .lock()
                     .await
                     .new_pipeline(
@@ -253,12 +257,57 @@ impl Runner {
             .unwrap_or_else(|e| format!("[unable to read log file: {e}]"))
     }
 
+    pub(crate) async fn kill_pipeline(&self, pipeline_id: PipelineId) -> AnyResult<HttpResponse> {
+        let db = self.db.lock().await;
 
-    pub(crate) async fn run_pipeline(
+        self.do_kill_pipeline(&db, pipeline_id).await
+    }
+
+    async fn do_kill_pipeline(
         &self,
+        db: &ProjectDB,
         pipeline_id: PipelineId,
     ) -> AnyResult<HttpResponse> {
-        // Send 'kill' command.
+        if let Some((port, killed)) = db.pipeline_status(pipeline_id).await? {
+            if killed {
+                return Ok(HttpResponse::Ok().body(format!("pipeline already killed")));
+            };
+
+            let url = format!("http://localhost:{port}/kill");
+            let response = reqwest::get(&url).await?;
+
+            if response.status().is_success() {
+                db.set_pipeline_killed(pipeline_id).await?;
+                Ok(HttpResponse::Ok().finish())
+            } else if response.status() == StatusCode::NOT_FOUND {
+                db.set_pipeline_killed(pipeline_id).await?;
+                Ok(HttpResponse::Ok().body("pipeline at '{url}' already killed"))
+            } else {
+                Ok(HttpResponse::InternalServerError().body(format!(
+                    "failed to kill the pipeline; response from pipeline server: {response:?}"
+                )))
+            }
+        } else {
+            Ok(HttpResponse::BadRequest().body(format!("unknown pipeline id '{pipeline_id}'")))
+        }
+    }
+
+    pub(crate) async fn delete_pipeline(&self, pipeline_id: PipelineId) -> AnyResult<HttpResponse> {
+        let db = self.db.lock().await;
+
+        // Kill pipeline.
+        let response = self.do_kill_pipeline(&db, pipeline_id).await?;
+        if !response.status().is_success() {
+            return Ok(response);
+        }
+
+        // TODO: Delete temporary topics.
+
+        // Delete pipeline directory.
+        remove_dir_all(self.config.pipeline_dir(pipeline_id)).await?;
+        db.delete_pipeline(pipeline_id).await?;
+
+        Ok(HttpResponse::Ok().finish())
     }
 }
 /*

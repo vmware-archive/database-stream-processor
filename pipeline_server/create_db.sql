@@ -18,7 +18,8 @@ CREATE TABLE pipeline (
     id bigint,
     project_id bigint,
     project_version bigint,
-    port smallint,
+    port int NOT NULL,
+    killed bool NOT NULL,
     created timestamp,
     PRIMARY KEY (id),
     FOREIGN KEY (project_id) REFERENCES project(id) ON DELETE SET NULL

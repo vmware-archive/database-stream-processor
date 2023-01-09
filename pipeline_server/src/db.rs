@@ -434,16 +434,47 @@ impl ProjectDB {
         port: u16,
     ) -> AnyResult<()> {
         // Convert port to a SQL-compatible type (see `trait ToSql`).
-        let port = port as i16;
+        let port = port as i32;
 
         self.dbclient
             .execute(
-                "INSERT INTO pipeline (id, project_id, project_version, port, created) VALUES($1, $2, $3, $4, now())",
+                "INSERT INTO pipeline (id, project_id, project_version, port, killed, created) VALUES($1, $2, $3, $4, false, now())",
                 &[&pipeline_id, &project_id, &project_version, &port],
             )
             .await?;
 
         Ok(())
+    }
+
+    pub async fn pipeline_status(&self, pipeline_id: PipelineId) -> AnyResult<Option<(u16, bool)>> {
+        let row = self
+            .dbclient
+            .query_opt(
+                "SELECT port, killed FROM pipeline WHERE id = $1",
+                &[&pipeline_id],
+            )
+            .await?;
+
+        if let Some(row) = row {
+            let port: i32 = row.try_get(0)?;
+            let killed: bool = row.try_get(1)?;
+
+            Ok(Some((port as u16, killed)))
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub async fn set_pipeline_killed(&self, pipeline_id: PipelineId) -> AnyResult<bool> {
+        let num_updated = self
+            .dbclient
+            .execute(
+                "UPDATE pipeline SET killed=true WHERE id = $1",
+                &[&pipeline_id],
+            )
+            .await?;
+
+        Ok(num_updated > 0)
     }
 
     pub async fn delete_pipeline(&self, pipeline_id: PipelineId) -> AnyResult<bool> {
