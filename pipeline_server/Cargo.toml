@@ -21,6 +21,7 @@ mime = "0.3.16"
 clap = { version = "4.0.32", features = ["derive"] }
 regex = "1.7.0"
 reqwest = "0.11.13"
+fs_extra = "1.2.0"
 
 [build-dependencies]
 static-files = "0.2.3"
