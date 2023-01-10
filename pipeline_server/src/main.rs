@@ -47,6 +47,7 @@ pub(self) struct ServerConfig {
     #[serde(default = "default_working_directory")]
     working_directory: String,
     sql_compiler_home: String,
+    dbsp_override_path: Option<String>,
 }
 
 impl ServerConfig {
@@ -81,6 +82,18 @@ impl ServerConfig {
             })?
             .to_string_lossy()
             .into_owned();
+
+        if let Some(path) = result.dbsp_override_path.as_mut() {
+            *path = canonicalize(&path)
+                .await
+                .map_err(|e| {
+                    AnyError::msg(format!(
+                        "failed to access dbsp override directory '{path}': {e}"
+                    ))
+                })?
+                .to_string_lossy()
+                .into_owned();
+        }
 
         Ok(result)
     }
@@ -144,7 +157,7 @@ impl ServerState {
 
 async fn run(config: ServerConfig) -> AnyResult<()> {
     let db = Arc::new(Mutex::new(ProjectDB::connect(&config).await?));
-    let compiler = Compiler::new(&config, db.clone());
+    let compiler = Compiler::new(&config, db.clone()).await?;
 
     db.lock().await.clear_pending_projects().await?;
 

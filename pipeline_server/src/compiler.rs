@@ -1,5 +1,6 @@
 use crate::{ProjectDB, ProjectId, ProjectStatus, ServerConfig, Version};
 use anyhow::{Error as AnyError, Result as AnyResult};
+use fs_extra::{dir, dir::CopyOptions};
 use log::{debug, error, trace};
 use std::{
     path::{Path, PathBuf},
@@ -95,14 +96,27 @@ impl ServerConfig {
 }
 
 impl Compiler {
-    pub(crate) fn new(config: &ServerConfig, db: Arc<Mutex<ProjectDB>>) -> Self {
+    pub(crate) async fn new(config: &ServerConfig, db: Arc<Mutex<ProjectDB>>) -> AnyResult<Self> {
         // let (command_sender, command_receiver) = channel(100);
+        fs::create_dir_all(&config.workspace_dir())
+            .await
+            .map_err(|e| {
+                AnyError::msg(format!(
+                    "failed to create Rust workspace directory '{}': {e}",
+                    config.workspace_dir().display()
+                ))
+            })?;
+
+        let mut copy_options = CopyOptions::new();
+        copy_options.overwrite = true;
+        copy_options.copy_inside = true;
+        dir::copy(config.sql_lib_path(), config.workspace_dir(), &copy_options)?;
 
         let compiler_task = spawn(Self::compiler_task(config.clone(), db));
-        Self {
+        Ok(Self {
             //command_sender,
             compiler_task,
-        }
+        })
     }
 
     async fn compiler_task(config: ServerConfig, db: Arc<Mutex<ProjectDB>>) -> AnyResult<()> {
@@ -298,7 +312,7 @@ impl CompilationJob {
         let project_name = format!("name = \"{}\"", ServerConfig::crate_name(project_id));
         let project_toml_code = template_toml
             .replace("name = \"temp\"", &project_name)
-            .replace("../lib", config.sql_lib_path().to_str().unwrap())
+            .replace(", default-features = false", "")
             .replace(
                 "[lib]\npath = \"src/lib.rs\"",
                 &format!("\n\n[[bin]]\n{project_name}\npath = \"src/main.rs\""),
@@ -307,10 +321,19 @@ impl CompilationJob {
         fs::write(&config.project_toml_path(project_id), project_toml_code).await?;
 
         // Write `Cargo.toml`.
-        let workspace_toml_code = format!(
-            "[workspace]\n members = [\"{}\"]",
-            ServerConfig::crate_name(project_id)
+        let mut workspace_toml_code = format!(
+            "[workspace]\nmembers = [ \"lib/*\", \"{}\"]\n",
+            ServerConfig::crate_name(project_id),
         );
+
+        if let Some(dbsp_override_path) = &config.dbsp_override_path {
+            let patch = format!(
+                "[patch.'https://github.com/vmware/database-stream-processor']\n\
+                dbsp = {{ path = \"{dbsp_override_path}\" }}\n\
+                dbsp_adapters = {{ path = \"{dbsp_override_path}/adapters\" }}"
+            );
+            workspace_toml_code.push_str(&patch);
+        }
 
         fs::write(&config.workspace_toml_path(), workspace_toml_code).await?;
 
