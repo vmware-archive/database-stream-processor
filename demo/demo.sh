@@ -4,11 +4,13 @@ THIS_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 ROOT="${THIS_DIR}/../"
 SERVER_DIR="${ROOT}/pipeline_manager/"
 
+service postgresql restart
+
 # Kill previous server instance if any.
-killall -e -9 dbsp_pipeline_manager
+pkill -9 dbsp_pipeline_server
 
 # Kill prometheus
-killall -e -9 prometheus
+pkill -9 prometheus
 
 set -e
 
