@@ -1,3 +1,5 @@
+use actix_files as fs;
+use actix_files::NamedFile;
 use actix_web::{
     dev::{ServiceFactory, ServiceRequest},
     get,
@@ -6,6 +8,7 @@ use actix_web::{
     post, web,
     web::Data as WebData,
     App, Error as ActixError, HttpRequest, HttpResponse, HttpServer, Responder,
+    Result as ActixResult,
 };
 use actix_web_static_files::ResourceFiles;
 use anyhow::{Error as AnyError, Result as AnyResult};
@@ -48,6 +51,7 @@ pub(self) struct ServerConfig {
     working_directory: String,
     sql_compiler_home: String,
     dbsp_override_path: Option<String>,
+    static_html: Option<String>,
 }
 
 impl ServerConfig {
@@ -95,6 +99,14 @@ impl ServerConfig {
                 .into_owned();
         }
 
+        if let Some(path) = result.static_html.as_mut() {
+            *path = canonicalize(&path)
+                .await
+                .map_err(|e| AnyError::msg(format!("failed to access '{path}': {e}")))?
+                .to_string_lossy()
+                .into_owned();
+        }
+
         Ok(result)
     }
 }
@@ -115,6 +127,10 @@ struct Args {
     /// Server configuration YAML file
     #[arg(short, long)]
     config_file: Option<String>,
+
+    /// [Developers only] serve static content from the specified directory
+    #[arg(short, long)]
+    static_html: Option<String>,
 }
 
 #[actix_web::main]
@@ -130,8 +146,11 @@ async fn main() -> AnyResult<()> {
         .await
         .map_err(|e| AnyError::msg(format!("error reading config file '{config_file}': {e}")))?;
     let config_yaml = String::from_utf8_lossy(&config_yaml);
-    let config: ServerConfig = serde_yaml::from_str(&config_yaml)
+    let mut config: ServerConfig = serde_yaml::from_str(&config_yaml)
         .map_err(|e| AnyError::msg(format!("error parsing config file '{config_file}': {e}")))?;
+    if let Some(static_html) = &args.static_html {
+        config.static_html = Some(static_html.clone());
+    }
     let config = config.canonicalize().await?;
 
     run(config).await
@@ -141,6 +160,7 @@ struct ServerState {
     db: Arc<Mutex<ProjectDB>>,
     _compiler: Compiler,
     runner: Runner,
+    config: ServerConfig,
 }
 
 impl ServerState {
@@ -151,6 +171,7 @@ impl ServerState {
             db,
             _compiler: compiler,
             runner,
+            config,
         }
     }
 }
@@ -187,15 +208,8 @@ where
         Some(resource) => resource.data.to_owned(),
     };
 
-    app.app_data(state)
-        .route(
-            "/",
-            web::get().to(move || {
-                let index_data = index_data.clone();
-                async { HttpResponse::Ok().body(index_data) }
-            }),
-        )
-        .service(ResourceFiles::new("/static", generated))
+    let app = app
+        .app_data(state.clone())
         .service(list_projects)
         .service(project_code)
         .service(project_status)
@@ -210,7 +224,25 @@ where
         .service(new_pipeline)
         .service(kill_pipeline)
         .service(delete_pipeline)
-        .service(list_project_pipelines)
+        .service(list_project_pipelines);
+
+    if let Some(static_html) = &state.config.static_html {
+        app.route("/", web::get().to(index))
+            .service(fs::Files::new("/static", static_html).show_files_listing())
+    } else {
+        app.route(
+            "/",
+            web::get().to(move || {
+                let index_data = index_data.clone();
+                async { HttpResponse::Ok().body(index_data) }
+            }),
+        )
+        .service(ResourceFiles::new("/static", generated))
+    }
+}
+
+async fn index() -> ActixResult<NamedFile> {
+    Ok(NamedFile::open("static/index.html")?)
 }
 
 #[get("/list_projects")]
