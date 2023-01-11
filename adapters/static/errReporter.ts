@@ -1,4 +1,4 @@
-import { IHtmlElement, SpecialChars } from "./ui";
+import { beep, IHtmlElement, SpecialChars } from "./ui";
 /**
  * Core interface for reporting errors.
  */
@@ -86,5 +86,58 @@ export class ErrorDisplay implements IHtmlElement, ErrorReporter {
 
     public copy(): void {
         navigator.clipboard.writeText(this.console.innerText);
+        beep();
     }
 }
+
+/**
+ * A Class which knows how to handle get and put requests.
+ */
+export class WebClient {
+    constructor(public display: ErrorDisplay) {    }
+
+    public get(url: string, continuation: (response: Response) => void): void {
+        fetch(url, {
+            method: 'GET',
+            headers: {
+              Accept: 'application/json',
+            },
+          }).then(response => {
+            if (response.ok) {
+                continuation(response);
+                return;
+            }
+            this.error(response);
+          });
+    }
+
+    public post(url: string, data: object, continuation: (response: Response) => void): void {
+        fetch(url, {
+            method: 'POST',
+            headers: {
+                "content-type": 'application/json',
+            },
+            body: JSON.stringify(data),
+        })
+        .then(response => {
+            if (response.ok) {
+                continuation(response);
+                return;
+            }
+            this.error(response);
+        });
+    }
+
+    error(response: Response): void {
+        this.display.reportError("Error received: " + response.status);
+    }
+
+    showText(response: Response): void {
+        response.text().then(t => this.display.reportError(t));
+    }
+
+    showJson(response: Response): void {
+        response.json().then(t => this.display.reportError(t));
+    }
+}
+
