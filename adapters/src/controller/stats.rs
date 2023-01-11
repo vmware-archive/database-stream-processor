@@ -325,9 +325,15 @@ impl ControllerStatus {
         })
     }
 
+    pub fn parse_error(&self, endpoint_id: EndpointId) {
+        if let Some(endpoint_stats) = self.input_status().get(&endpoint_id) {
+            endpoint_stats.parse_error();
+        }
+    }
+
     pub fn input_transport_error(&self, endpoint_id: EndpointId, fatal: bool, error: &AnyError) {
         if let Some(endpoint_stats) = self.input_status().get(&endpoint_id) {
-            endpoint_stats.error(fatal, error);
+            endpoint_stats.transport_error(fatal, error);
         }
     }
 
@@ -354,7 +360,9 @@ pub struct InputEndpointMetrics {
     /// (not yet consumed by the circuit).
     pub buffered_records: AtomicU64,
 
-    pub num_errors: AtomicU64,
+    pub num_transport_errors: AtomicU64,
+
+    pub num_parse_errors: AtomicU64,
 }
 
 /// Input endpoint status information.
@@ -409,10 +417,15 @@ impl InputEndpointStatus {
             .fetch_add(num_records, Ordering::AcqRel)
     }
 
-    /// Increment error counter.  If this is the first fatal error,
+    /// Increment parser error counter.
+    fn parse_error(&self) {
+        self.metrics.num_parse_errors.fetch_add(1, Ordering::AcqRel);
+    }
+
+    /// Increment transport error counter.  If this is the first fatal error,
     /// save it in `self.fatal_error`.
-    fn error(&self, fatal: bool, error: &AnyError) {
-        self.metrics.num_errors.fetch_add(1, Ordering::AcqRel);
+    fn transport_error(&self, fatal: bool, error: &AnyError) {
+        self.metrics.num_transport_errors.fetch_add(1, Ordering::AcqRel);
         if fatal {
             let mut fatal_error = self.fatal_error.lock().unwrap();
             if fatal_error.is_none() {

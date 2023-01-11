@@ -744,6 +744,19 @@ impl ControllerInner {
         ));
     }
 
+    fn parse_error(
+        &self,
+        endpoint_id: EndpointId,
+        endpoint_name: &str,
+        error: AnyError,
+    ) {
+        self.status.parse_error(endpoint_id);
+        self.error(ControllerError::parse_error(
+            endpoint_name,
+            error,
+        ));
+    }
+
     /// Process an output transport error.
     ///
     /// Update endpoint stats and notify the error callback.
@@ -820,7 +833,7 @@ impl InputConsumer for InputProbe {
             Err(error) => {
                 self.parser.clear();
                 self.controller
-                    .error(ControllerError::parse_error(&self.endpoint_name, error));
+                    .parse_error(self.endpoint_id, &self.endpoint_name, error);
             }
         }
     }
