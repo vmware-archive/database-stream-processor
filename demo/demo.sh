@@ -19,7 +19,7 @@ psql -h localhost -U postgres -f "${ROOT}/pipeline_server/create_db.sql"
 
 # Start server
 cd "${SERVER_DIR}" && cargo build --release
-cd "${SERVER_DIR}" && cargo run --release 2> "${THIS_DIR}/server.log"& 
+cd "${SERVER_DIR}" && cargo run --release -- --static-html=static 2> "${THIS_DIR}/server.log"& 
 
 TIMEOUT=10
 
