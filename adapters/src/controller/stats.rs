@@ -425,7 +425,9 @@ impl InputEndpointStatus {
     /// Increment transport error counter.  If this is the first fatal error,
     /// save it in `self.fatal_error`.
     fn transport_error(&self, fatal: bool, error: &AnyError) {
-        self.metrics.num_transport_errors.fetch_add(1, Ordering::AcqRel);
+        self.metrics
+            .num_transport_errors
+            .fetch_add(1, Ordering::AcqRel);
         if fatal {
             let mut fatal_error = self.fatal_error.lock().unwrap();
             if fatal_error.is_none() {

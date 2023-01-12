@@ -57,6 +57,20 @@ struct Args {
     default_port: Option<u16>,
 }
 
+/// Server main function.
+///
+/// This function is intended to be invoked from the generated code.
+/// It performs the following steps needed to start a circuit server:
+///
+/// * Setup logging.
+/// * Parse command line arguments.
+/// * Start the server.
+///
+/// # Arguments
+///
+/// * `circuit_factory` - a function that creates a circuit and builds an
+///   input/output stream
+/// catalog.
 pub fn server_main<F>(circuit_factory: &F) -> AnyResult<()>
 where
     F: Fn(usize) -> (DBSPHandle, Catalog),
@@ -70,7 +84,7 @@ where
     })
 }
 
-pub fn server_main_inner<F>(circuit_factory: &F) -> AnyResult<()>
+fn server_main_inner<F>(circuit_factory: &F) -> AnyResult<()>
 where
     F: Fn(usize) -> (DBSPHandle, Catalog),
 {

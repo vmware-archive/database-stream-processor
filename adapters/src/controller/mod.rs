@@ -744,17 +744,9 @@ impl ControllerInner {
         ));
     }
 
-    fn parse_error(
-        &self,
-        endpoint_id: EndpointId,
-        endpoint_name: &str,
-        error: AnyError,
-    ) {
+    fn parse_error(&self, endpoint_id: EndpointId, endpoint_name: &str, error: AnyError) {
         self.status.parse_error(endpoint_id);
-        self.error(ControllerError::parse_error(
-            endpoint_name,
-            error,
-        ));
+        self.error(ControllerError::parse_error(endpoint_name, error));
     }
 
     /// Process an output transport error.
