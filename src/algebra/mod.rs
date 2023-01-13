@@ -559,6 +559,21 @@ impl<V> Semigroup<V> for UnimplementedSemigroup<V> {
     }
 }
 
+pub struct PairSemigroup<TS, T, RS, R>(PhantomData<(TS, T, RS, R)>);
+
+impl<TS, T, RS, R> Semigroup<(T, R)> for PairSemigroup<TS, T, RS, R>
+where
+    TS: Semigroup<T>,
+    RS: Semigroup<R>,
+{
+    fn combine(left: &(T, R), right: &(T, R)) -> (T, R) {
+        (
+            TS::combine(&left.0, &right.0),
+            RS::combine(&left.1, &right.1),
+        )
+    }
+}
+
 #[cfg(test)]
 mod integer_ring_tests {
     use super::*;
@@ -591,5 +606,18 @@ mod integer_ring_tests {
         assert_eq!(2, two);
         assert_eq!(-2, two.neg_by_ref());
         assert_eq!(-4, two.mul_by_ref(&two.neg_by_ref()));
+    }
+
+    #[test]
+    fn semigroup_tests() {
+        assert_eq!(DefaultSemigroup::combine(&0i32, &1i32), 1i32);
+        assert_eq!(DefaultSemigroup::combine(&0i64, &1i64), 1i64);
+        assert_eq!(
+            PairSemigroup::<DefaultSemigroup::<i32>, i32, DefaultSemigroup::<i64>, i64>::combine(
+                &(0i32, 0i64),
+                &(1i32, 1i64)
+            ),
+            (1i32, 1i64)
+        );
     }
 }
