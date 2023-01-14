@@ -18,22 +18,28 @@ use tokio::{
     spawn,
     sync::mpsc::{channel, Receiver, Sender},
 };
+mod prometheus;
 
-// TODO:
-//
-// - grafana
+use self::prometheus::Prometheus;
 
 struct ServerState {
     metadata: String,
     controller: Mutex<Option<Controller>>,
+    prometheus: Prometheus,
     terminate_sender: Option<Sender<()>>,
 }
 
 impl ServerState {
-    fn new(controller: Controller, meta: String, terminate_sender: Option<Sender<()>>) -> Self {
+    fn new(
+        controller: Controller,
+        prometheus: Prometheus,
+        meta: String,
+        terminate_sender: Option<Sender<()>>,
+    ) -> Self {
         Self {
             metadata: meta,
             controller: Mutex::new(Some(controller)),
+            prometheus,
             terminate_sender,
         }
     }
@@ -155,6 +161,9 @@ where
         Box::new(|e| error!("{e}")) as Box<dyn Fn(ControllerError) + Send + Sync>,
     )?;
 
+    let prometheus = Prometheus::new(&controller)
+        .map_err(|e| AnyError::msg(format!("failed to initialize Prometheus metrics: {e}")))?;
+
     let listener = match default_port {
         Some(port) => TcpListener::bind(("127.0.0.1", port))
             .or_else(|_| TcpListener::bind(("127.0.0.1", 0)))?,
@@ -164,7 +173,12 @@ where
     let port = listener.local_addr()?.port();
 
     let (terminate_sender, terminate_receiver) = channel(1);
-    let state = WebData::new(ServerState::new(controller, meta, Some(terminate_sender)));
+    let state = WebData::new(ServerState::new(
+        controller,
+        prometheus,
+        meta,
+        Some(terminate_sender),
+    ));
     let server =
         HttpServer::new(move || build_app(App::new().wrap(Logger::default()), state.clone()))
             .workers(1)
@@ -202,6 +216,7 @@ where
         .service(pause)
         .service(shutdown)
         .service(status)
+        .service(metrics)
         .service(metadata)
         .service(kill)
 }
@@ -241,6 +256,22 @@ async fn status(state: WebData<ServerState>) -> impl Responder {
     }
 }
 
+/// This endpoint is invoked by the Prometheus server.
+#[get("/metrics")]
+async fn metrics(state: WebData<ServerState>) -> impl Responder {
+    match &*state.controller.lock().unwrap() {
+        Some(controller) => match state.prometheus.metrics(controller) {
+            Ok(metrics) => HttpResponse::Ok()
+                .content_type(mime::TEXT_PLAIN)
+                .body(metrics),
+            Err(e) => {
+                HttpResponse::InternalServerError().body(format!("Error retrieving metrics: {e}"))
+            }
+        },
+        None => HttpResponse::Conflict().body("The pipeline has been terminated"),
+    }
+}
+
 #[get("/metadata")]
 async fn metadata(state: WebData<ServerState>) -> impl Responder {
     HttpResponse::Ok()
@@ -273,7 +304,7 @@ async fn kill(state: WebData<ServerState>) -> impl Responder {
 #[cfg(test)]
 #[cfg(feature = "with-kafka")]
 mod test_with_kafka {
-    use super::{build_app, ServerState};
+    use super::{build_app, Prometheus, ServerState};
     use crate::{
         test::{
             generate_test_batches,
@@ -364,7 +395,14 @@ outputs:
 
         // Create service
         println!("Creating HTTP server");
-        let state = WebData::new(ServerState::new(controller, "metadata".to_string(), None));
+
+        let prometheus = Prometheus::new(&controller).unwrap();
+        let state = WebData::new(ServerState::new(
+            controller,
+            prometheus,
+            "metadata".to_string(),
+            None,
+        ));
         let app =
             test::init_service(build_app(App::new().wrap(Logger::default()), state.clone())).await;
 

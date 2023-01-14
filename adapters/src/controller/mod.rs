@@ -65,9 +65,9 @@ pub use config::{
     OutputEndpointConfig,
 };
 pub use error::ControllerError;
-pub use stats::ControllerStatus;
+pub use stats::{ControllerStatus, InputEndpointStatus, OutputEndpointStatus};
 
-type EndpointId = u64;
+pub(crate) type EndpointId = u64;
 
 /// Controller that coordinates the creation, reconfiguration, teardown of
 /// input/output adapters, and implements runtime flow control.
@@ -670,9 +670,9 @@ impl ControllerInner {
             if let Some(data) = queue.pop() {
                 let num_records = data.iter().map(|b| b.len()).sum();
 
-                encoder.encode(data.as_slice()).unwrap_or_else(|e| {
-                    controller.error(ControllerError::encoder_error(&endpoint_name, e))
-                });
+                encoder
+                    .encode(data.as_slice())
+                    .unwrap_or_else(|e| controller.encode_error(endpoint_id, &endpoint_name, e));
 
                 // `num_records` output records have been transmitted --
                 // update output stats, wake up the circuit thread if the
@@ -747,6 +747,11 @@ impl ControllerInner {
     fn parse_error(&self, endpoint_id: EndpointId, endpoint_name: &str, error: AnyError) {
         self.status.parse_error(endpoint_id);
         self.error(ControllerError::parse_error(endpoint_name, error));
+    }
+
+    fn encode_error(&self, endpoint_id: EndpointId, endpoint_name: &str, error: AnyError) {
+        self.status.encode_error(endpoint_id);
+        self.error(ControllerError::encode_error(endpoint_name, error));
     }
 
     /// Process an output transport error.

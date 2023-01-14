@@ -37,6 +37,7 @@ proptest-derive = { version = "0.3.0", optional = true }
 env_logger = "0.10.0"
 clap = {version = "4.0.32", features = ["derive"] }
 tokio = { version = "1.24.1", features = ["sync"] }
+prometheus = "0.13.3"
 
 [dev-dependencies]
 serde_json = "1.0.89"
