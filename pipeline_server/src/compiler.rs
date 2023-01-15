@@ -3,7 +3,6 @@ use anyhow::{Error as AnyError, Result as AnyResult};
 use fs_extra::{dir, dir::CopyOptions};
 use log::{debug, error, trace};
 use std::{
-    path::{Path, PathBuf},
     process::{ExitStatus, Stdio},
     sync::Arc,
 };
@@ -33,67 +32,6 @@ fn main() {
         std::process::exit(1);
     });
 }"#;
-
-impl ServerConfig {
-    fn crate_name(project_id: ProjectId) -> String {
-        format!("project{project_id}")
-    }
-
-    fn workspace_dir(&self) -> PathBuf {
-        Path::new(&self.working_directory).join("cargo_workspace")
-    }
-
-    pub fn project_dir(&self, project_id: ProjectId) -> PathBuf {
-        self.workspace_dir().join(Self::crate_name(project_id))
-    }
-
-    pub fn sql_file_path(&self, project_id: ProjectId) -> PathBuf {
-        self.project_dir(project_id).join("project.sql")
-    }
-
-    pub fn sql_compiler_path(&self) -> PathBuf {
-        Path::new(&self.sql_compiler_home)
-            .join("SQL-compiler")
-            .join("sql-to-dbsp")
-    }
-
-    pub fn sql_lib_path(&self) -> PathBuf {
-        Path::new(&self.sql_compiler_home).join("lib")
-    }
-
-    pub fn stderr_path(&self, project_id: ProjectId) -> PathBuf {
-        self.project_dir(project_id).join("err.log")
-    }
-
-    pub fn stdout_path(&self, project_id: ProjectId) -> PathBuf {
-        self.project_dir(project_id).join("out.log")
-    }
-
-    pub fn rust_program_path(&self, project_id: ProjectId) -> PathBuf {
-        self.project_dir(project_id).join("src").join("main.rs")
-    }
-
-    pub fn project_toml_template_path(&self) -> PathBuf {
-        Path::new(&self.sql_compiler_home)
-            .join("temp")
-            .join("Cargo.toml")
-    }
-
-    pub fn project_toml_path(&self, project_id: ProjectId) -> PathBuf {
-        self.project_dir(project_id).join("Cargo.toml")
-    }
-
-    pub fn workspace_toml_path(&self) -> PathBuf {
-        self.workspace_dir().join("Cargo.toml")
-    }
-
-    pub fn project_executable(&self, project_id: ProjectId) -> PathBuf {
-        Path::new(&self.workspace_dir())
-            .join("target")
-            .join("release")
-            .join(Self::crate_name(project_id))
-    }
-}
 
 impl Compiler {
     pub(crate) async fn new(config: &ServerConfig, db: Arc<Mutex<ProjectDB>>) -> AnyResult<Self> {

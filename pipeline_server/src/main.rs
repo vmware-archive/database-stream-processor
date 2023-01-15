@@ -16,100 +16,17 @@ use clap::Parser;
 use env_logger::Env;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use tokio::{
-    fs::{canonicalize, create_dir_all, read},
-    sync::Mutex,
-};
+use tokio::{fs::read, sync::Mutex};
 
 mod compiler;
+mod config;
 mod db;
 mod runner;
 
-pub use compiler::Compiler;
+pub(crate) use compiler::Compiler;
+pub(crate) use config::ServerConfig;
 use db::{ConfigId, PipelineId, ProjectDB, ProjectId, Version};
 use runner::Runner;
-
-const fn default_server_port() -> u16 {
-    8080
-}
-
-fn default_pg_connection_string() -> String {
-    "host=localhost user=dbsp".to_string()
-}
-
-fn default_working_directory() -> String {
-    ".".to_string()
-}
-
-#[derive(Deserialize, Clone)]
-pub(self) struct ServerConfig {
-    #[serde(default = "default_server_port")]
-    port: u16,
-    #[serde(default = "default_pg_connection_string")]
-    pg_connection_string: String,
-    #[serde(default = "default_working_directory")]
-    working_directory: String,
-    sql_compiler_home: String,
-    dbsp_override_path: Option<String>,
-    static_html: Option<String>,
-}
-
-impl ServerConfig {
-    async fn canonicalize(self) -> AnyResult<Self> {
-        let mut result = self.clone();
-        create_dir_all(&result.working_directory)
-            .await
-            .map_err(|e| {
-                AnyError::msg(format!(
-                    "unable to create or open working directry '{}': {e}",
-                    result.working_directory
-                ))
-            })?;
-
-        result.working_directory = canonicalize(&result.working_directory)
-            .await
-            .map_err(|e| {
-                AnyError::msg(format!(
-                    "error canonicalizing working directory path '{}': {e}",
-                    result.working_directory
-                ))
-            })?
-            .to_string_lossy()
-            .into_owned();
-        result.sql_compiler_home = canonicalize(&result.sql_compiler_home)
-            .await
-            .map_err(|e| {
-                AnyError::msg(format!(
-                    "failed to access SQL compiler home '{}': {e}",
-                    result.sql_compiler_home
-                ))
-            })?
-            .to_string_lossy()
-            .into_owned();
-
-        if let Some(path) = result.dbsp_override_path.as_mut() {
-            *path = canonicalize(&path)
-                .await
-                .map_err(|e| {
-                    AnyError::msg(format!(
-                        "failed to access dbsp override directory '{path}': {e}"
-                    ))
-                })?
-                .to_string_lossy()
-                .into_owned();
-        }
-
-        if let Some(path) = result.static_html.as_mut() {
-            *path = canonicalize(&path)
-                .await
-                .map_err(|e| AnyError::msg(format!("failed to access '{path}': {e}")))?
-                .to_string_lossy()
-                .into_owned();
-        }
-
-        Ok(result)
-    }
-}
 
 #[derive(Serialize, Eq, PartialEq)]
 pub enum ProjectStatus {

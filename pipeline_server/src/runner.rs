@@ -7,12 +7,7 @@ use anyhow::{Error as AnyError, Result as AnyResult};
 use regex::Regex;
 use reqwest::StatusCode;
 use serde::Serialize;
-use std::{
-    path::{Path, PathBuf},
-    pin::Pin,
-    process::Stdio,
-    sync::Arc,
-};
+use std::{path::Path, pin::Pin, process::Stdio, sync::Arc};
 use tokio::{
     fs,
     fs::{create_dir_all, remove_dir_all, File},
@@ -23,26 +18,6 @@ use tokio::{
 };
 
 const STARTUP_TIMEOUT: Duration = Duration::from_millis(10_000);
-
-impl ServerConfig {
-    fn pipeline_dir(&self, pipeline_id: PipelineId) -> PathBuf {
-        Path::new(&self.working_directory)
-            .join("pipelines")
-            .join(format!("pipeline{pipeline_id}"))
-    }
-
-    fn config_file_path(&self, pipeline_id: PipelineId) -> PathBuf {
-        self.pipeline_dir(pipeline_id).join("config.yaml")
-    }
-
-    fn metadata_file_path(&self, pipeline_id: PipelineId) -> PathBuf {
-        self.pipeline_dir(pipeline_id).join("metadata.json")
-    }
-
-    fn log_file_path(&self, pipeline_id: PipelineId) -> PathBuf {
-        self.pipeline_dir(pipeline_id).join("pipeline.log")
-    }
-}
 
 #[derive(Serialize)]
 struct PipelineMetadata {
