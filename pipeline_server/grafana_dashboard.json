@@ -57,7 +57,7 @@
   "graphTooltip": 0,
   "id": null,
   "links": [],
-  "liveNow": false,
+  "liveNow": true,
   "panels": [
     {
       "datasource": {
@@ -429,7 +429,7 @@
       "type": "timeseries"
     }
   ],
-  "refresh": false,
+  "refresh": "5s",
   "schemaVersion": 37,
   "style": "dark",
   "tags": [],
@@ -441,17 +441,39 @@
           "type": "prometheus",
           "uid": "${DS_PROMETHEUS}"
         },
-        "definition": "label_values(pipeline_id)",
+        "definition": "label_values(project_name)",
+        "hide": 0,
+        "includeAll": false,
+        "multi": false,
+        "name": "project_name",
+        "options": [],
+        "query": {
+          "query": "label_values(project_name)",
+          "refId": "StandardVariableQuery"
+        },
+        "refresh": 2,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 0,
+        "type": "query"
+      },
+      {
+        "current": {},
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${DS_PROMETHEUS}"
+        },
+        "definition": "label_values(input_total_bytes{project_name=~\"$project_name\"}, pipeline_id)",
         "hide": 0,
         "includeAll": false,
         "multi": false,
         "name": "pipeline_id",
         "options": [],
         "query": {
-          "query": "label_values(pipeline_id)",
+          "query": "label_values(input_total_bytes{project_name=~\"$project_name\"}, pipeline_id)",
           "refId": "StandardVariableQuery"
         },
-        "refresh": 1,
+        "refresh": 2,
         "regex": "",
         "skipUrlSync": false,
         "sort": 0,
@@ -464,7 +486,7 @@
     "to": "now"
   },
   "timepicker": {
-    "hidden": true,
+    "hidden": false,
     "refresh_intervals": [
       "5s",
       "10s",
@@ -493,6 +515,6 @@
   "timezone": "browser",
   "title": "DBSP",
   "uid": "v16JN3h4k",
-  "version": 9,
+  "version": 6,
   "weekStart": ""
 }

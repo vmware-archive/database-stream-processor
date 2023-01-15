@@ -75,8 +75,12 @@ impl Compiler {
                 _ = sleep(COMPILER_POLL_INTERVAL) => {
                     let mut cancel = false;
                     if let Some(job) = &job {
-                        let ver_status = db.lock().await.project_status(job.project_id).await?;
-                        if ver_status != Some((job.version, ProjectStatus::Compiling)) {
+                        let descr = db.lock().await.get_project(job.project_id).await?;
+                        if let Some(descr) = descr {
+                            if descr.version != job.version || descr.status != ProjectStatus::Compiling {
+                                cancel = true;
+                            }
+                        } else {
                             cancel = true;
                         }
                     }

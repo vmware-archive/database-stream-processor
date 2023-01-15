@@ -64,6 +64,7 @@ pub(crate) struct ProjectDescr {
     pub project_id: ProjectId,
     pub name: String,
     pub version: Version,
+    pub status: ProjectStatus,
 }
 
 impl ProjectDB {
@@ -91,15 +92,21 @@ impl ProjectDB {
     pub(crate) async fn list_projects(&self) -> AnyResult<Vec<ProjectDescr>> {
         let rows = self
             .dbclient
-            .query("SELECT id, name, version FROM project", &[])
+            .query("SELECT id, name, version, status, error FROM project", &[])
             .await?;
         let mut result = Vec::with_capacity(rows.len());
 
         for row in rows.into_iter() {
+            let status: Option<&str> = row.try_get(3)?;
+            let error: Option<String> = row.try_get(4)?;
+
+            let status = ProjectStatus::from_columns(status, error)?;
+
             result.push(ProjectDescr {
                 project_id: row.try_get(0)?,
                 name: row.try_get(1)?,
                 version: row.try_get(2)?,
+                status,
             });
         }
 
@@ -184,25 +191,32 @@ impl ProjectDB {
         Ok(version)
     }
 
-    pub(crate) async fn project_status(
+    pub(crate) async fn get_project(
         &self,
         project_id: ProjectId,
-    ) -> AnyResult<Option<(Version, ProjectStatus)>> {
+    ) -> AnyResult<Option<ProjectDescr>> {
         let row = self
             .dbclient
             .query_opt(
-                "SELECT version, status, error FROM project WHERE id = $1",
+                "SELECT name, version, status, error FROM project WHERE id = $1",
                 &[&project_id],
             )
             .await?;
 
         if let Some(row) = row {
-            let version: Version = row.try_get(0)?;
-            let status: Option<&str> = row.try_get(1)?;
-            let error: Option<String> = row.try_get(2)?;
+            let name: String = row.try_get(0)?;
+            let version: Version = row.try_get(1)?;
+            let status: Option<&str> = row.try_get(2)?;
+            let error: Option<String> = row.try_get(3)?;
 
             let status = ProjectStatus::from_columns(status, error)?;
-            Ok(Some((version, status)))
+
+            Ok(Some(ProjectDescr {
+                project_id,
+                name,
+                version,
+                status,
+            }))
         } else {
             Ok(None)
         }
@@ -263,18 +277,18 @@ impl ProjectDB {
         project_id: ProjectId,
         expected_version: Version,
     ) -> AnyResult<bool> {
-        let ver_stat = self.project_status(project_id).await?;
+        let ver_stat = self.get_project(project_id).await?;
         if ver_stat.is_none() {
             return Ok(false);
         }
 
-        let (version, status) = ver_stat.unwrap();
+        let descr = ver_stat.unwrap();
 
-        if version != expected_version {
+        if descr.version != expected_version {
             return Ok(false);
         }
 
-        if status == ProjectStatus::Pending || status == ProjectStatus::Compiling {
+        if descr.status == ProjectStatus::Pending || descr.status == ProjectStatus::Compiling {
             return Ok(false);
         }
 
@@ -289,18 +303,18 @@ impl ProjectDB {
         project_id: ProjectId,
         expected_version: Version,
     ) -> AnyResult<bool> {
-        let ver_stat = self.project_status(project_id).await?;
-        if ver_stat.is_none() {
+        let descr = self.get_project(project_id).await?;
+        if descr.is_none() {
             return Ok(false);
         }
 
-        let (version, status) = ver_stat.unwrap();
+        let descr = descr.unwrap();
 
-        if version != expected_version {
+        if descr.version != expected_version {
             return Ok(false);
         }
 
-        if status != ProjectStatus::Pending || status != ProjectStatus::Compiling {
+        if descr.status != ProjectStatus::Pending || descr.status != ProjectStatus::Compiling {
             return Ok(false);
         }
 

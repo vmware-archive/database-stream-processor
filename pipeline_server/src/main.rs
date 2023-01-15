@@ -237,10 +237,13 @@ async fn project_status(state: WebData<ServerState>, req: HttpRequest) -> impl R
         },
     };
 
-    match state.db.lock().await.project_status(project_id).await {
-        Ok(Some((version, status))) => {
-            let json_string =
-                serde_json::to_string(&ProjectStatusResponse { version, status }).unwrap();
+    match state.db.lock().await.get_project(project_id).await {
+        Ok(Some(descr)) => {
+            let json_string = serde_json::to_string(&ProjectStatusResponse {
+                version: descr.version,
+                status: descr.status,
+            })
+            .unwrap();
             HttpResponse::Ok()
                 .insert_header(CacheControl(vec![CacheDirective::NoCache]))
                 .content_type(mime::APPLICATION_JSON)

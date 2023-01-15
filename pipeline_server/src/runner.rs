@@ -110,22 +110,22 @@ scrape_configs:
         let db = self.db.lock().await;
 
         // Check: project exists, version = current version, compilation completed.
-        match db.project_status(request.project_id).await? {
+        let descr = match db.get_project(request.project_id).await? {
             None => {
                 return Ok(HttpResponse::BadRequest()
                     .body(format!("unknown project id '{}'", request.project_id)));
             }
-            Some((version, _status)) if version != request.project_version => {
+            Some(descr) if descr.version != request.project_version => {
                 return Ok(HttpResponse::Conflict().body(format!(
-                    "specified version '{}' does not match the latest project version '{version}'",
-                    request.project_version
+                    "specified version '{}' does not match the latest project version '{}'",
+                    request.project_version, descr.version
                 )));
             }
-            Some((_version, status)) if status != ProjectStatus::Success => {
+            Some(descr) if descr.status != ProjectStatus::Success => {
                 return Ok(HttpResponse::Conflict().body("project hasn't been compiled yet"));
             }
-            _ => {}
-        }
+            Some(descr) => descr,
+        };
 
         let config_yaml = match db.get_project_config(request.config_id).await? {
             None => {
@@ -179,7 +179,7 @@ scrape_configs:
 
                 // Create Prometheus config file for the pipeline.
                 // The Prometheus server should pick up this file automatically.
-                self.create_prometheus_config(request.project_id, pipeline_id, port)
+                self.create_prometheus_config(&descr.name, request.project_id, pipeline_id, port)
                     .await
                     // Don't abandon pipeline creation on error.
                     .unwrap_or_else(|e| {
@@ -289,6 +289,7 @@ scrape_configs:
 
     async fn create_prometheus_config(
         &self,
+        project_name: &str,
         project_id: ProjectId,
         pipeline_id: PipelineId,
         port: u16,
@@ -296,6 +297,7 @@ scrape_configs:
         let config = format!(
             r#"- targets: [ "localhost:{port}" ]
   labels:
+    project_name: "{project_name}"
     pipeline_id: {pipeline_id}
     project_id: {project_id}"#
         );
