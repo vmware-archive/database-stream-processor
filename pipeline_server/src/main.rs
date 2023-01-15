@@ -81,15 +81,19 @@ struct ServerState {
 }
 
 impl ServerState {
-    fn new(config: ServerConfig, db: Arc<Mutex<ProjectDB>>, compiler: Compiler) -> Self {
-        let runner = Runner::new(db.clone(), &config);
+    async fn new(
+        config: ServerConfig,
+        db: Arc<Mutex<ProjectDB>>,
+        compiler: Compiler,
+    ) -> AnyResult<Self> {
+        let runner = Runner::new(db.clone(), &config).await?;
 
-        Self {
+        Ok(Self {
             db,
             _compiler: compiler,
             runner,
             config,
-        }
+        })
     }
 }
 
@@ -100,7 +104,7 @@ async fn run(config: ServerConfig) -> AnyResult<()> {
     db.lock().await.clear_pending_projects().await?;
 
     let port = config.port;
-    let state = WebData::new(ServerState::new(config, db, compiler));
+    let state = WebData::new(ServerState::new(config, db, compiler).await?);
 
     HttpServer::new(move || build_app(App::new().wrap(Logger::default()), state.clone()))
         .bind(("127.0.0.1", port))?

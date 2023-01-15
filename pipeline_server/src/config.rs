@@ -27,6 +27,8 @@ pub(crate) struct ServerConfig {
     pub sql_compiler_home: String,
     pub dbsp_override_path: Option<String>,
     pub static_html: Option<String>,
+    #[serde(default)]
+    pub with_prometheus: bool,
 }
 
 impl ServerConfig {
@@ -160,5 +162,18 @@ impl ServerConfig {
 
     pub(crate) fn log_file_path(&self, pipeline_id: PipelineId) -> PathBuf {
         self.pipeline_dir(pipeline_id).join("pipeline.log")
+    }
+
+    pub(crate) fn prometheus_dir(&self) -> PathBuf {
+        Path::new(&self.working_directory).join("prometheus")
+    }
+
+    pub(crate) fn prometheus_server_config_file(&self) -> PathBuf {
+        Path::new(&self.working_directory).join("prometheus.yaml")
+    }
+
+    pub(crate) fn prometheus_pipeline_config_file(&self, pipeline_id: PipelineId) -> PathBuf {
+        self.prometheus_dir()
+            .join(format!("pipeline{pipeline_id}.yaml"))
     }
 }

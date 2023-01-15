@@ -4,6 +4,7 @@ use crate::{
 };
 use actix_web::HttpResponse;
 use anyhow::{Error as AnyError, Result as AnyResult};
+use log::error;
 use regex::Regex;
 use reqwest::StatusCode;
 use serde::Serialize;
@@ -29,13 +30,76 @@ struct PipelineMetadata {
 pub struct Runner {
     db: Arc<Mutex<ProjectDB>>,
     config: ServerConfig,
+    // TODO: The Prometheus server should be isntantiated and managed by k8s.
+    prometheus_server: Option<Child>,
+}
+
+impl Drop for Runner {
+    fn drop(&mut self) {
+        if let Some(mut prometheus) = self.prometheus_server.take() {
+            let _ = prometheus.start_kill();
+        }
+    }
 }
 
 impl Runner {
-    pub(crate) fn new(db: Arc<Mutex<ProjectDB>>, config: &ServerConfig) -> Self {
-        Self {
+    pub(crate) async fn new(db: Arc<Mutex<ProjectDB>>, config: &ServerConfig) -> AnyResult<Self> {
+        let prometheus_server = Self::start_prometheus(config).await?;
+        Ok(Self {
             db,
             config: config.clone(),
+            prometheus_server,
+        })
+    }
+
+    async fn start_prometheus(config: &ServerConfig) -> AnyResult<Option<Child>> {
+        // Create Prometheus dir before starting any pipelines so that the
+        // Prometheus server can locate the directory to scan.
+        let prometheus_dir = config.prometheus_dir();
+        create_dir_all(&prometheus_dir).await.map_err(|e| {
+            AnyError::msg(format!(
+                "error creating Prometheus configs directory '{}': {e}",
+                prometheus_dir.display()
+            ))
+        })?;
+
+        if config.with_prometheus {
+            // Prometheus server configuration.
+            let prometheus_config = format!(
+                r#"
+global:
+  scrape_interval: 5s
+
+scrape_configs:
+  - job_name: dbsp
+    file_sd_configs:
+    - files:
+      - '{}/pipeline*.yaml'
+"#,
+                prometheus_dir.display()
+            );
+            let prometheus_config_file = config.prometheus_server_config_file();
+            fs::write(&prometheus_config_file, prometheus_config)
+                .await
+                .map_err(|e| {
+                    AnyError::msg(format!(
+                        "error writing Prometheus config file '{}': {e}",
+                        prometheus_config_file.display()
+                    ))
+                })?;
+
+            // Start the Prometheus server, which will
+            // inherit stdout, stderr from us.
+            let prometheus_process = Command::new("prometheus")
+                .arg("--config.file")
+                .arg(&prometheus_config_file)
+                .stdin(Stdio::null())
+                .spawn()
+                .map_err(|e| AnyError::msg(format!("failed to start Prometheus server, {e}")))?;
+
+            Ok(Some(prometheus_process))
+        } else {
+            Ok(None)
         }
     }
 
@@ -112,6 +176,15 @@ impl Runner {
                 };
                 let json_string =
                     serde_json::to_string(&NewPipelineResponse { pipeline_id, port }).unwrap();
+
+                // Create Prometheus config file for the pipeline.
+                // The Prometheus server should pick up this file automatically.
+                self.create_prometheus_config(request.project_id, pipeline_id, port)
+                    .await
+                    // Don't abandon pipeline creation on error.
+                    .unwrap_or_else(|e| {
+                        error!("Failed to create Prometheus config file for pipeline '{pipeline_id}': {e}");
+                    });
 
                 Ok(HttpResponse::Ok()
                     .content_type(mime::APPLICATION_JSON)
@@ -212,6 +285,27 @@ impl Runner {
             }
             sleep(Duration::from_millis(100)).await;
         }
+    }
+
+    async fn create_prometheus_config(
+        &self,
+        project_id: ProjectId,
+        pipeline_id: PipelineId,
+        port: u16,
+    ) -> AnyResult<()> {
+        let config = format!(
+            r#"- targets: [ "localhost:{port}" ]
+  labels:
+    pipeline_id: {pipeline_id}
+    project_id: {project_id}"#
+        );
+        fs::write(
+            self.config.prometheus_pipeline_config_file(pipeline_id),
+            config,
+        )
+        .await?;
+
+        Ok(())
     }
 
     /*
