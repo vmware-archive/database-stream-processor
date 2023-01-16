@@ -7,6 +7,9 @@ SERVER_DIR="${ROOT}/pipeline_server/"
 # Kill previous server instance if any.
 killall -e -9 dbsp_pipeline_server
 
+# Kill prometheus
+killall -e -9 prometheus
+
 set -e
 
 # We want non-matching wildcards to return an empty list
