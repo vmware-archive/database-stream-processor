@@ -11,7 +11,7 @@ use serde::Serialize;
 use std::{path::Path, pin::Pin, process::Stdio, sync::Arc};
 use tokio::{
     fs,
-    fs::{create_dir_all, remove_dir_all, File},
+    fs::{create_dir_all, remove_file, remove_dir_all, File},
     io::{AsyncBufReadExt, AsyncReadExt, AsyncSeek, BufReader, SeekFrom},
     process::{Child, Command},
     sync::Mutex,
@@ -411,6 +411,9 @@ scrape_configs:
         }
 
         // TODO: Delete temporary topics.
+
+        // Delete Prometheus config.
+        let _ = remove_file(self.config.prometheus_pipeline_config_file(pipeline_id)).await?;
 
         // Delete pipeline directory.
         remove_dir_all(self.config.pipeline_dir(pipeline_id)).await?;
