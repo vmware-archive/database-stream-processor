@@ -230,7 +230,8 @@ scrape_configs:
 
         let log_file_path = self.config.log_file_path(pipeline_id);
         let log_file = File::create(&log_file_path).await?;
-        let out_file = log_file.try_clone().await?;
+        let out_file_path = self.config.out_file_path(pipeline_id);
+        let out_file = File::create(&out_file_path).await?;
 
         // Locate project executable.
         let executable = self.config.project_executable(request.project_id);

@@ -164,6 +164,10 @@ impl ServerConfig {
         self.pipeline_dir(pipeline_id).join("pipeline.log")
     }
 
+    pub(crate) fn out_file_path(&self, pipeline_id: PipelineId) -> PathBuf {
+        self.pipeline_dir(pipeline_id).join("pipeline.out")
+    }
+
     pub(crate) fn prometheus_dir(&self) -> PathBuf {
         Path::new(&self.working_directory).join("prometheus")
     }
