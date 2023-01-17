@@ -10,7 +10,7 @@ use serde::Serialize;
 use std::{path::Path, pin::Pin, process::Stdio, sync::Arc};
 use tokio::{
     fs,
-    fs::{create_dir_all, remove_file, remove_dir_all, File},
+    fs::{create_dir_all, remove_dir_all, remove_file, File},
     io::{AsyncBufReadExt, AsyncReadExt, AsyncSeek, BufReader, SeekFrom},
     process::{Child, Command},
     sync::Mutex,
@@ -385,7 +385,11 @@ scrape_configs:
             let url = format!("http://localhost:{port}/kill");
             let response = match reqwest::get(&url).await {
                 Ok(response) => response,
-                Err(_) => return Ok(HttpResponse::Ok().body(format!("pipeline at '{url}' already killed"))),
+                Err(_) => {
+                    return Ok(
+                        HttpResponse::Ok().body(format!("pipeline at '{url}' already killed"))
+                    )
+                }
             };
 
             if response.status().is_success() {
