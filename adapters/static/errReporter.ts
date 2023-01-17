@@ -31,6 +31,16 @@ export class ConsoleErrorReporter implements ErrorReporter {
 }
 
 /**
+ * Wait the specified time then run the supplied closure.
+ * @param milliseconds  Number of milliseconds.
+ * @param closure       Closure to run after this delay.
+ */
+export function runAfterDelay(milliseconds: number, closure: () => void) {
+    new Promise(resolve => setTimeout(resolve, 1000))
+    .then(() => closure());
+}
+
+/**
  * This class is used to display error messages in the browser window.
  */
 export class ErrorDisplay implements IHtmlElement, ErrorReporter {
@@ -73,6 +83,7 @@ export class ErrorDisplay implements IHtmlElement, ErrorReporter {
     }
 
     public reportError(message: string): void {
+        console.log(message);
         this.console.innerText = message;
         this.clearButton.style.display = "block";
         this.copyButton.style.display = "block";
@@ -129,7 +140,7 @@ export class WebClient {
     }
 
     error(response: Response): void {
-        this.display.reportError("Error received: " + response.status);
+        this.display.reportError("Error received: " + response.status + "\n" + response.text);
     }
 
     showText(response: Response): void {

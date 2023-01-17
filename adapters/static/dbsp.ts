@@ -61,6 +61,7 @@ class IOArray implements IHtmlElement {
             block.style.margin = "2px";
             block.style.flexGrow = "1";
             block.id = name + inputNo;
+            inputNo++;
             let text = document.createElement("span");
             if (name == "input") {
                 text.textContent = block.id + SpecialChars.rightArrow;

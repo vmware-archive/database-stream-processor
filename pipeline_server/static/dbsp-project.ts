@@ -1,4 +1,4 @@
-import { WebClient, ErrorDisplay } from "./errReporter"
+import { WebClient, ErrorDisplay, runAfterDelay } from "./errReporter"
 import { IHtmlElement, removeAllChildren } from './ui';
 
 /**
@@ -53,24 +53,24 @@ class ProjectDisplay extends WebClient implements IHtmlElement {
     readonly root: HTMLElement;
     readonly newProjectElement: NewProject;
     readonly pipelinesDiv: HTMLElement;
+    readonly h1: HTMLElement;
 
-    constructor(readonly project: Project, readonly parent: SwitchChild, readonly list: ProjectListDisplay) {
+    constructor(protected project: Project, readonly parent: SwitchChild, readonly list: ProjectListDisplay) {
         super(new ErrorDisplay());
         this.root = document.createElement("div");
-        const h1 = document.createElement("h1");
-        h1.textContent = "Project: " + ProjectDisplay.toString(project);
-        this.root.appendChild(h1);
+        this.h1 = document.createElement("h1");
+        this.root.appendChild(this.h1);
+
+        const back = document.createElement("button");
+        back.textContent = "Back";
+        back.title = "Return to the list of projects";
+        this.root.appendChild(back);
+        back.onclick = () => this.back();
 
         const controlPanel = document.createElement("div");
         controlPanel.style.background = "lightblue";
         controlPanel.style.width = "100%";
         this.root.appendChild(controlPanel);
-
-        const back = document.createElement("button");
-        back.textContent = "Back";
-        back.title = "Return to the list of projects";
-        controlPanel.appendChild(back);
-        back.onclick = () => this.back();
 
         const code = document.createElement("button");
         code.textContent = "Code";
@@ -79,7 +79,7 @@ class ProjectDisplay extends WebClient implements IHtmlElement {
         code.onclick = () => this.fetchCode();
 
         const status = document.createElement("button");
-        status.textContent = "Status";
+        status.textContent = "Compile status";
         status.title = "Show the compilation status of the code";
         controlPanel.appendChild(status);
         status.onclick = () => this.fetchStatus();
@@ -129,6 +129,11 @@ class ProjectDisplay extends WebClient implements IHtmlElement {
         this.newProjectElement = new NewProject(this.project.name);
         this.root.appendChild(this.pipelinesDiv);
         this.root.appendChild(this.display.getHTMLRepresentation());
+        this.refresh();
+    }
+
+    refresh() {
+        this.h1.textContent = "Project: " + ProjectDisplay.toString(this.project);
     }
     
     newConfig(): void {
@@ -294,6 +299,7 @@ class ProjectDisplay extends WebClient implements IHtmlElement {
 
     back(): void {
         this.parent.switchChild(this.list);
+        this.list.list();
     }
 
     deleteProject(): void {
@@ -305,7 +311,8 @@ class ProjectDisplay extends WebClient implements IHtmlElement {
     }
 
     update(): void {
-        const npe = this.newProjectElement.setTitle(null, "Specify new project name", 
+        const npe = this.newProjectElement.setTitle(this.project.name, 
+            "Specify new project name", 
             "Update project name and code");
         this.root.appendChild(npe);
         this.newProjectElement.submit.onclick = () => this.submitUpdate();
@@ -324,7 +331,11 @@ class ProjectDisplay extends WebClient implements IHtmlElement {
                 "code": reader.result,
             };
             this.display.reportError("Project update requested...");
-            this.post("update_project", data, t => this.showText(t));
+            this.post("update_project", data, 
+                t => {
+                    this.showText(t);
+                    this.fetchStatus();
+            });
         });
     }
 
@@ -333,9 +344,11 @@ class ProjectDisplay extends WebClient implements IHtmlElement {
             "project_id": this.project.project_id,
             "version": this.project.version,
         };
-        this.display.reportError("Compiling in background; check status periodically");
         this.post("compile_project", data, t => {
-            this.showText(t);
+            t.text().then(t => {
+                this.display.reportError("Compiling in background..." + t);
+                runAfterDelay(1000, () => this.fetchStatus());
+            });
         });
     }
 
@@ -348,8 +361,13 @@ class ProjectDisplay extends WebClient implements IHtmlElement {
     }
 
     showStatus(s: ProjectStatus): void {
+        this.project.version = s.version;
+        this.refresh();
         if (typeof s.status === 'string') {
             this.display.reportError(s.status);
+            if (s.status === 'Compiling') {
+                runAfterDelay(1000, () => this.fetchStatus());
+            }
         } else if (typeof s.status === 'object') {
             const error = s.status.SqlError ?? s.status.RustError;
             this.display.reportError("Compilation error:\n" + error);
@@ -511,8 +529,7 @@ class ProjectListDisplay extends WebClient implements IHtmlElement {
             this.post("new_project", data, 
                 (r) => {
                     this.showText(r);
-                    new Promise(resolve => setTimeout(resolve, 1000))
-                    .then(() => this.list());
+                    runAfterDelay(1000, () => this.list());
                 }
             );
         });
