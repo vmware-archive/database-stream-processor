@@ -6,7 +6,6 @@ use actix_web::HttpResponse;
 use anyhow::{Error as AnyError, Result as AnyResult};
 use log::error;
 use regex::Regex;
-use reqwest::StatusCode;
 use serde::Serialize;
 use std::{path::Path, pin::Pin, process::Stdio, sync::Arc};
 use tokio::{
@@ -384,14 +383,14 @@ scrape_configs:
             };
 
             let url = format!("http://localhost:{port}/kill");
-            let response = reqwest::get(&url).await?;
+            let response = match reqwest::get(&url).await {
+                Ok(response) => response,
+                Err(_) => return Ok(HttpResponse::Ok().body(format!("pipeline at '{url}' already killed"))),
+            };
 
             if response.status().is_success() {
                 db.set_pipeline_killed(pipeline_id).await?;
                 Ok(HttpResponse::Ok().finish())
-            } else if response.status() == StatusCode::NOT_FOUND {
-                db.set_pipeline_killed(pipeline_id).await?;
-                Ok(HttpResponse::Ok().body("pipeline at '{url}' already killed"))
             } else {
                 Ok(HttpResponse::InternalServerError().body(format!(
                     "failed to kill the pipeline; response from pipeline server: {response:?}"
