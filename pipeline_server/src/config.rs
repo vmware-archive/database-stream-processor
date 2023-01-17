@@ -29,6 +29,8 @@ pub(crate) struct ServerConfig {
     pub static_html: Option<String>,
     #[serde(default)]
     pub with_prometheus: bool,
+    #[serde(default)]
+    pub debug: bool,
 }
 
 impl ServerConfig {
@@ -142,7 +144,7 @@ impl ServerConfig {
     pub(crate) fn project_executable(&self, project_id: ProjectId) -> PathBuf {
         Path::new(&self.workspace_dir())
             .join("target")
-            .join("release")
+            .join(if self.debug { "debug" } else { "release" })
             .join(Self::crate_name(project_id))
     }
 

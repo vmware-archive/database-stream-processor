@@ -283,15 +283,21 @@ impl CompilationJob {
         let out_file = File::create(&config.stdout_path(project_id)).await?;
 
         // Run cargo, direct stdout and stderr to the same file.
-        let compiler_process = Command::new("cargo")
+        let mut command = Command::new("cargo");
+
+        command
             .current_dir(&config.workspace_dir())
             .arg("build")
-            .arg("--release")
             .arg("--workspace")
             .stdin(Stdio::null())
             .stderr(Stdio::from(err_file.into_std().await))
-            .stdout(Stdio::from(out_file.into_std().await))
-            .spawn()?;
+            .stdout(Stdio::from(out_file.into_std().await));
+
+        if !config.debug {
+            command.arg("--release");
+        }
+
+        let compiler_process = command.spawn()?;
 
         Ok(Self {
             stage: Stage::Rust,
