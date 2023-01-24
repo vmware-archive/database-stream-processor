@@ -22,7 +22,7 @@ RUN sed -i "s/scram-sha-256/trust/g" /etc/postgresql/14/main/pg_hba.conf \
 ADD ./dbsp_files.tar /database-stream-processor
 ADD ./sql_compiler_files.tar /sql-to-dbsp-compiler
 
-RUN cd /database-stream-processor && ~/.cargo/bin/cargo build
+RUN cd /database-stream-processor && ~/.cargo/bin/cargo build --release
 RUN cd /sql-to-dbsp-compiler/SQL-compiler && mvn -DskipTests package
 
 CMD service postgresql start && bash
