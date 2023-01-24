@@ -53,5 +53,4 @@ helm repo update
 helm install redpanda redpanda/redpanda --set statefulset.replicas=1
 
 
-#### Push docker image
-docker build -t dbspdemo . && docker tag dbspdemo localhost:5001/dbspdemo && docker push localhost:5001/dbspdemo
+docker tag dbspmanager localhost:5001/dbspmanager && docker push localhost:5001/dbspmanager
