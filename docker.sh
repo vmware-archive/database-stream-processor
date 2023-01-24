@@ -5,10 +5,8 @@ CURRENT_PATH=`pwd`
 DEFAULT_SQL_COMPILER_PATH="${CURRENT_PATH}/../sql-to-dbsp-compiler"
 SQL_COMPILER="${1:-$DEFAULT_SQL_COMPILER_PATH}"
 
-cd $CURRENT_PATH && (git ls-files | tar -cvf $CURRENT_PATH/dbsp_files.tar -T -)
-cd $SQL_COMPILER && (git ls-files | tar -cvf $CURRENT_PATH/sql_compiler_files.tar -T -)
-
-cd $CURRENT_PATH
+(git ls-files | tar -cvf $CURRENT_PATH/dbsp_files.tar -T -)
+(cd $SQL_COMPILER && (git ls-files | tar -cvf $CURRENT_PATH/sql_compiler_files.tar -T -))
 
 docker build -t dbspmanager .
 
