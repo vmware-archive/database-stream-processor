@@ -859,6 +859,9 @@ async fn update_config(
             , body = ErrorResponse
             , example = json!(ErrorResponse::new("Unknown config id '5'"))),
     ),
+    params(
+        ("config_id" = i64, Path, description = "Unique configuration identifier")
+    ),
     tag = "Config"
 )]
 #[delete("/configs/{config_id}")]
