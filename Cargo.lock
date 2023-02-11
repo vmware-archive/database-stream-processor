@@ -1305,6 +1305,7 @@ dependencies = [
  "static-files",
  "tempfile",
  "tokio",
+ "utoipa",
 ]
 
 [[package]]
@@ -1318,6 +1319,7 @@ dependencies = [
  "awc",
  "chrono",
  "clap 4.0.32",
+ "dbsp_adapters",
  "env_logger",
  "fs_extra",
  "log",

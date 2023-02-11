@@ -61,8 +61,8 @@ mod error;
 mod stats;
 
 pub use config::{
-    ControllerConfig, FormatConfig, GlobalControllerConfig, InputEndpointConfig,
-    OutputEndpointConfig,
+    ControllerConfig, FormatConfig, InputEndpointConfig, OutputEndpointConfig, PipelineConfig,
+    TransportConfig,
 };
 pub use error::ControllerError;
 pub use stats::{ControllerStatus, InputEndpointStatus, OutputEndpointStatus};
@@ -493,7 +493,7 @@ struct ControllerInner {
 impl ControllerInner {
     fn new(
         catalog: Catalog,
-        global_config: &GlobalControllerConfig,
+        global_config: &PipelineConfig,
         circuit_thread_unparker: Unparker,
         backpressure_thread_unparker: Unparker,
         error_cb: Box<dyn Fn(ControllerError) + Send + Sync>,

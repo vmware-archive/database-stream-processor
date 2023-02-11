@@ -10,6 +10,7 @@ use rdkafka::{
 use serde::Deserialize;
 use serde_yaml::Value as YamlValue;
 use std::{borrow::Cow, collections::BTreeMap, time::Duration};
+use utoipa::ToSchema;
 
 const OUTPUT_POLLING_INTERVAL: Duration = Duration::from_millis(100);
 
@@ -38,7 +39,7 @@ const fn default_max_inflight_messages() -> u32 {
 }
 
 /// Output endpoint configuration.
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub struct KafkaOutputConfig {
     /// Options passed directly to `rdkafka`.
     ///

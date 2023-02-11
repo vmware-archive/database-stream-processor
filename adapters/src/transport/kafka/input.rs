@@ -20,6 +20,7 @@ use std::{
     thread::spawn,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
+use utoipa::ToSchema;
 
 const POLL_TIMEOUT: Duration = Duration::from_millis(100);
 
@@ -50,7 +51,7 @@ impl InputTransport for KafkaInputTransport {
 }
 
 /// Input endpoint configuration.
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub struct KafkaInputConfig {
     /// Options passed directly to `rdkafka`.
     ///

@@ -12,7 +12,7 @@ mod kafka;
 pub use file::{FileInputTransport, FileOutputTransport};
 
 #[cfg(feature = "with-kafka")]
-pub use kafka::{KafkaInputTransport, KafkaOutputTransport};
+pub use kafka::{KafkaInputConfig, KafkaInputTransport, KafkaOutputConfig, KafkaOutputTransport, KafkaLogLevel};
 
 /// Static map of supported input transports.
 // TODO: support for registering new transports at runtime in order to allow
