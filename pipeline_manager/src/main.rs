@@ -81,7 +81,7 @@ struct Args {
 #[derive(OpenApi)]
 #[openapi(
     info(
-        title = "DBSP Pipeline Manager API",
+        title = "DBSP API",
         description = r"API to catalog, compile, and execute SQL programs.
 
 # API concepts
@@ -130,8 +130,8 @@ observed by the user is outdated, so the request is rejected."
         pipeline_metadata,
         pipeline_start,
         pipeline_pause,
-        shutdown_pipeline,
-        delete_pipeline,
+        pipeline_shutdown,
+        pipeline_delete,
     ),
     components(schemas(
         db::ProjectDescr,
@@ -297,8 +297,8 @@ where
         .service(pipeline_metadata)
         .service(pipeline_start)
         .service(pipeline_pause)
-        .service(shutdown_pipeline)
-        .service(delete_pipeline)
+        .service(pipeline_shutdown)
+        .service(pipeline_delete)
         .service(SwaggerUi::new("/swagger-ui/{_:.*}").url("/api-doc/openapi.json", openapi));
 
     if let Some(static_html) = &state.config.static_html {
@@ -1036,7 +1036,7 @@ async fn list_project_pipelines(state: WebData<ServerState>, req: HttpRequest) -
         // TODO: figure out how to specify that response contains arbitrary JSON,
         // or, better yet, implement `ToSchema` for `ControllerStatus`, which is the
         // actual type returned by this endpoint.
-        (status = OK, description = "Pipeline status retrieved successfully.", body = String),
+        (status = OK, description = "Pipeline status retrieved successfully.", body = Object),
         (status = NOT_FOUND
             , description = "Specified `pipeline_id` does not exist in the database."
             , body = ErrorResponse
@@ -1066,7 +1066,7 @@ async fn pipeline_status(state: WebData<ServerState>, req: HttpRequest) -> impl 
 /// Retrieve pipeline metadata.
 #[utoipa::path(
     responses(
-        (status = OK, description = "Pipeline metadata retrieved successfully.", body = String),
+        (status = OK, description = "Pipeline metadata retrieved successfully.", body = Object),
         (status = NOT_FOUND
             , description = "Specified `pipeline_id` does not exist in the database."
             , body = ErrorResponse
@@ -1096,7 +1096,10 @@ async fn pipeline_metadata(state: WebData<ServerState>, req: HttpRequest) -> imp
 /// Start pipeline.
 #[utoipa::path(
     responses(
-        (status = OK, description = "Pipeline started."),
+        (status = OK
+            , description = "Pipeline started."
+            , content_type = "application/json"
+            , body = String),
         (status = NOT_FOUND
             , description = "Specified `pipeline_id` does not exist in the database."
             , body = ErrorResponse
@@ -1126,7 +1129,10 @@ async fn pipeline_start(state: WebData<ServerState>, req: HttpRequest) -> impl R
 /// Pause pipeline.
 #[utoipa::path(
     responses(
-        (status = OK, description = "Pipeline paused."),
+        (status = OK
+            , description = "Pipeline paused."
+            , content_type = "application/json"
+            , body = String),
         (status = NOT_FOUND
             , description = "Specified `pipeline_id` does not exist in the database."
             , body = ErrorResponse
@@ -1173,6 +1179,7 @@ pub(self) struct ShutdownPipelineRequest {
     responses(
         (status = OK
             , description = "Pipeline successfully terminated."
+            , content_type = "application/json"
             , body = String
             , example = json!("Pipeline successfully terminated")
             , example = json!("Pipeline already shut down")),
@@ -1188,7 +1195,7 @@ pub(self) struct ShutdownPipelineRequest {
     tag = "Pipeline"
 )]
 #[post("/pipelines/shutdown")]
-async fn shutdown_pipeline(
+async fn pipeline_shutdown(
     state: WebData<ServerState>,
     request: web::Json<ShutdownPipelineRequest>,
 ) -> impl Responder {
@@ -1207,6 +1214,7 @@ async fn shutdown_pipeline(
     responses(
         (status = OK
             , description = "Pipeline successfully deleted."
+            , content_type = "application/json"
             , body = String
             , example = json!("Pipeline successfully deleted")),
         (status = NOT_FOUND
@@ -1224,7 +1232,7 @@ async fn shutdown_pipeline(
     tag = "Pipeline"
 )]
 #[delete("/pipelines/{pipeline_id}")]
-async fn delete_pipeline(state: WebData<ServerState>, req: HttpRequest) -> impl Responder {
+async fn pipeline_delete(state: WebData<ServerState>, req: HttpRequest) -> impl Responder {
     let pipeline_id = match parse_pipeline_id_param(&req) {
         Err(e) => {
             return e;

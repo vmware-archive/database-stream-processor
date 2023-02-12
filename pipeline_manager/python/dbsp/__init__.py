@@ -1,5 +1,6 @@
 from .connection import DBSPConnection
 from .project import DBSPProject
+from .pipeline import DBSPPipeline
 from .config import ProjectConfig
 from .config import InputEndpointConfig
 from .config import OutputEndpointConfig
@@ -9,3 +10,4 @@ from .config import KafkaInputConfig
 from .config import KafkaOutputConfig
 from .config import CsvParserConfig
 from .config import CsvEncoderConfig
+from .error import DBSPServerError

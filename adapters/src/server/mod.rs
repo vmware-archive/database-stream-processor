@@ -1,4 +1,4 @@
-use crate::{Catalog, Controller, ControllerConfig, ControllerError};
+use crate::{Catalog, Controller, PipelineConfig, ControllerError};
 use actix_web::{
     dev::{Server, ServiceFactory, ServiceRequest},
     get,
@@ -153,7 +153,7 @@ pub fn create_server<F>(
 where
     F: Fn(usize) -> (DBSPHandle, Catalog),
 {
-    let config: ControllerConfig = serde_yaml::from_str(yaml_config)
+    let config: PipelineConfig = serde_yaml::from_str(yaml_config)
         .map_err(|e| AnyError::msg(format!("error parsing pipeline configuration: {e}")))?;
 
     let (circuit, catalog) = circuit_factory(config.global.workers as usize);
@@ -231,7 +231,7 @@ async fn start(state: WebData<ServerState>) -> impl Responder {
     match &*state.controller.lock().unwrap() {
         Some(controller) => {
             controller.start();
-            HttpResponse::Ok().body("The pipeline is running")
+            HttpResponse::Ok().json("The pipeline is running")
         }
         None => HttpResponse::Conflict().body("The pipeline has been terminated"),
     }
@@ -242,7 +242,7 @@ async fn pause(state: WebData<ServerState>) -> impl Responder {
     match &*state.controller.lock().unwrap() {
         Some(controller) => {
             controller.pause();
-            HttpResponse::Ok().body("Pipeline paused")
+            HttpResponse::Ok().json("Pipeline paused")
         }
         None => HttpResponse::Conflict().body("The pipeline has been terminated"),
     }
@@ -289,7 +289,7 @@ async fn dump_profile(state: WebData<ServerState>) -> impl Responder {
     match &*state.controller.lock().unwrap() {
         Some(controller) => {
             controller.dump_profile();
-            HttpResponse::Ok().body("Profile dump initiated")
+            HttpResponse::Ok().json("Profile dump initiated")
         }
         None => HttpResponse::Conflict().body("The pipeline has been terminated"),
     }
@@ -300,7 +300,7 @@ async fn shutdown(state: WebData<ServerState>) -> impl Responder {
     let controller = state.controller.lock().unwrap().take();
     if let Some(controller) = controller {
         match controller.stop() {
-            Ok(()) => HttpResponse::Ok().body("Pipeline terminated"),
+            Ok(()) => HttpResponse::Ok().json("Pipeline terminated"),
             Err(e) => HttpResponse::InternalServerError()
                 .body(format!("Failed to terminate the pipeline: {e}")),
         }
@@ -327,7 +327,7 @@ mod test_with_kafka {
             kafka::{BufferConsumer, KafkaResources, TestProducer},
             test_circuit, wait, TEST_LOGGER,
         },
-        Controller, ControllerConfig, ControllerError,
+        Controller, PipelineConfig, ControllerError,
     };
     use actix_web::{http::StatusCode, middleware::Logger, test, web::Data as WebData, App};
     use crossbeam::queue::SegQueue;
@@ -397,7 +397,7 @@ outputs:
         let errors = Arc::new(SegQueue::new());
         let errors_clone = errors.clone();
 
-        let config: ControllerConfig = serde_yaml::from_str(&config_str).unwrap();
+        let config: PipelineConfig = serde_yaml::from_str(&config_str).unwrap();
         let controller = Controller::with_config(
             circuit,
             catalog,

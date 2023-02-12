@@ -24,11 +24,12 @@ const fn default_workers() -> u16 {
 
 /// Controller configuration specified by the user when creating
 /// a new controller instance.
-#[derive(Clone, Serialize, Deserialize)]
-pub struct ControllerConfig {
+#[derive(Clone, Serialize, Deserialize, ToSchema)]
+pub struct PipelineConfig {
     /// Global controller configuration.
     #[serde(flatten)]
-    pub global: PipelineConfig,
+    #[schema(inline)]
+    pub global: GlobalPipelineConfig,
 
     /// Input endpoint configuration.
     pub inputs: BTreeMap<Cow<'static, str>, InputEndpointConfig>,
@@ -40,7 +41,7 @@ pub struct ControllerConfig {
 
 /// Global pipeline configuration settings.
 #[derive(Clone, Serialize, Deserialize, ToSchema)]
-pub struct PipelineConfig {
+pub struct GlobalPipelineConfig {
     /// Number of DBSP worker threads.
     #[serde(default = "default_workers")]
     pub workers: u16,

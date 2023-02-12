@@ -1,18 +1,14 @@
-import dbsp_openapi
+import dbsp_api_client
 
-from dbsp_openapi.apis.tags.project_api import ProjectApi
-from dbsp_openapi.apis.tags.pipeline_api import PipelineApi
-from dbsp_openapi.model.compile_project_request import CompileProjectRequest
+from dbsp_api_client.models.compile_project_request import CompileProjectRequest
+from dbsp_api_client.api.project import project_status
+from dbsp_api_client.api.project import compile_project
 import time
 import sys
 
-from pprint import pprint
-
 class DBSPProject:
-    def __init__(self, dbsp_connection, project_id, project_version):
-        self.dbsp_connection = dbsp_connection
-        self.project_api = ProjectApi(self.dbsp_connection.api_client)
-        self.pipeline_api = PipelineApi(self.dbsp_connection.api_client)
+    def __init__(self, api_client, project_id, project_version):
+        self.api_client = api_client
         self.project_id = project_id
         self.project_version = project_version
 
@@ -21,11 +17,8 @@ class DBSPProject:
             project_id=self.project_id,
             version=self.project_version,
         )
-        try:
-            # Queue project for compilation.
-            api_response = self.project_api.compile_project(body=body)
-        except dbsp_openapi.ApiException as e:
-            raise RuntimeError("Failed to retrieve project status") from e
+        # Queue project for compilation.
+        compile_project.sync_detailed(client = self.api_client, json_body=body).unwrap("Failed to queue project for compilation")
 
         start = time.time()
         while time.time() - start < timeout:
@@ -44,14 +37,12 @@ class DBSPProject:
         raise RuntimeError("Timeout waiting for the project to compile after " + str(timeout) + "s")
 
     def status(self):
-        try:
-            api_response = self.project_api.project_status(
-                path_params={'project_id': self.project_id})
-        except dbsp_openapi.ApiException as e:
-            raise RuntimeError("Failed to retrieve project status") from e
+        response = project_status.sync_detailed(
+                client = self.api_client,
+                project_id = self.project_id).unwrap("Failed to retrieve project status")
         
         # if api_response.body['version'] != self.project_version:
         #    raise RuntimeError(
         #            "Project modified on the server.  Expected version: " + self.project_version + ". ") from e
         
-        return api_response.body['status']
+        return response.status

@@ -64,13 +64,13 @@ def main():
             InputEndpointConfig(
                 transport = TransportConfig(
                     name = "kafka",
-                    config = KafkaInputConfig(
-                        topics = ['fraud_demo_large_demographics'],
-                        **{
+                    config = KafkaInputConfig.from_dict(
+                        {
+                            'topics': ['fraud_demo_large_demographics'],
                             'bootstrap.servers': 'localhost',
                             'auto.offset.reset': 'earliest'
-                          })),
-                format = FormatConfig(
+                        })),
+                format_ = FormatConfig(
                     name = "csv",
                     config = CsvParserConfig(input_stream = 'DEMOGRAPHICS'))))
     config.add_input(
@@ -78,13 +78,13 @@ def main():
             InputEndpointConfig(
                 transport = TransportConfig(
                     name = "kafka",
-                    config = KafkaInputConfig(
-                        topics = ['fraud_demo_large_transactions'],
-                        **{
+                    config = KafkaInputConfig.from_dict(
+                        {
+                            'topics': ['fraud_demo_large_transactions'],
                             'bootstrap.servers': "localhost",
                             'auto.offset.reset': 'earliest'
-                          })),
-                format = FormatConfig(
+                        })),
+                format_ = FormatConfig(
                     name = "csv",
                     config = CsvParserConfig(input_stream = 'TRANSACTIONS'))))
 
@@ -94,12 +94,12 @@ def main():
                 stream = 'TRANSACTIONS_WITH_DEMOGRAPHICS',
                 transport = TransportConfig(
                     name = "kafka",
-                    config = KafkaInputConfig(
-                        topics = ['fraud_demo_large_enriched'],
-                        **{
+                        config = KafkaOutputConfig.from_dict(
+                        {
+                            'topic': 'fraud_demo_large_enriched',
                             'bootstrap.servers': "localhost",
-                          })),
-                format = FormatConfig(
+                        })),
+                format_ = FormatConfig(
                     name = "csv",
                     config = CsvEncoderConfig(buffer_size_records = 1000000))))
 
@@ -109,7 +109,20 @@ def main():
     status = project.status()
     print("Project status: " + status)
 
-    config.run()
+    pipeline = config.run()
+    print("Pipeline is running")
+
+    print("Pipeline status: " + str(pipeline.status()))
+    print("Pipeline metadata: " + str(pipeline.metadata()))
+
+    pipeline.pause()
+    print("Pipeline paused")
+
+    pipeline.shutdown()
+    print("Pipeline terminated")
+
+    pipeline.delete()
+    print("Pipeline deleted")
 
 
 if __name__ == "__main__":

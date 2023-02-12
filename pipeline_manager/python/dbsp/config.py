@@ -1,76 +1,69 @@
-import dbsp_openapi
-import json
+import dbsp_api_client
 import yaml
 
-from dbsp_openapi.apis.tags.config_api import ConfigApi
-from dbsp_openapi.apis.tags.pipeline_api import PipelineApi
-from dbsp_openapi.model.pipeline_config import PipelineConfig
-from dbsp_openapi.model.new_pipeline_request import NewPipelineRequest
-from dbsp_openapi.model.transport_config import TransportConfig
-from dbsp_openapi.model.format_config import FormatConfig
-from dbsp_openapi.model.input_endpoint_config import InputEndpointConfig
-from dbsp_openapi.model.output_endpoint_config import OutputEndpointConfig
-from dbsp_openapi.model.kafka_input_config import KafkaInputConfig
-from dbsp_openapi.model.kafka_output_config import KafkaOutputConfig
-from dbsp_openapi.model.csv_parser_config import CsvParserConfig
-from dbsp_openapi.model.csv_parser_config import CsvParserConfig
-from dbsp_openapi.model.new_config_request import NewConfigRequest
-from dbsp_openapi.model.update_config_request import UpdateConfigRequest
-from dbsp_openapi.model.csv_encoder_config import CsvEncoderConfig
+from dbsp_api_client.models.pipeline_config import PipelineConfig
+from dbsp_api_client.models.pipeline_config_inputs import PipelineConfigInputs
+from dbsp_api_client.models.pipeline_config_outputs import PipelineConfigOutputs
+from dbsp_api_client.models.new_pipeline_request import NewPipelineRequest
+from dbsp_api_client.models.transport_config import TransportConfig
+from dbsp_api_client.models.format_config import FormatConfig
+from dbsp_api_client.models.input_endpoint_config import InputEndpointConfig
+from dbsp_api_client.models.output_endpoint_config import OutputEndpointConfig
+from dbsp_api_client.models.kafka_input_config import KafkaInputConfig
+from dbsp_api_client.models.kafka_output_config import KafkaOutputConfig
+from dbsp_api_client.models.csv_parser_config import CsvParserConfig
+from dbsp_api_client.models.csv_parser_config import CsvParserConfig
+from dbsp_api_client.models.new_config_request import NewConfigRequest
+from dbsp_api_client.models.update_config_request import UpdateConfigRequest
+from dbsp_api_client.models.csv_encoder_config import CsvEncoderConfig
+from dbsp_api_client.api.config import new_config
+from dbsp_api_client.api.config import update_config
+from dbsp_api_client.api.pipeline import new_pipeline
+from dbsp.pipeline import DBSPPipeline
 
 class ProjectConfig:
     def __init__(self, project, workers):
         self.project = project
-        self.config_api = ConfigApi(project.dbsp_connection.api_client)
-        self.pipeline_api = PipelineApi(project.dbsp_connection.api_client)
-        self.pipeline_config = PipelineConfig(workers = workers)
-        self.inputs = {}
-        self.outputs = {}
+        self.api_client = self.project.api_client
+        self.pipeline_config = PipelineConfig(
+            workers = workers,
+            inputs = PipelineConfigInputs(),
+            outputs = PipelineConfigOutputs()
+        )
         self.config_id = None
         self.config_version = None
         # self.workers = workers
         # print("config: " + str(self.pipeline_config))
 
     def add_input(self, name, input_endpoint_config):
-        request_body = dbsp_openapi.api_client.RequestBody(
-            content={
-                'application/json': dbsp_openapi.api_client.MediaType(
-                    schema=InputEndpointConfig),
-            },
-            required=True,
-        )
-
-        json_encoder = dbsp_openapi.api_client.JSONEncoder()
-        print("yaml: " + str(yaml.dump(json_encoder.default(input_endpoint_config))))
-
-        self.inputs[name] = input_endpoint_config
+        # print("yaml:\n" + str(yaml.dump(input_endpoint_config.to_dict())))
+        self.pipeline_config.inputs[name] = input_endpoint_config
 
     def add_output(self, name, output_endpoint_config):
-        self.outputs[name] = output_endpoint_config
+        self.pipeline_config.outputs[name] = output_endpoint_config
 
-    # def yaml(self):
-    #    # return yaml.dump(self.inputs)
+    def yaml(self):
+        return yaml.dump(self.pipeline_config.to_dict())
 
     def run(self):
-        # print("yaml:" + self.yaml())
+        # print("yaml:\n" + self.yaml())
         if self.config_id == None:
             body = NewConfigRequest(
                 project_id = self.project.project_id,
                 name = '<anon>',
-                config = '',
+                config = self.yaml(),
             )
-            api_response = self.config_api.new_config(body = body)
-            self.config_id = api_response.body['config_id']
-            print("new_config response: " + str(api_response.body))
-            self.config_version = api_response.body['version']
+            response = new_config.sync_detailed(client = self.api_client, json_body = body).unwrap("Failed to create pipeline config")
+            self.config_id = response.config_id
+            self.config_version = response.version
         else:
             body = UpdateConfigRequest(
                 config_id = self.config_id,
                 name = '<anon>',
-                config = '',
+                config = self.yaml(),
             )
-            api_response = self.config_api.update_config(body = body)
-            self.config_version = api_response.body['version']
+            response = update_config.sync_detailed(client = self.api_client, json_body = body).unwrap("Failed to update pipeline config")
+            self.config_version = response.version
 
         body = NewPipelineRequest(
             config_id = self.config_id,
@@ -79,9 +72,6 @@ class ProjectConfig:
             project_version = self.project.project_version
         )
 
-        try:
-            api_response = self.pipeline_api.new_pipeline(body = body)
-        except dbsp_openapi.ApiException as e:
-            raise RuntimeError("Failed to create a pipeline") from e
+        response = new_pipeline.sync_detailed(client = self.api_client, json_body = body).unwrap("Failed to start pipeline")
 
-        DBSPPipeline(self.dbsp_connection, api_response.body['pipeline_id'])
+        return DBSPPipeline(self.api_client, response.pipeline_id)

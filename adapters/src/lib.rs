@@ -100,7 +100,7 @@
 //!
 //! A [`Controller`] is instantiated with
 //!
-//! * a [`ControllerConfig`] object, which specifies input and output pipeline
+//! * a [`PipelineConfig`] object, which specifies input and output pipeline
 //!   configurations as well as global controller configuration settings, and
 //!
 //! * a [`Catalog`] object, which stores dictionaries of input and output
@@ -140,8 +140,8 @@ pub use format::{Encoder, InputFormat, OutputConsumer, OutputFormat, Parser};
 pub use seroutput::{SerBatch, SerCursor, SerOutputBatchHandle};
 
 pub use controller::{
-    Controller, ControllerConfig, ControllerError, ControllerStatus, FormatConfig,
-    InputEndpointConfig, OutputEndpointConfig, PipelineConfig, TransportConfig,
+    Controller, PipelineConfig, ControllerError, ControllerStatus, FormatConfig,
+    InputEndpointConfig, OutputEndpointConfig, GlobalPipelineConfig, TransportConfig,
 };
 pub use transport::{
     FileInputTransport, InputConsumer, InputEndpoint, InputTransport, OutputEndpoint,
