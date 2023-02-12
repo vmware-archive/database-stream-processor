@@ -111,7 +111,7 @@ use num_derive::FromPrimitive;
 mod catalog;
 mod controller;
 mod deinput;
-mod format;
+pub mod format;
 mod seroutput;
 #[cfg(feature = "server")]
 pub mod server;

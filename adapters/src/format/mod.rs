@@ -11,6 +11,7 @@ use std::{
 mod csv;
 
 use self::csv::{CsvInputFormat, CsvOutputFormat};
+pub use self::csv::{CsvEncoderConfig, CsvParserConfig};
 
 /// Static map of supported input formats.
 // TODO: support for registering new formats at runtime in order to allow

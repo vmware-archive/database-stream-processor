@@ -6,3 +6,6 @@ from .config import OutputEndpointConfig
 from .config import FormatConfig
 from .config import TransportConfig
 from .config import KafkaInputConfig
+from .config import KafkaOutputConfig
+from .config import CsvParserConfig
+from .config import CsvEncoderConfig

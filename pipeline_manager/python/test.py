@@ -5,6 +5,9 @@ from dbsp import OutputEndpointConfig
 from dbsp import TransportConfig
 from dbsp import FormatConfig
 from dbsp import KafkaInputConfig
+from dbsp import KafkaOutputConfig
+from dbsp import CsvParserConfig
+from dbsp import CsvEncoderConfig
 
 sql_code = """
 CREATE TABLE demographics (
@@ -60,15 +63,53 @@ def main():
             "DEMOGRAPHICS",
             InputEndpointConfig(
                 transport = TransportConfig(
-                    "kafka",
-                    KafkaInputConfig(topics=['fraud_demo_large_demographics'], **{'bootstrap.servers': "localhost"})),
-                format = FormatConfig("csv", )))
+                    name = "kafka",
+                    config = KafkaInputConfig(
+                        topics = ['fraud_demo_large_demographics'],
+                        **{
+                            'bootstrap.servers': 'localhost',
+                            'auto.offset.reset': 'earliest'
+                          })),
+                format = FormatConfig(
+                    name = "csv",
+                    config = CsvParserConfig(input_stream = 'DEMOGRAPHICS'))))
+    config.add_input(
+            "TRANSACTIONS",
+            InputEndpointConfig(
+                transport = TransportConfig(
+                    name = "kafka",
+                    config = KafkaInputConfig(
+                        topics = ['fraud_demo_large_transactions'],
+                        **{
+                            'bootstrap.servers': "localhost",
+                            'auto.offset.reset': 'earliest'
+                          })),
+                format = FormatConfig(
+                    name = "csv",
+                    config = CsvParserConfig(input_stream = 'TRANSACTIONS'))))
+
+    config.add_output(
+            "TRANSACTIONS_WITH_DEMOGRAPHICS",
+            OutputEndpointConfig(
+                stream = 'TRANSACTIONS_WITH_DEMOGRAPHICS',
+                transport = TransportConfig(
+                    name = "kafka",
+                    config = KafkaInputConfig(
+                        topics = ['fraud_demo_large_enriched'],
+                        **{
+                            'bootstrap.servers': "localhost",
+                          })),
+                format = FormatConfig(
+                    name = "csv",
+                    config = CsvEncoderConfig(buffer_size_records = 1000000))))
 
     project.compile()
     print("Project compiled")
 
     status = project.status()
     print("Project status: " + status)
+
+    config.run()
 
 
 if __name__ == "__main__":

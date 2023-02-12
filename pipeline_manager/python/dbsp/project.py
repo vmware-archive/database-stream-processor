@@ -1,5 +1,7 @@
 import dbsp_openapi
+
 from dbsp_openapi.apis.tags.project_api import ProjectApi
+from dbsp_openapi.apis.tags.pipeline_api import PipelineApi
 from dbsp_openapi.model.compile_project_request import CompileProjectRequest
 import time
 import sys
@@ -10,6 +12,7 @@ class DBSPProject:
     def __init__(self, dbsp_connection, project_id, project_version):
         self.dbsp_connection = dbsp_connection
         self.project_api = ProjectApi(self.dbsp_connection.api_client)
+        self.pipeline_api = PipelineApi(self.dbsp_connection.api_client)
         self.project_id = project_id
         self.project_version = project_version
 
@@ -52,4 +55,3 @@ class DBSPProject:
         #            "Project modified on the server.  Expected version: " + self.project_version + ". ") from e
         
         return api_response.body['status']
-

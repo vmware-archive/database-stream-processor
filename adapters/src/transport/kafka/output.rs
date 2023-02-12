@@ -10,7 +10,7 @@ use rdkafka::{
 use serde::Deserialize;
 use serde_yaml::Value as YamlValue;
 use std::{borrow::Cow, collections::BTreeMap, time::Duration};
-use utoipa::ToSchema;
+use utoipa::{openapi::{RefOr, ObjectBuilder, SchemaType, SchemaFormat, schema::{KnownFormat, Schema}}, ToSchema};
 
 const OUTPUT_POLLING_INTERVAL: Duration = Duration::from_millis(100);
 
@@ -39,7 +39,7 @@ const fn default_max_inflight_messages() -> u32 {
 }
 
 /// Output endpoint configuration.
-#[derive(Deserialize, ToSchema)]
+#[derive(Deserialize)]
 pub struct KafkaOutputConfig {
     /// Options passed directly to `rdkafka`.
     ///
@@ -71,6 +71,47 @@ pub struct KafkaOutputConfig {
     max_inflight_messages: u32,
 }
 
+// The auto-derived implementation gets confused by the flattened `kafka_options` field.
+impl<'s> ToSchema<'s> for KafkaOutputConfig {
+    fn schema() -> (&'s str, RefOr<Schema>) {
+         (
+            "KafkaOutputConfig",
+            ObjectBuilder::new()
+                .property(
+                    "topic",
+                    ObjectBuilder::new()
+                        .schema_type(SchemaType::String)
+                )
+                .required("topic")
+                .property(
+                    "log_level",
+                    KafkaLogLevel::schema().1
+                )
+                .property(
+                    "max_inflight_messages",
+                    ObjectBuilder::new()
+                        .schema_type(SchemaType::Integer)
+                        .format(Some(SchemaFormat::KnownFormat(KnownFormat::Int32)))
+                        .description(Some(r#"Maximum number of unacknowledged messages buffered by the Kafka producer.
+
+Kafka producer buffers outgoing messages until it receives an
+acknowledgement from the broker.  This configuration parameter
+bounds the number of unacknowledged messages.  When the number of
+unacknowledged messages reaches this limit, sending of a new message
+blocks until additional acknowledgements arrive from the broker.
+
+Defaults to 1000."#)),
+                )
+                .additional_properties(Some(
+                        ObjectBuilder::new()
+                        .schema_type(SchemaType::String)
+                        .description(Some(r#"Options passed directly to `rdkafka`.
+
+See [`librdkafka` options](https://github.com/edenhill/librdkafka/blob/master/CONFIGURATION.md)
+used to configure the Kafka producer."#))))
+                .into(),
+        ) }
+}
 /// Producer context object used to handle async delivery notifications from
 /// Kafka.
 struct KafkaOutputContext {
