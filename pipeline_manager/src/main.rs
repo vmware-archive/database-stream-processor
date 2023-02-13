@@ -1033,8 +1033,7 @@ async fn list_project_pipelines(state: WebData<ServerState>, req: HttpRequest) -
 /// Retrieve pipeline status and performance counters.
 #[utoipa::path(
     responses(
-        // TODO: figure out how to specify that response contains arbitrary JSON,
-        // or, better yet, implement `ToSchema` for `ControllerStatus`, which is the
+        // TODO: Implement `ToSchema` for `ControllerStatus`, which is the
         // actual type returned by this endpoint.
         (status = OK, description = "Pipeline status retrieved successfully.", body = Object),
         (status = NOT_FOUND

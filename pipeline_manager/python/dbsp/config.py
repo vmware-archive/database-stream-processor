@@ -20,9 +20,13 @@ from dbsp_api_client.api.config import new_config
 from dbsp_api_client.api.config import update_config
 from dbsp_api_client.api.pipeline import new_pipeline
 from dbsp.pipeline import DBSPPipeline
+from dbsp.project import DBSPProject
 
-class ProjectConfig:
-    def __init__(self, project, workers):
+class DBSPPipelineConfig:
+    """Pipeline configuration specified by the user when creating
+    a new pipeline instance."""
+
+    def __init__(self, project: DBSPProject, workers: int):
         self.project = project
         self.api_client = self.project.api_client
         self.pipeline_config = PipelineConfig(
@@ -35,17 +39,45 @@ class ProjectConfig:
         # self.workers = workers
         # print("config: " + str(self.pipeline_config))
 
-    def add_input(self, name, input_endpoint_config):
+    def add_input(self, name: str, input_endpoint_config: InputEndpointConfig):
+        """Add an input endpoint to the pipeline configuration.
+
+        Args:
+            name (str): Endpoint name (must be unique across input endpoints).
+            input_endpoint_config (InputEndpointConfig): Endpoint configuration.
+        """
+
         # print("yaml:\n" + str(yaml.dump(input_endpoint_config.to_dict())))
         self.pipeline_config.inputs[name] = input_endpoint_config
 
-    def add_output(self, name, output_endpoint_config):
+    def add_output(self, name: str, output_endpoint_config: OutputEndpointConfig):
+        """Add an output endpoint to the pipeline configuration.
+
+        Args:
+            name (str): Endpoint name (must be unique across output endpoints).
+            output_endpoint_config (OutputEndpointConfig): Endpoint configuration.
+        """
+
         self.pipeline_config.outputs[name] = output_endpoint_config
 
-    def yaml(self):
+    def yaml(self) -> str:
+        """Convert pipeline configuration to YAML format."""
+
         return yaml.dump(self.pipeline_config.to_dict())
 
-    def run(self):
+    def run(self) -> DBSPPipeline:
+        """Launch a new pipeline.
+
+        Create and run a new pipeline for the specified configuration.
+
+        Raises:
+            httpx.TimeoutException: If the request takes longer than Client.timeout.
+            dbsp.DBSPServerError: If the DBSP server returns an error.
+
+        Returns:
+            DBSPPipeline
+        """
+
         # print("yaml:\n" + self.yaml())
         if self.config_id == None:
             body = NewConfigRequest(

@@ -22,8 +22,8 @@ const fn default_workers() -> u16 {
     1
 }
 
-/// Controller configuration specified by the user when creating
-/// a new controller instance.
+/// Pipeline configuration specified by the user when creating
+/// a new pipeline instance.
 #[derive(Clone, Serialize, Deserialize, ToSchema)]
 pub struct PipelineConfig {
     /// Global controller configuration.

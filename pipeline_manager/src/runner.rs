@@ -455,7 +455,7 @@ scrape_configs:
 
         if killed {
             return Ok(HttpResponse::Ok()
-                .body(serde_json::to_string("Pipeline already shut down.").unwrap()));
+                .json("Pipeline already shut down."));
         };
 
         let url = format!("http://localhost:{port}/kill");
@@ -465,9 +465,8 @@ scrape_configs:
                 db.set_pipeline_killed(pipeline_id).await?;
                 // We failed to reach the pipeline, which likely means
                 // that it crashed or was killed manually by the user.
-                return Ok(HttpResponse::Ok().body(
-                    serde_json::to_string(&format!("Pipeline at '{url}' already shut down."))
-                        .unwrap(),
+                return Ok(HttpResponse::Ok().json(
+                    &format!("Pipeline at '{url}' already shut down."),
                 ));
             }
         };
@@ -475,13 +474,12 @@ scrape_configs:
         if response.status().is_success() {
             db.set_pipeline_killed(pipeline_id).await?;
             Ok(HttpResponse::Ok()
-                .body(serde_json::to_string("Pipeline successfully terminated.").unwrap()))
+                .json("Pipeline successfully terminated."))
         } else {
-            Ok(HttpResponse::InternalServerError().body(
-                serde_json::to_string(&ErrorResponse::new(&format!(
+            Ok(HttpResponse::InternalServerError().json(
+                &ErrorResponse::new(&format!(
                     "Failed to shut down the pipeline; response from pipeline controller: {response:?}"
-                )))
-                .unwrap(),
+                )),
             ))
         }
     }
@@ -507,7 +505,7 @@ scrape_configs:
         db.delete_pipeline(pipeline_id).await?;
 
         Ok(HttpResponse::Ok()
-            .body(serde_json::to_string("Pipeline successfully deleted.").unwrap()))
+            .json("Pipeline successfully deleted."))
     }
 
     pub(crate) async fn forward_to_pipeline(

@@ -2,7 +2,7 @@ from dbsp_api_client.types import Response
 from dbsp_api_client.models.error_response import ErrorResponse
 
 class DBSPServerError(Exception):
-    """Exception raised when a request to the HTTP server fails.
+    """Exception raised when an HTTP request to the DBSP server fails.
     """
 
     def __init__(self, response: Response, description):
@@ -16,7 +16,29 @@ class DBSPServerError(Exception):
         message = description + "\nHTTP response code: " + str(response.status_code) + "\nResponse body: " + response_body 
         super().__init__(message)
 
+class CompilationException(Exception):
+    """Error returned by the DBSP compiler.
 
+    Attributes:
+        message: Compiler error message.
+    """
+    def __init__(self, status):
+        if status['SqlError'] != None:
+            self.message = "SQL error: " + status['SqlError']
+        if status['RustError'] != None:
+            self.message = "Rust compiler error: " + status['RustError']
+        else:
+            self.message = "Unexpected project status: " + str(status)
+
+        super().__init__(self.message)
+
+class TimeoutException(Exception):
+    """Exception raised when a DBSP operation times out.
+    """
+    pass
+
+# Add a method to the `Response` class to throw an error when the HTTP
+# status in the response is not not a success.
 def unwrap(self, description = "DBSP request failed"):
     if 200 <= self.status_code <= 202:
         return self.parsed

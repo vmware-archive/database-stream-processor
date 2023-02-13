@@ -18,6 +18,7 @@ use tokio::{
     spawn,
     sync::mpsc::{channel, Receiver, Sender},
 };
+use serde::Serialize;
 mod prometheus;
 
 use self::prometheus::PrometheusMetrics;
@@ -44,6 +45,19 @@ impl ServerState {
             controller: Mutex::new(Some(controller)),
             prometheus,
             terminate_sender,
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct ErrorResponse {
+    message: String,
+}
+
+impl ErrorResponse {
+    pub(crate) fn new(message: &str) -> Self {
+        Self {
+            message: message.to_string(),
         }
     }
 }
@@ -233,7 +247,7 @@ async fn start(state: WebData<ServerState>) -> impl Responder {
             controller.start();
             HttpResponse::Ok().json("The pipeline is running")
         }
-        None => HttpResponse::Conflict().body("The pipeline has been terminated"),
+        None => HttpResponse::Conflict().json(&ErrorResponse::new("The pipeline has been terminated")),
     }
 }
 
@@ -244,7 +258,7 @@ async fn pause(state: WebData<ServerState>) -> impl Responder {
             controller.pause();
             HttpResponse::Ok().json("Pipeline paused")
         }
-        None => HttpResponse::Conflict().body("The pipeline has been terminated"),
+        None => HttpResponse::Conflict().json(&ErrorResponse::new("The pipeline has been terminated")),
     }
 }
 
@@ -257,7 +271,7 @@ async fn status(state: WebData<ServerState>) -> impl Responder {
                 .content_type(mime::APPLICATION_JSON)
                 .body(json_string)
         }
-        None => HttpResponse::Conflict().body("The pipeline has been terminated"),
+        None => HttpResponse::Conflict().json(&ErrorResponse::new("The pipeline has been terminated")),
     }
 }
 
@@ -291,7 +305,7 @@ async fn dump_profile(state: WebData<ServerState>) -> impl Responder {
             controller.dump_profile();
             HttpResponse::Ok().json("Profile dump initiated")
         }
-        None => HttpResponse::Conflict().body("The pipeline has been terminated"),
+        None => HttpResponse::Conflict().json(&ErrorResponse::new("The pipeline has been terminated")),
     }
 }
 
@@ -302,10 +316,10 @@ async fn shutdown(state: WebData<ServerState>) -> impl Responder {
         match controller.stop() {
             Ok(()) => HttpResponse::Ok().json("Pipeline terminated"),
             Err(e) => HttpResponse::InternalServerError()
-                .body(format!("Failed to terminate the pipeline: {e}")),
+                .json(&ErrorResponse::new(&format!("Failed to terminate the pipeline: {e}"))),
         }
     } else {
-        HttpResponse::Ok().body("Pipeline already terminated")
+        HttpResponse::Ok().json("Pipeline already terminated")
     }
 }
 

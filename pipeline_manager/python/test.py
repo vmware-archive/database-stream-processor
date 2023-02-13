@@ -1,5 +1,5 @@
 from dbsp import DBSPConnection
-from dbsp import ProjectConfig
+from dbsp import DBSPPipelineConfig
 from dbsp import InputEndpointConfig
 from dbsp import OutputEndpointConfig
 from dbsp import TransportConfig
@@ -58,7 +58,7 @@ def main():
     status = project.status()
     print("Project status: " + status)
     
-    config = ProjectConfig(project, 6)
+    config = DBSPPipelineConfig(project, 6)
     config.add_input(
             "DEMOGRAPHICS",
             InputEndpointConfig(
@@ -118,8 +118,8 @@ def main():
     pipeline.pause()
     print("Pipeline paused")
 
-    pipeline.shutdown()
-    print("Pipeline terminated")
+    # pipeline.shutdown()
+    # print("Pipeline terminated")
 
     pipeline.delete()
     print("Pipeline deleted")
