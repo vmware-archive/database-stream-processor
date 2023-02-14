@@ -35,10 +35,10 @@ RUN arch=`dpkg --print-architecture`; \
     && dpkg -i grafana-enterprise_9.3.6_$arch.deb
 
 ADD ./dbsp_files.tar /database-stream-processor
-ADD ./sql_compiler_files.tar /sql-to-dbsp-compiler
+ADD ./sql_compiler_files.tar /database-stream-processor/sql-to-dbsp-compiler
 
 RUN cd /database-stream-processor/pipeline_manager && ~/.cargo/bin/cargo build --release
-RUN cd /sql-to-dbsp-compiler/SQL-compiler && mvn -DskipTests package
+RUN cd /database-stream-processor/sql-to-dbsp-compiler/SQL-compiler && mvn -DskipTests package
 
 # Provision Prometheus data source + DBSP dashboard in Grafana.
 RUN cp /database-stream-processor/deploy/prometheus_datasource.yaml /etc/grafana/provisioning/datasources/ \

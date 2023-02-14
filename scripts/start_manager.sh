@@ -2,7 +2,7 @@
 
 THIS_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 ROOT_DIR="${THIS_DIR}/.."
-SQL_COMPILER_DIR="${ROOT_DIR}/../sql-to-dbsp-compiler"
+SQL_COMPILER_DIR="${ROOT_DIR}/sql-to-dbsp-compiler"
 MANAGER_DIR="${ROOT_DIR}/pipeline_manager"
 
 if [ "$#" -lt 1 ]; then
