@@ -19,9 +19,6 @@ mkdir -p "${WORKING_DIR}"
 # Kill manager. pkill doesn't handle process names >15 characters.
 pkill -9 dbsp_pipeline_
 
-# Kill prometheus.
-pkill -9 prometheus
-
 set -e
 
 # Re-create DB
@@ -45,18 +42,3 @@ printf "$manager_config" > "${WORKING_DIR}/manager.yaml"
 
 cd "${MANAGER_DIR}" && ~/.cargo/bin/cargo build --release
 cd "${MANAGER_DIR}" && ~/.cargo/bin/cargo run --release -- --static-html=static --config-file="${WORKING_DIR}/manager.yaml"
-
-# Start Prometheus.
-
-prometheus_config="global:
-  scrape_interval: 5s
-
-scrape_configs:
-  - job_name: dbsp
-    file_sd_configs:
-    - files:
-      - '${WORKING_DIR}/prometheus/pipeline*.yaml'"
-
-printf "$prometheus_config" > "${WORKING_DIR}/prometheus.yaml"
-
-prometheus --config.file "${WORKING_DIR}/prometheus.yaml" 2> "${WORKING_DIR}/prometheus.log" &

@@ -46,5 +46,6 @@ RUN cp /database-stream-processor/deploy/prometheus_datasource.yaml /etc/grafana
    && cp /database-stream-processor/deploy/grafana_dashboard.json /etc/grafana/provisioning/dashboards/
 
 CMD service postgresql start && \
-    /database-stream-processor/deploy/start_manager.sh /working-dir 0.0.0.0 && \
+    /database-stream-processor/scripts/start_manager.sh /working-dir 0.0.0.0 && \
+    /database-stream-processor/scripts/start_prometheus.sh /working-dir && \
     bash
