@@ -1,3 +1,6 @@
+[tasks.build]
+args = ["build", "--release"]
+
 [tasks.openapi_json]
 description = "Dump OpenAPI specification of the REST API to 'openapi.json'"
 dependencies = ["build"]
@@ -23,6 +26,6 @@ openapi-python-client generate --path ../openapi.json
 description = "Test Python API"
 dependencies = ["openapi_python"]
 script = '''
-
+../scripts/start_manager.sh $(python3 -c 'import tempfile; print(tempfile.gettempdir(), end="")')/pipeline_data
 python3 python/test.py
 '''
