@@ -267,7 +267,7 @@ fn run(config: ManagerConfig) -> AnyResult<()> {
     let logfile_clone = logfile.try_clone().unwrap();
 
     let daemonize = Daemonize::new()
-        .pid_file(&config.manager_pid_file_path())
+        .pid_file(config.manager_pid_file_path())
         .working_directory(&config.working_directory)
         .stdout(logfile_clone)
         .stderr(logfile);

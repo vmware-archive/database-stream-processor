@@ -89,7 +89,7 @@ impl ManagerConfig {
     /// `dbsp_override_path`, and `static_html` fields to absolute paths;
     /// fails if any of the paths doesn't exist or isn't readable.
     pub(crate) fn canonicalize(self) -> AnyResult<Self> {
-        let mut result = self.clone();
+        let mut result = self;
         create_dir_all(&result.working_directory).map_err(|e| {
             AnyError::msg(format!(
                 "unable to create or open working directry '{}': {e}",
