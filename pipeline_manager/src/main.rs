@@ -40,7 +40,7 @@ use actix_web::{
         Method,
     },
     middleware::Logger,
-    patch, post, web,
+    patch, post, rt, web,
     web::Data as WebData,
     App, Error as ActixError, HttpRequest, HttpResponse, HttpServer, Responder,
     Result as ActixResult,
@@ -48,10 +48,15 @@ use actix_web::{
 use actix_web_static_files::ResourceFiles;
 use anyhow::{Error as AnyError, Result as AnyResult};
 use clap::Parser;
+use daemonize::Daemonize;
 use env_logger::Env;
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
-use tokio::{fs::read, sync::Mutex};
+use std::{
+    fs::{read, write, File as StdFile},
+    net::TcpListener,
+    sync::Arc,
+};
+use tokio::sync::Mutex;
 use utoipa::{openapi::OpenApi as OpenApiDoc, OpenApi, ToSchema};
 use utoipa_swagger_ui::SwaggerUi;
 
@@ -76,6 +81,11 @@ struct Args {
     /// Allows modifying JavaScript without restarting the server.
     #[arg(short, long)]
     static_html: Option<String>,
+
+    /// [Developers only] dump OpenAPI specification to `openapi.json` file and
+    /// exit immediately.
+    #[arg(long)]
+    dump_openapi: bool,
 }
 
 #[derive(OpenApi)]
@@ -178,18 +188,24 @@ observed by the user is outdated, so the request is rejected."
 )]
 pub struct ApiDoc;
 
-#[actix_web::main]
-async fn main() -> AnyResult<()> {
+fn main() -> AnyResult<()> {
+    // Stay in single-threaded mode (no tokio) until calling `daemonize`.
+
     // Create env logger.
     env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
 
     let args = Args::try_parse()?;
 
+    if args.dump_openapi {
+        let openapi_json = ApiDoc::openapi().to_json()?;
+        write("openapi.json", openapi_json.as_bytes())?;
+        return Ok(());
+    }
+
     let config_file = &args
         .config_file
         .unwrap_or_else(|| "config.yaml".to_string());
     let config_yaml = read(config_file)
-        .await
         .map_err(|e| AnyError::msg(format!("error reading config file '{config_file}': {e}")))?;
     let config_yaml = String::from_utf8_lossy(&config_yaml);
     let mut config: ManagerConfig = serde_yaml::from_str(&config_yaml)
@@ -198,9 +214,9 @@ async fn main() -> AnyResult<()> {
     if let Some(static_html) = &args.static_html {
         config.static_html = Some(static_html.clone());
     }
-    let config = config.canonicalize().await?;
+    let config = config.canonicalize()?;
 
-    run(config).await
+    run(config)
 }
 
 struct ServerState {
@@ -231,31 +247,59 @@ impl ServerState {
     }
 }
 
-async fn run(config: ManagerConfig) -> AnyResult<()> {
-    let db = Arc::new(Mutex::new(ProjectDB::connect(&config).await?));
-    let compiler = Compiler::new(&config, db.clone()).await?;
+fn run(config: ManagerConfig) -> AnyResult<()> {
+    // Check that the port is available before turning into a daemon, so we can fail
+    // early if the port is taken.
+    let listener = TcpListener::bind((config.bind_address.clone(), config.port)).map_err(|e| {
+        AnyError::msg(format!(
+            "failed to bind port '{}:{}': {e}",
+            &config.bind_address, config.port
+        ))
+    })?;
 
-    // Since we don't trust any file system state after restart,
-    // reset all projects to `ProjectStatus::None`, which will force
-    // us to recompile projects before running them.
-    db.lock().await.reset_project_status().await?;
-    let bind_address = config.bind_address.clone();
-    let bind_port = config.port;
-    let state = WebData::new(ServerState::new(config, db, compiler).await?);
-    let openapi = ApiDoc::openapi();
+    let logfile = StdFile::create(&config.logfile).map_err(|e| {
+        AnyError::msg(format!(
+            "failed to create log file '{}': {e}",
+            &config.logfile
+        ))
+    })?;
 
-    HttpServer::new(move || {
-        build_app(
-            App::new().wrap(Logger::default()),
-            state.clone(),
-            openapi.clone(),
-        )
+    let logfile_clone = logfile.try_clone().unwrap();
+
+    let daemonize = Daemonize::new()
+        .pid_file(&config.manager_pid_file_path())
+        .working_directory(&config.working_directory)
+        .stdout(logfile_clone)
+        .stderr(logfile);
+
+    daemonize.start().map_err(|e| {
+        AnyError::msg(format!(
+            "failed to detach server process from terminal: '{e}'",
+        ))
+    })?;
+
+    rt::System::new().block_on(async {
+        let db = Arc::new(Mutex::new(ProjectDB::connect(&config).await?));
+        let compiler = Compiler::new(&config, db.clone()).await?;
+
+        // Since we don't trust any file system state after restart,
+        // reset all projects to `ProjectStatus::None`, which will force
+        // us to recompile projects before running them.
+        db.lock().await.reset_project_status().await?;
+        let openapi = ApiDoc::openapi();
+
+        let state = WebData::new(ServerState::new(config, db, compiler).await?);
+
+        let server = HttpServer::new(move || {
+            build_app(
+                App::new().wrap(Logger::default()),
+                state.clone(),
+                openapi.clone(),
+            )
+        });
+        server.listen(listener)?.run().await?;
+        Ok(())
     })
-    .bind((bind_address, bind_port))?
-    .run()
-    .await?;
-
-    Ok(())
 }
 
 // `static_files` magic.
@@ -318,8 +362,11 @@ where
     }
 }
 
-async fn index() -> ActixResult<NamedFile> {
-    Ok(NamedFile::open("static/index.html")?)
+async fn index(state: WebData<ServerState>) -> ActixResult<NamedFile> {
+    Ok(NamedFile::open(format!(
+        "{}/index.html",
+        state.config.static_html.as_ref().unwrap()
+    ))?)
 }
 
 /// Pipeline manager error response.

@@ -20,7 +20,13 @@ use std::{
     thread::spawn,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
-use utoipa::{openapi::{ArrayBuilder, RefOr, ObjectBuilder, SchemaType, SchemaFormat, schema::{KnownFormat, Schema}}, ToSchema};
+use utoipa::{
+    openapi::{
+        schema::{KnownFormat, Schema},
+        ArrayBuilder, ObjectBuilder, RefOr, SchemaFormat, SchemaType,
+    },
+    ToSchema,
+};
 
 const POLL_TIMEOUT: Duration = Duration::from_millis(100);
 
@@ -79,12 +85,12 @@ pub struct KafkaInputConfig {
     group_join_timeout_secs: u32,
 }
 
-// The auto-derived implementation gets confused by the flattened `kafka_options` field.
-// FIXME: I didn't figure out how to attach a `description` to the `topics` property.
-// fields.
+// The auto-derived implementation gets confused by the flattened
+// `kafka_options` field. FIXME: I didn't figure out how to attach a
+// `description` to the `topics` property. fields.
 impl<'s> ToSchema<'s> for KafkaInputConfig {
     fn schema() -> (&'s str, RefOr<Schema>) {
-         (
+        (
             "KafkaInputConfig",
             ObjectBuilder::new()
                 .property(
@@ -114,7 +120,8 @@ impl<'s> ToSchema<'s> for KafkaInputConfig {
 See [`librdkafka` options](https://github.com/edenhill/librdkafka/blob/master/CONFIGURATION.md)
 used to configure the Kafka producer."#))))
                 .into(),
-        ) }
+        )
+    }
 }
 
 impl KafkaInputConfig {

@@ -1,0 +1,28 @@
+[tasks.openapi_json]
+description = "Dump OpenAPI specification of the REST API to 'openapi.json'"
+dependencies = ["build"]
+command = "cargo"
+args = ["run", "--", "--dump-openapi"]
+
+[tasks.openapi_python]
+description = "Generate Python bindings for the REST API"
+dependencies = ["openapi_json"]
+script = '''
+pip install openapi-python-client
+cd python
+rm -rf dbsp-api-client
+openapi-python-client generate --path ../openapi.json    
+'''
+
+# [tasks.start]
+#description = "Start pipeline manager"
+#command = "cargo"
+#args = ["run", "--", ""]
+
+[tasks.python_test]
+description = "Test Python API"
+dependencies = ["openapi_python"]
+script = '''
+
+python3 python/test.py
+'''

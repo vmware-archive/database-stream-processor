@@ -30,7 +30,7 @@
 //! by the circuit, but the counter shows that 10 records are still
 //! pending.
 
-use super::{EndpointId, InputEndpointConfig, OutputEndpointConfig, GlobalPipelineConfig};
+use super::{EndpointId, GlobalPipelineConfig, InputEndpointConfig, OutputEndpointConfig};
 use anyhow::Error as AnyError;
 use crossbeam::sync::{ShardedLock, ShardedLockReadGuard, Unparker};
 use serde::{Serialize, Serializer};

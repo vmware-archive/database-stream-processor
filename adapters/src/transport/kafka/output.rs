@@ -10,7 +10,13 @@ use rdkafka::{
 use serde::Deserialize;
 use serde_yaml::Value as YamlValue;
 use std::{borrow::Cow, collections::BTreeMap, time::Duration};
-use utoipa::{openapi::{RefOr, ObjectBuilder, SchemaType, SchemaFormat, schema::{KnownFormat, Schema}}, ToSchema};
+use utoipa::{
+    openapi::{
+        schema::{KnownFormat, Schema},
+        ObjectBuilder, RefOr, SchemaFormat, SchemaType,
+    },
+    ToSchema,
+};
 
 const OUTPUT_POLLING_INTERVAL: Duration = Duration::from_millis(100);
 
@@ -71,10 +77,11 @@ pub struct KafkaOutputConfig {
     max_inflight_messages: u32,
 }
 
-// The auto-derived implementation gets confused by the flattened `kafka_options` field.
+// The auto-derived implementation gets confused by the flattened
+// `kafka_options` field.
 impl<'s> ToSchema<'s> for KafkaOutputConfig {
     fn schema() -> (&'s str, RefOr<Schema>) {
-         (
+        (
             "KafkaOutputConfig",
             ObjectBuilder::new()
                 .property(
@@ -110,7 +117,8 @@ Defaults to 1000."#)),
 See [`librdkafka` options](https://github.com/edenhill/librdkafka/blob/master/CONFIGURATION.md)
 used to configure the Kafka producer."#))))
                 .into(),
-        ) }
+        )
+    }
 }
 /// Producer context object used to handle async delivery notifications from
 /// Kafka.

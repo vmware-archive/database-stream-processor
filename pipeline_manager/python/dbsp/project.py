@@ -3,6 +3,7 @@ import dbsp_api_client
 from dbsp_api_client.models.compile_project_request import CompileProjectRequest
 from dbsp_api_client.api.project import project_status
 from dbsp_api_client.api.project import compile_project
+from dbsp.error import CompilationException
 import time
 import sys
 from typing import Union, Dict, Any
@@ -51,12 +52,8 @@ class DBSPProject:
             if status != 'Compiling' and status != 'Pending':
                 if status == 'Success':
                     return
-                elif status['SqlError'] != None:
-                    raise CompilationException("SQL error: " + status['SqlError'])
-                elif status['RustError'] != None:
-                    raise CompilationException("Rust compiler error: " + status['RustError'])
                 else:
-                    raise CompilationException("Unexpected project status : " + status)
+                    raise CompilationException(status)
             time.sleep(0.5)
         
         raise TimeoutException("Timeout waiting for the project to compile after " + str(timeout) + "s")

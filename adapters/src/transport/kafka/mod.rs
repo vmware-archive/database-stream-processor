@@ -14,8 +14,8 @@ mod output;
 #[cfg(test)]
 pub mod test;
 
-pub use input::{KafkaInputTransport, KafkaInputConfig};
-pub use output::{KafkaOutputTransport, KafkaOutputConfig};
+pub use input::{KafkaInputConfig, KafkaInputTransport};
+pub use output::{KafkaOutputConfig, KafkaOutputTransport};
 
 /// Kafka logging levels.
 #[derive(Debug, Deserialize, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, ToSchema)]

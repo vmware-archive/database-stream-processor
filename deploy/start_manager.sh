@@ -33,6 +33,7 @@ psql -h localhost -U postgres -f "${ROOT_DIR}/pipeline_manager/create_db.sql"
 manager_config="
     port: 8080
     bind_address:  \"${BIND_ADDRESS}\"
+    logfile: \"${WORKING_DIR}/manager.log\"
     pg_connection_string: \"host=localhost user=dbsp\"
     working_directory: \"${WORKING_DIR}\"
     sql_compiler_home: \"${SQL_COMPILER_DIR}\"
@@ -43,28 +44,7 @@ manager_config="
 printf "$manager_config" > "${WORKING_DIR}/manager.yaml"
 
 cd "${MANAGER_DIR}" && ~/.cargo/bin/cargo build --release
-cd "${MANAGER_DIR}" && ~/.cargo/bin/cargo run --release -- --static-html=static --config-file="${WORKING_DIR}/manager.yaml" 2> "${WORKING_DIR}/manager.log"&
-
-TIMEOUT=10
-
-# Wait for the server to start listening on 8080.
-while true; do
-  # Use `nc` to check if the port is open
-  if nc -z localhost 8080; then
-    break
-  fi
-
-  sleep 1
-
-  TIMEOUT=$((TIMEOUT - 1))
-
-  if [ "$TIMEOUT" -eq 0 ]; then
-    echo "Timed out waiting for the server"
-    exit 1
-  fi
-done
-
-printf "\nPipeline server is running\n\n"
+cd "${MANAGER_DIR}" && ~/.cargo/bin/cargo run --release -- --static-html=static --config-file="${WORKING_DIR}/manager.yaml"
 
 # Start Prometheus.
 

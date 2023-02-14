@@ -1,4 +1,4 @@
-use crate::{Catalog, Controller, PipelineConfig, ControllerError};
+use crate::{Catalog, Controller, ControllerError, PipelineConfig};
 use actix_web::{
     dev::{Server, ServiceFactory, ServiceRequest},
     get,
@@ -13,12 +13,12 @@ use clap::Parser;
 use dbsp::DBSPHandle;
 use env_logger::Env;
 use log::{error, info};
+use serde::Serialize;
 use std::{net::TcpListener, sync::Mutex};
 use tokio::{
     spawn,
     sync::mpsc::{channel, Receiver, Sender},
 };
-use serde::Serialize;
 mod prometheus;
 
 use self::prometheus::PrometheusMetrics;
@@ -247,7 +247,9 @@ async fn start(state: WebData<ServerState>) -> impl Responder {
             controller.start();
             HttpResponse::Ok().json("The pipeline is running")
         }
-        None => HttpResponse::Conflict().json(&ErrorResponse::new("The pipeline has been terminated")),
+        None => {
+            HttpResponse::Conflict().json(&ErrorResponse::new("The pipeline has been terminated"))
+        }
     }
 }
 
@@ -258,7 +260,9 @@ async fn pause(state: WebData<ServerState>) -> impl Responder {
             controller.pause();
             HttpResponse::Ok().json("Pipeline paused")
         }
-        None => HttpResponse::Conflict().json(&ErrorResponse::new("The pipeline has been terminated")),
+        None => {
+            HttpResponse::Conflict().json(&ErrorResponse::new("The pipeline has been terminated"))
+        }
     }
 }
 
@@ -271,7 +275,9 @@ async fn status(state: WebData<ServerState>) -> impl Responder {
                 .content_type(mime::APPLICATION_JSON)
                 .body(json_string)
         }
-        None => HttpResponse::Conflict().json(&ErrorResponse::new("The pipeline has been terminated")),
+        None => {
+            HttpResponse::Conflict().json(&ErrorResponse::new("The pipeline has been terminated"))
+        }
     }
 }
 
@@ -305,7 +311,9 @@ async fn dump_profile(state: WebData<ServerState>) -> impl Responder {
             controller.dump_profile();
             HttpResponse::Ok().json("Profile dump initiated")
         }
-        None => HttpResponse::Conflict().json(&ErrorResponse::new("The pipeline has been terminated")),
+        None => {
+            HttpResponse::Conflict().json(&ErrorResponse::new("The pipeline has been terminated"))
+        }
     }
 }
 
@@ -315,8 +323,9 @@ async fn shutdown(state: WebData<ServerState>) -> impl Responder {
     if let Some(controller) = controller {
         match controller.stop() {
             Ok(()) => HttpResponse::Ok().json("Pipeline terminated"),
-            Err(e) => HttpResponse::InternalServerError()
-                .json(&ErrorResponse::new(&format!("Failed to terminate the pipeline: {e}"))),
+            Err(e) => HttpResponse::InternalServerError().json(&ErrorResponse::new(&format!(
+                "Failed to terminate the pipeline: {e}"
+            ))),
         }
     } else {
         HttpResponse::Ok().json("Pipeline already terminated")
@@ -341,7 +350,7 @@ mod test_with_kafka {
             kafka::{BufferConsumer, KafkaResources, TestProducer},
             test_circuit, wait, TEST_LOGGER,
         },
-        Controller, PipelineConfig, ControllerError,
+        Controller, ControllerError, PipelineConfig,
     };
     use actix_web::{http::StatusCode, middleware::Logger, test, web::Data as WebData, App};
     use crossbeam::queue::SegQueue;

@@ -140,8 +140,8 @@ pub use format::{Encoder, InputFormat, OutputConsumer, OutputFormat, Parser};
 pub use seroutput::{SerBatch, SerCursor, SerOutputBatchHandle};
 
 pub use controller::{
-    Controller, PipelineConfig, ControllerError, ControllerStatus, FormatConfig,
-    InputEndpointConfig, OutputEndpointConfig, GlobalPipelineConfig, TransportConfig,
+    Controller, ControllerError, ControllerStatus, FormatConfig, GlobalPipelineConfig,
+    InputEndpointConfig, OutputEndpointConfig, PipelineConfig, TransportConfig,
 };
 pub use transport::{
     FileInputTransport, InputConsumer, InputEndpoint, InputTransport, OutputEndpoint,

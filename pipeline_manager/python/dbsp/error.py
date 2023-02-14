@@ -23,10 +23,10 @@ class CompilationException(Exception):
         message: Compiler error message.
     """
     def __init__(self, status):
-        if status['SqlError'] != None:
-            self.message = "SQL error: " + status['SqlError']
-        if status['RustError'] != None:
-            self.message = "Rust compiler error: " + status['RustError']
+        if hasattr(status, 'sql_error'):
+            self.message = "SQL error: " + status.sql_error
+        elif hasattr(status, 'rust_error'):
+            self.message = "Rust compiler error: " + status.rust_error
         else:
             self.message = "Unexpected project status: " + str(status)
 

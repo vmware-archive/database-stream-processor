@@ -61,7 +61,7 @@ mod error;
 mod stats;
 
 pub use config::{
-    PipelineConfig, FormatConfig, InputEndpointConfig, OutputEndpointConfig, GlobalPipelineConfig,
+    FormatConfig, GlobalPipelineConfig, InputEndpointConfig, OutputEndpointConfig, PipelineConfig,
     TransportConfig,
 };
 pub use error::ControllerError;
