@@ -488,6 +488,7 @@ CREATE TABLE IF NOT EXISTS pipeline (
     ) -> AnyResult<ProjectDescr> {
         let descr = self.get_project(project_id)?;
         if descr.version != expected_version {
+            log::warn!("Project {} version mismatch: expected {:?}, got {:?}", project_id, expected_version, descr);
             return Err(anyhow!(DBError::OutdatedProjectVersion(expected_version)));
         }
 
@@ -547,8 +548,16 @@ CREATE TABLE IF NOT EXISTS pipeline (
         // `status_since` field, which would move it to the end of the queue) or
         // if compilation is alread in progress.
         if descr.status == ProjectStatus::Pending || descr.status == ProjectStatus::Compiling {
+            log::info!(
+                "Project {} is already pending or compiling, ignoring {:?}",
+                project_id, descr
+            );
             return Ok(());
         }
+        log::info!(
+            "Set Project {} to pending, waiting for compilation of version {}",
+            project_id, expected_version
+        );
 
         self.set_project_status(project_id, ProjectStatus::Pending)?;
 

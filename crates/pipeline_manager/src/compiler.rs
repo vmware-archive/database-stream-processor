@@ -168,6 +168,7 @@ impl Compiler {
                     let version = job.as_ref().unwrap().version;
                     let mut db = db.lock().await;
 
+                    log::info!("we have an exist status {:?} {:?}", project_id, version);
                     match exit_status {
                         Ok(status) if status.success() && job.as_ref().unwrap().is_sql() => {
                             // SQL compiler succeeded -- start Rust job.
@@ -297,6 +298,7 @@ impl CompilationJob {
             ))
         })?;
 
+        debug!("spawn sqlc for project '{project_id}', version '{version}'");
         // Run compiler, direct output to `main.rs`.
         let compiler_process = Command::new(config.sql_compiler_path())
             .arg(sql_file_path.as_os_str())
@@ -406,6 +408,7 @@ impl CompilationJob {
                 ))
             })?;
 
+        debug!("spawn rustc for project '{project_id}', version '{version}'");
         // Run cargo, direct stdout and stderr to the same file.
         let mut command = Command::new("cargo");
 
