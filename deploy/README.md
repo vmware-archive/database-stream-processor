@@ -1,3 +1,13 @@
+Prerequisites
+=============
+
+Before building the Docker image, clone the SQL-to-DBSP compiler at the root of this repository and then build it:
+
+```
+git clone https://github.com/vmware/sql-to-dbsp-compiler
+(cd sql-to-dbsp-compiler/SQL-compiler/ && mvn -DskipTests package)
+```
+
 Bringing up a local instance of DBSP
 ===================================
 
