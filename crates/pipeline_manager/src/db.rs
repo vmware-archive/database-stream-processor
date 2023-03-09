@@ -1,8 +1,11 @@
-use crate::{ManagerConfig, ProjectStatus};
+use crate::{AttachedConnector, Direction, ManagerConfig, ProjectStatus};
 use anyhow::{anyhow, Error as AnyError, Result as AnyResult};
 use chrono::{DateTime, NaiveDateTime, Utc};
 use log::{debug, error};
-use rusqlite::Connection;
+use rusqlite::{
+    types::{FromSql, FromSqlError, FromSqlResult, ToSqlOutput, ValueRef},
+    Connection, ToSql,
+};
 use serde::{Deserialize, Serialize};
 use std::{error::Error as StdError, fmt, fmt::Display};
 use utoipa::ToSchema;
@@ -57,6 +60,28 @@ impl Display for PipelineId {
     }
 }
 
+/// Unique connector id.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[repr(transparent)]
+#[serde(transparent)]
+pub(crate) struct ConnectorId(pub i64);
+impl Display for ConnectorId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+/// Unique attached connector id.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[repr(transparent)]
+#[serde(transparent)]
+pub(crate) struct AttachedConnectorId(pub i64);
+impl Display for AttachedConnectorId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
 /// Version number.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[repr(transparent)]
@@ -81,6 +106,7 @@ pub(crate) enum DBError {
     OutdatedProjectVersion(Version),
     UnknownConfig(ConfigId),
     UnknownPipeline(PipelineId),
+    UnknownConnector(ConnectorId),
 }
 
 impl Display for DBError {
@@ -98,6 +124,9 @@ impl Display for DBError {
             }
             DBError::UnknownPipeline(pipeline_id) => {
                 write!(f, "Unknown pipeline id '{pipeline_id}'")
+            }
+            DBError::UnknownConnector(connector_id) => {
+                write!(f, "Unknown connector id '{connector_id}'")
             }
         }
     }
@@ -205,21 +234,70 @@ pub(crate) struct ProjectDescr {
 #[derive(Serialize, ToSchema, Debug)]
 pub(crate) struct ConfigDescr {
     pub config_id: ConfigId,
-    pub project_id: ProjectId,
+    pub project_id: Option<ProjectId>,
+    pub pipeline: Option<PipelineDescr>,
     pub version: Version,
     pub name: String,
+    pub description: String,
     pub config: String,
+    pub attached_connectors: Vec<AttachedConnector>,
 }
 
 /// Pipeline descriptor.
 #[derive(Serialize, ToSchema, Debug)]
 pub(crate) struct PipelineDescr {
     pub pipeline_id: PipelineId,
-    pub project_id: ProjectId,
-    pub project_version: Version,
+    pub config_id: ConfigId,
     pub port: u16,
     pub killed: bool,
     pub created: DateTime<Utc>,
+}
+
+/// Type of new data connector.
+#[derive(Serialize, Deserialize, ToSchema, Debug, Copy, Clone)]
+pub enum ConnectorType {
+    KafkaIn = 0,
+    KafkaOut = 1,
+    File = 2,
+}
+
+impl ToSql for ConnectorType {
+    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput> {
+        Ok(ToSqlOutput::from(*self as i64))
+    }
+}
+
+impl Into<Direction> for ConnectorType {
+    fn into(self) -> Direction {
+        match self {
+            ConnectorType::KafkaIn => Direction::Input,
+            ConnectorType::KafkaOut => Direction::Output,
+            ConnectorType::File => Direction::InputOutput,
+        }
+    }
+}
+
+impl FromSql for ConnectorType {
+    fn column_result(value: ValueRef) -> FromSqlResult<Self> {
+        match value.as_i64() {
+            Ok(0) => Ok(ConnectorType::KafkaIn),
+            Ok(1) => Ok(ConnectorType::KafkaOut),
+            Ok(2) => Ok(ConnectorType::File),
+            Ok(idx) => Err(FromSqlError::OutOfRange(idx)),
+            Err(_) => Err(FromSqlError::InvalidType),
+        }
+    }
+}
+
+/// Connector descriptor.
+#[derive(Serialize, ToSchema, Debug)]
+pub(crate) struct ConnectorDescr {
+    pub connector_id: ConnectorId,
+    pub name: String,
+    pub description: String,
+    pub typ: ConnectorType,
+    pub config: String,
+    pub direction: Direction,
 }
 
 impl ProjectDB {
@@ -250,29 +328,57 @@ CREATE TABLE IF NOT EXISTS project (
 
         dbclient.execute(
             r#"
-CREATE TABLE IF NOT EXISTS project_config (
+CREATE TABLE IF NOT EXISTS pipeline (
     id integer PRIMARY KEY AUTOINCREMENT,
-    project_id integer,
-    version integer,
-    name varchar,
-    config varchar,
-    FOREIGN KEY (project_id) REFERENCES project(id) ON DELETE CASCADE
-);
+    config_id integer,
+    config_version integer,
+    -- TODO: add 'host' field when we support remote pipelines.
+    port integer,
+    killed bool NOT NULL,
+    created integer
 )"#,
             (),
         )?;
 
         dbclient.execute(
             r#"
-CREATE TABLE IF NOT EXISTS pipeline (
+CREATE TABLE IF NOT EXISTS project_config (
     id integer PRIMARY KEY AUTOINCREMENT,
+    pipeline_id integer,
     project_id integer,
-    project_version integer,
-    -- TODO: add 'host' field when we support remote pipelines.
-    port integer,
-    killed bool NOT NULL,
-    created integer,
-    FOREIGN KEY (project_id) REFERENCES project(id) ON DELETE CASCADE)"#,
+    version integer,
+    name varchar,
+    description varchar,
+    config varchar,
+    FOREIGN KEY (project_id) REFERENCES project(id) ON DELETE CASCADE
+    FOREIGN KEY (pipeline_id) REFERENCES pipeline(id) ON DELETE SET NULL
+)"#,
+            (),
+        )?;
+
+        dbclient.execute(
+            r#"
+CREATE TABLE IF NOT EXISTS attached_connector (
+    id integer PRIMARY KEY AUTOINCREMENT,
+    uuid varchar UNIQUE,
+    config_id integer,
+    connector_id integer,
+    config varchar,
+    is_input bool,
+    FOREIGN KEY (config_id) REFERENCES project_config(id) ON DELETE CASCADE
+    FOREIGN KEY (connector_id) REFERENCES connector(id) ON DELETE CASCADE)"#,
+            (),
+        )?;
+
+        dbclient.execute(
+            r#"
+CREATE TABLE IF NOT EXISTS connector (
+    id integer PRIMARY KEY AUTOINCREMENT,
+    version integer,
+    name varchar,
+    description varchar,
+    typ integer,
+    config text)"#,
             (),
         )?;
 
@@ -684,28 +790,36 @@ CREATE TABLE IF NOT EXISTS pipeline (
     }
 
     /// List configs associated with `project_id`.
-    pub(crate) fn list_project_configs(
-        &self,
-        project_id: ProjectId,
-    ) -> AnyResult<Vec<ConfigDescr>> {
-        // Check that the project exists, so we return an error instead of an
-        // empty list of configs.
-        let _descr = self.get_project(project_id)?;
-
+    pub(crate) fn list_configs(&self) -> AnyResult<Vec<ConfigDescr>> {
         let mut statement = self.dbclient.prepare(
-            "SELECT id, version, name, config FROM project_config WHERE project_id = $1",
+            "SELECT id, version, name, description, config, pipeline_id, project_id FROM project_config",
         )?;
-        let mut rows = statement.query([&project_id.0])?;
-
+        let mut rows = statement.query([])?;
         let mut result = Vec::new();
 
         while let Some(row) = rows.next()? {
+            let config_id = ConfigId(row.get(0)?);
+            let project_id = row.get(6).map(|id: Option<i64>| id.map(ProjectId))?;
+            let attached_connectors = self.get_attached_connectors(config_id)?;
+            let pipeline =
+                if let Some(pipeline_id) = row.get(5).map(|id: Option<i64>| id.map(PipelineId))? {
+                    log::info!("pipeline_id: {:?}", pipeline_id);
+                    let pp = Some(self.get_pipeline(pipeline_id)?);
+                    log::info!("pp: {:?}", pp);
+                    pp
+                } else {
+                    None
+                };
+
             result.push(ConfigDescr {
-                config_id: ConfigId(row.get(0)?),
-                project_id,
+                config_id,
                 version: Version(row.get(1)?),
                 name: row.get(2)?,
-                config: row.get(3)?,
+                description: row.get(3)?,
+                config: row.get(4)?,
+                pipeline,
+                project_id,
+                attached_connectors,
             });
         }
 
@@ -714,41 +828,54 @@ CREATE TABLE IF NOT EXISTS pipeline (
 
     /// Retrieve project config.
     pub(crate) fn get_config(&self, config_id: ConfigId) -> AnyResult<ConfigDescr> {
-        let descr = self
-            .dbclient
-            .query_row(
-                "SELECT project_id, version, name, config FROM project_config WHERE id = $1",
-                [&config_id.0],
-                |row| {
-                    Ok(ConfigDescr {
-                        config_id,
-                        project_id: ProjectId(row.get(0)?),
-                        version: Version(row.get(1)?),
-                        name: row.get(2)?,
-                        config: row.get(3)?,
-                    })
-                },
-            )
-            .map_err(|_| anyhow!(DBError::UnknownConfig(config_id)))?;
+        log::info!("get_config({:?})", config_id.0);
+        let mut statement = self.dbclient.prepare(
+            "SELECT id, version, name, description, config, pipeline_id, project_id FROM project_config WHERE id = $1",
+        )?;
+        let mut rows = statement.query([&config_id.0])?;
 
-        Ok(descr)
+        if let Some(row) = rows.next()? {
+            let project_id = row.get(6).map(|id: Option<i64>| id.map(ProjectId))?;
+            let attached_connectors = self.get_attached_connectors(config_id)?;
+            let pipeline =
+                if let Some(pipeline_id) = row.get(5).map(|id: Option<i64>| id.map(PipelineId))? {
+                    Some(self.get_pipeline(pipeline_id)?)
+                } else {
+                    None
+                };
+
+            Ok(ConfigDescr {
+                config_id,
+                version: Version(row.get(1)?),
+                name: row.get(2)?,
+                description: row.get(3)?,
+                config: row.get(4)?,
+                pipeline,
+                project_id,
+                attached_connectors,
+            })
+        } else {
+            Err(anyhow!(DBError::UnknownConfig(config_id)))
+        }
     }
 
     /// Create a new project config.
     pub(crate) fn new_config(
         &self,
-        project_id: ProjectId,
+        project_id: Option<ProjectId>,
         config_name: &str,
+        config_description: &str,
         config: &str,
     ) -> AnyResult<(ConfigId, Version)> {
-        debug!("new_config {project_id} {config_name} {config}");
-        // Check that the project exists, so we return correct error status
-        // instead of Internal Server Error due to the next query failing.
-        let _descr = self.get_project(project_id)?;
+        if let Some(pid) = project_id {
+            // Check that the project exists, so we return correct error status
+            // instead of Internal Server Error due to the next query failing.
+            let _descr = self.get_project(pid)?;
+        }
 
         self.dbclient.execute(
-            "INSERT INTO project_config (project_id, version, name, config) VALUES($1, 1, $2, $3)",
-            (&project_id.0, &config_name, &config),
+            "INSERT INTO project_config (project_id, version, name, description, config) VALUES($1, 1, $2, $3, $4)",
+            (&project_id.map(|pid| pid.0), &config_name, &config_description, &config),
         )?;
 
         let id = self
@@ -760,23 +887,62 @@ CREATE TABLE IF NOT EXISTS pipeline (
         Ok((id, Version(1)))
     }
 
+    /// Add pipeline to the config.
+    pub(crate) fn add_pipeline_to_config(
+        &self,
+        config_id: ConfigId,
+        pipeline_id: PipelineId,
+    ) -> AnyResult<()> {
+        self.dbclient.execute(
+            "UPDATE project_config SET pipeline_id = $1 WHERE id = $2",
+            [&pipeline_id.0, &config_id.0],
+        )?;
+
+        Ok(())
+    }
+
     /// Update existing project config.
     ///
-    /// Update config name and, optionally, YAML.
+    /// Update config name, description, project id and, optionally, YAML, and
+    /// connector configs.
     pub(crate) fn update_config(
         &mut self,
         config_id: ConfigId,
+        project_id: Option<ProjectId>,
         config_name: &str,
+        config_description: &str,
         config: &Option<String>,
+        connectors: &Option<Vec<AttachedConnector>>,
     ) -> AnyResult<Version> {
+        log::info!(
+            "Updating config {} {} {} {} {:?} {:?}",
+            config_id.0,
+            project_id.map(|pid| pid.0).unwrap_or(-1),
+            config_name,
+            config_description,
+            config,
+            connectors
+        );
         let descr = self.get_config(config_id)?;
-
         let config = config.clone().unwrap_or(descr.config);
+
+        if let Some(connectors) = connectors {
+            // Delete all existing attached connectors.
+            self.dbclient.execute(
+                "DELETE FROM attached_connector WHERE config_id = $1",
+                [&config_id.0],
+            )?;
+
+            // Rewrite the new set of connectors.
+            for ac in connectors {
+                self.attach_connector(config_id, ac)?;
+            }
+        }
 
         let version = descr.version.increment();
         self.dbclient.execute(
-            "UPDATE project_config SET version = $1, name = $2, config = $3 WHERE id = $4",
-            (&version.0, &config_name, &config, &config_id.0),
+            "UPDATE project_config SET version = $1, name = $2, description = $3, config = $4, project_id = $5 WHERE id = $6",
+            (&version.0, &config_name, &config_description, &config, project_id.map(|p| p.0), &config_id.0),
         )?;
 
         Ok(version)
@@ -795,16 +961,54 @@ CREATE TABLE IF NOT EXISTS pipeline (
         }
     }
 
+    fn get_attached_connectors(&self, config_id: ConfigId) -> AnyResult<Vec<AttachedConnector>> {
+        let mut statement = self.dbclient.prepare(
+            "SELECT uuid, connector_id, config, is_input FROM attached_connector WHERE config_id = $1",
+        )?;
+        let mut rows = statement.query([config_id.0])?;
+        let mut result = Vec::new();
+
+        while let Some(row) = rows.next()? {
+            let direction = if row.get(3)? {
+                Direction::Input
+            } else {
+                Direction::Output
+            };
+
+            result.push(AttachedConnector {
+                uuid: row.get(0)?,
+                connector_id: ConnectorId(row.get(1)?),
+                config: row.get(2)?,
+                direction,
+            });
+        }
+
+        Ok(result)
+    }
+
+    fn attach_connector(&mut self, config_id: ConfigId, ac: &AttachedConnector) -> AnyResult<()> {
+        let _descr = self.get_config(config_id)?;
+        let _descr = self.get_connector(ac.connector_id)?;
+        let is_input = ac.direction == Direction::Input;
+
+        self.dbclient.execute(
+            "INSERT INTO attached_connector (uuid, config_id, connector_id, is_input, config) VALUES($1, $2, $3, $4, $5)",
+            (&ac.uuid, &config_id.0, &ac.connector_id.0, is_input, &ac.config),
+        )?;
+
+        Ok(())
+    }
+
     /// Insert a new record to the `pipeline` table.
     pub(crate) fn new_pipeline(
         &self,
-        project_id: ProjectId,
-        project_version: Version,
+        config_id: ConfigId,
+        config_version: Version,
     ) -> AnyResult<PipelineId> {
         self.dbclient
             .execute(
-                "INSERT INTO pipeline (project_id, project_version, killed, created) VALUES($1, $2, false, unixepoch('now'))",
-                (&project_id.0, &project_version.0),
+                "INSERT INTO pipeline (config_id, config_version, killed, created) VALUES($1, $2, false, unixepoch('now'))",
+                (&config_id.0, &config_version.0),
             )?;
 
         let id = self
@@ -860,24 +1064,45 @@ CREATE TABLE IF NOT EXISTS pipeline (
         Ok(num_deleted > 0)
     }
 
-    /// List pipelines associated with `project_id`.
-    pub(crate) fn list_project_pipelines(
-        &self,
-        project_id: ProjectId,
-    ) -> AnyResult<Vec<PipelineDescr>> {
-        // Check that the project exists, so we return an error instead of an
-        // empty list of pipelines.
-        let _descr = self.get_project(project_id)?;
-
+    /// Retrieve project config.
+    pub(crate) fn get_pipeline(&self, pipeline_id: PipelineId) -> AnyResult<PipelineDescr> {
         let mut statement = self.dbclient.prepare(
-            "SELECT id, project_version, port, killed, created FROM pipeline WHERE project_id = $1",
+            "SELECT id, config_id, config_version, port, killed, created FROM pipeline WHERE id = $1",
         )?;
-        let mut rows = statement.query([&project_id.0])?;
+        let mut rows = statement.query([&pipeline_id.0])?;
+
+        if let Some(row) = rows.next()? {
+            let created_secs: i64 = row.get(5)?;
+            let created_naive = NaiveDateTime::from_timestamp_millis(created_secs * 1000)
+                .ok_or_else(|| {
+                    AnyError::msg(format!(
+                        "Invalid timestamp in 'pipeline.created' column: {created_secs}"
+                    ))
+                })?;
+
+            Ok(PipelineDescr {
+                pipeline_id: PipelineId(row.get(0)?),
+                config_id: ConfigId(row.get(1)?),
+                port: row.get::<_, i32>(3)? as u16,
+                killed: row.get(4)?,
+                created: DateTime::<Utc>::from_utc(created_naive, Utc),
+            })
+        } else {
+            Err(anyhow!(DBError::UnknownPipeline(pipeline_id)))
+        }
+    }
+
+    /// List pipelines.
+    pub(crate) fn list_pipelines(&self) -> AnyResult<Vec<PipelineDescr>> {
+        let mut statement = self
+            .dbclient
+            .prepare("SELECT id, config_id, config_version, port, killed, created FROM pipeline")?;
+        let mut rows = statement.query([])?;
 
         let mut result = Vec::new();
 
         while let Some(row) = rows.next()? {
-            let created_secs: i64 = row.get(4)?;
+            let created_secs: i64 = row.get(5)?;
             let created_naive = NaiveDateTime::from_timestamp_millis(created_secs * 1000)
                 .ok_or_else(|| {
                     AnyError::msg(format!(
@@ -887,14 +1112,126 @@ CREATE TABLE IF NOT EXISTS pipeline (
 
             result.push(PipelineDescr {
                 pipeline_id: PipelineId(row.get(0)?),
-                project_id,
-                project_version: Version(row.get(1)?),
-                port: row.get::<_, i32>(2)? as u16,
-                killed: row.get(3)?,
+                config_id: ConfigId(row.get(1)?),
+                port: row.get::<_, i32>(3)? as u16,
+                killed: row.get(4)?,
                 created: DateTime::<Utc>::from_utc(created_naive, Utc),
             });
         }
 
         Ok(result)
+    }
+
+    /// Create a new connector.
+    pub(crate) fn new_connector(
+        &self,
+        name: &str,
+        description: &str,
+        typ: ConnectorType,
+        config: &str,
+    ) -> AnyResult<ConnectorId> {
+        debug!("new_connector {name} {description} {config}");
+        self.dbclient.execute(
+            "INSERT INTO connector (name, description, typ, config) VALUES($1, $2, $3, $4)",
+            (&name, &description, typ, &config),
+        )?;
+
+        let id = self
+            .dbclient
+            .query_row("SELECT last_insert_rowid()", (), |row| {
+                Ok(ConnectorId(row.get(0)?))
+            })?;
+
+        Ok(id)
+    }
+
+    /// Retrieve connectors list from the DB.
+    pub(crate) async fn list_connectors(&self) -> AnyResult<Vec<ConnectorDescr>> {
+        let mut statement = self
+            .dbclient
+            .prepare("SELECT id, name, description, typ, config FROM connector")?;
+        let mut rows = statement.query([])?;
+        let mut result = Vec::new();
+
+        while let Some(row) = rows.next()? {
+            let typ = row.get(3)?;
+            result.push(ConnectorDescr {
+                connector_id: ConnectorId(row.get(0)?),
+                name: row.get(1)?,
+                description: row.get(2)?,
+                typ,
+                direction: typ.into(),
+                config: row.get(4)?,
+            });
+        }
+
+        Ok(result)
+    }
+
+    /// Retrieve connector descriptor.
+    pub(crate) fn get_connector(&self, connector_id: ConnectorId) -> AnyResult<ConnectorDescr> {
+        let mut statement = self
+            .dbclient
+            .prepare("SELECT name, description, typ, config FROM connector WHERE id = $1")?;
+        let mut rows = statement.query([&connector_id.0])?;
+
+        if let Some(row) = rows.next()? {
+            let name: String = row.get(0)?;
+            let description: String = row.get(1)?;
+            let typ: ConnectorType = row.get(2)?;
+            let config: String = row.get(3)?;
+
+            Ok(ConnectorDescr {
+                connector_id,
+                name,
+                description,
+                typ,
+                direction: typ.into(),
+                config,
+            })
+        } else {
+            Err(anyhow!(DBError::UnknownConnector(connector_id)))
+        }
+    }
+
+    /// Update existing connector config.
+    ///
+    /// Update connector name and, optionally, YAML.
+    pub(crate) fn update_connector(
+        &mut self,
+        connector_id: ConnectorId,
+        connector_name: &str,
+        description: &str,
+        config: &Option<String>,
+    ) -> AnyResult<()> {
+        let descr = self.get_connector(connector_id)?;
+        let config = config.clone().unwrap_or(descr.config);
+
+        self.dbclient.execute(
+            "UPDATE connector SET name = $1, description = $2, config = $3 WHERE id = $4",
+            (
+                &connector_name,
+                &description,
+                &config.as_str(),
+                &connector_id.0,
+            ),
+        )?;
+
+        Ok(())
+    }
+
+    /// Delete connector from the database.
+    ///
+    /// This will delete all connector configs and pipelines.
+    pub(crate) fn delete_connector(&self, connector_id: ConnectorId) -> AnyResult<()> {
+        let num_deleted = self
+            .dbclient
+            .execute("DELETE FROM connector WHERE id = $1", [&connector_id.0])?;
+
+        if num_deleted > 0 {
+            Ok(())
+        } else {
+            Err(anyhow!(DBError::UnknownConnector(connector_id)))
+        }
     }
 }

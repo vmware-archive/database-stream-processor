@@ -1,6 +1,7 @@
 use crate::{
-    ErrorResponse, ManagerConfig, NewPipelineRequest, NewPipelineResponse, PipelineId, ProjectDB,
-    ProjectId, ProjectStatus, Version,
+    db::ConfigDescr, AttachedConnector, Direction, ErrorResponse, ManagerConfig,
+    NewPipelineRequest, NewPipelineResponse, PipelineId, ProjectDB, ProjectId, ProjectStatus,
+    Version,
 };
 use actix_web::{http::Method, HttpResponse};
 use anyhow::{Error as AnyError, Result as AnyResult};
@@ -169,35 +170,29 @@ scrape_configs:
     ) -> AnyResult<HttpResponse> {
         let db = self.db.lock().await;
 
+        // Read and validate project config.
+        let config_descr = db.get_config(request.config_id)?;
+        if config_descr.project_id.is_none() {
+            return Ok(HttpResponse::BadRequest().body(format!(
+                "Config '{}' does not have a project set",
+                request.config_id
+            )));
+        }
+        let project_version = config_descr.project_id.unwrap();
+
         // Check: project exists, version = current version, compilation completed.
-        let project_descr = db.get_project_guarded(request.project_id, request.project_version)?;
+        let project_descr = db.get_project(project_version)?;
         if project_descr.status != ProjectStatus::Success {
             return Ok(HttpResponse::Conflict().body("Project hasn't been compiled yet"));
         };
 
-        // Read and validate project config.
-        let config_descr = db.get_config(request.config_id)?;
+        let pipeline_id = db.new_pipeline(request.config_id, request.config_version)?;
+        db.add_pipeline_to_config(config_descr.config_id, pipeline_id)?;
 
-        if config_descr.project_id != request.project_id {
-            return Ok(HttpResponse::BadRequest().body(format!(
-                "Config '{}' does not belong to project '{}'",
-                request.config_id, request.project_id
-            )));
-        }
-
-        if config_descr.version != request.config_version {
-            return Ok(HttpResponse::Conflict().body(format!(
-                "Specified config version '{}' does not match the latest config version '{}'",
-                request.config_version, config_descr.version,
-            )));
-        }
-
-        let pipeline_id = db.new_pipeline(request.project_id, request.project_version)?;
+        log::info!("config descr: {:?}", config_descr);
 
         // Run the pipeline executable.
-        let mut pipeline_process = self
-            .start(&db, request, &config_descr.config, pipeline_id)
-            .await?;
+        let mut pipeline_process = self.start(&db, request, &config_descr, pipeline_id).await?;
 
         // Unlock db -- the next part can be slow.
         drop(db);
@@ -216,7 +211,7 @@ scrape_configs:
                 // The Prometheus server should pick up this file automatically.
                 self.create_prometheus_config(
                     &project_descr.name,
-                    request.project_id,
+                    config_descr.project_id.unwrap(),
                     pipeline_id,
                     port,
                 )
@@ -244,24 +239,65 @@ scrape_configs:
         &self,
         db: &ProjectDB,
         request: &NewPipelineRequest,
-        config_yaml: &str,
+        config_descr: &ConfigDescr,
         pipeline_id: PipelineId,
     ) -> AnyResult<Child> {
+        assert!(
+            config_descr.project_id.is_some(),
+            "pre-condition for start(): config.project_id is set"
+        );
+        let project_id = config_descr.project_id.unwrap();
+
+        // Assemble the final config by including all attached connectors.
+        fn generate_attached_connector_config(
+            db: &ProjectDB,
+            config: &mut String,
+            ac: &AttachedConnector,
+        ) -> AnyResult<()> {
+            let ident = 4;
+            config.push_str(format!("{:ident$}{}:\n", "", ac.config.as_str()).as_str());
+            let ident = 8;
+            config.push_str(format!("{:ident$}stream: {}\n", "", ac.config.as_str()).as_str());
+            let connector = db.get_connector(ac.connector_id)?;
+            for config_line in connector.config.lines() {
+                config.push_str(format!("{:ident$}{config_line}\n", "").as_str());
+            }
+            Ok(())
+        }
+
+        let mut config = config_descr.config.clone();
+        config.push_str("inputs:\n");
+
+        for ac in config_descr
+            .attached_connectors
+            .iter()
+            .filter(|ac| ac.direction == Direction::Input)
+        {
+            generate_attached_connector_config(db, &mut config, ac)?;
+        }
+        config.push_str("outputs:\n");
+        for ac in config_descr
+            .attached_connectors
+            .iter()
+            .filter(|ac| ac.direction == Direction::Output)
+        {
+            generate_attached_connector_config(db, &mut config, ac)?;
+        }
+
+        log::info!("final config is '{}'", config);
+
         // Create pipeline directory (delete old directory if exists); write metadata
         // and config files to it.
         let pipeline_dir = self.config.pipeline_dir(pipeline_id);
         create_dir_all(&pipeline_dir).await?;
-
-        // let config_yaml = self.create_topics(config_yaml).await?;
-
         let config_file_path = self.config.config_file_path(pipeline_id);
-        fs::write(&config_file_path, config_yaml).await?;
+        fs::write(&config_file_path, config.as_str()).await?;
 
-        let (_version, code) = db.project_code(request.project_id)?;
+        let (_version, code) = db.project_code(project_id)?;
 
         let metadata = PipelineMetadata {
-            project_id: request.project_id,
-            version: request.project_version,
+            project_id: project_id,
+            version: request.config_version,
             code,
         };
         let metadata_file_path = self.config.metadata_file_path(pipeline_id);
@@ -277,7 +313,7 @@ scrape_configs:
         let out_file = File::create(&out_file_path).await?;
 
         // Locate project executable.
-        let executable = self.config.project_executable(request.project_id);
+        let executable = self.config.project_executable(project_id);
 
         // Run executable, set current directory to pipeline directory, pass metadata
         // file and config as arguments.
