@@ -97,7 +97,7 @@ we have thus $\D(DB) = \Delta DB$.
 
 Conversely, the database snapshot at time $t$ is the cumulative result
 of applying all transactions up to $t$: $DB[t] = \sum_{i \leq t}
-\Delta DB[i]$.  The operation $\I$, adding up all changes another
+\Delta DB[i]$.  The operation $\I$, adding up all changes, is another
 basic stream operator, is \emph{stream integration}, the inverse of
 differentiation.  The following diagram shows the relationship
 between the streams $\Delta DB$ and $DB$:
@@ -176,11 +176,11 @@ recursive way, our algorithm produces a program that efficiently
 maintains the transitive closure of a graph as the graph is changed by
 adding and deleting edges.
 
-In this paper we omits proofs, they can be found in an extensive
+In this paper we omit proofs, they can be found in an extensive
 companion technical report\anonymize{~\cite{tr}}.  We have formalized
 this theory in the Lean proof
 assistant~\anonymize{\cite{dbsp-theory}}; our formalization includes
-machine-checked proofs of correctness for all the theorems in this
+machine-checked proofs for all the theorems in this
 paper.
 
 This paper makes the following contributions:

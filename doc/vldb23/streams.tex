@@ -167,8 +167,8 @@ For example, $\zm(\id) = \sv{0 0 1 2 3}$.
 
 \begin{definition}[Time invariance]
 A stream operator $S: \stream{A} \to \stream{B}$ is \defined{time-invariant} (TI) if
-$S(\zm_A(s)) = \zm_B(S(s))$ for all $s \in \stream{A}$; in other words, the
-if following two circuits are equivalent:
+$S(\zm_A(s)) = \zm_B(S(s))$ for all $s \in \stream{A}$; in other words, if
+the following two circuits are equivalent:
 
 \begin{tabular}{m{3cm}m{.5cm}m{3cm}}
 \begin{tikzpicture}[auto,>=latex]
@@ -313,7 +313,7 @@ $\forall a, b, c, d . f(a+b, c) = f(a, c) + f(b, c)$, and $f(a, c+d) = f(a, c) +
 \end{definition}
 
 This definition extends to stream operators.
-The lifting a bilinear function $f$ is
+The lifting of a bilinear function $f$ is
 a bilinear stream operator $\lift{f}$.  An example
 is lifted multiplication:
 $f: \stream{\N} \times \stream{\N} \to \stream{\N}, f(a, b)[t] = a[t]\cdot b[t]$.
@@ -455,7 +455,7 @@ $\forall s . \I(\D(s)) = \D(\I(s)) = s$.
 
 \section{Incremental view maintenance}\label{sec:incremental}
 
-Here we define of IVM and analyze its properties.
+Here we define IVM and analyze its properties.
 
 \begin{definition}
 Given a unary stream operator $Q: \stream{A} \to \stream{B}$ we define the

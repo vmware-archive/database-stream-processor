@@ -647,7 +647,7 @@ of ad-hoc queries, since the chosen IVM plan will execute for
 Moreover, since incremental computations maintain internal state, it
 follows that incremental plans cannot be simply changed in-flight,
 like we can change ad-hoc queries based on current data statistics:
-deploying a new plan requires in general to construct its internal
+deploying a new plan requires in general constructing its internal
 state, which is produced by entire history of prior updates.
 Fortunately, there is a trivial, but somewhat expensive, recipe for
 installing a new incremental plan: feed the entire current state of
