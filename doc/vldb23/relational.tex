@@ -160,6 +160,9 @@ translating an arbitrary relational query plan into a \dbsp circuit.
 \setlength{\commentsize}{5cm}
 \begin{table*}[h]
 \small
+\caption{Implementation of SQL relational set operators in \dbsp.
+Each query assumes that inputs \code{I}, \code{I1}, \code{I2}, are sets and it
+produces output sets.\label{tab:relational}}
 \begin{tabular}{|m{1.2cm}m{4.2cm}m{5cm}m{\commentsize}|} \hline
 Operation & SQL example & \dbsp circuit & Details \\ \hline
 Composition &
@@ -367,9 +370,6 @@ SELECT * FROM I2
 $\distinct$ removes elements with negative weights from the result.
 \\ \hline
 \end{tabular}
-\caption{Implementation of SQL relational set operators in \dbsp.
-Each query assumes that inputs \code{I}, \code{I1}, \code{I2}, are sets and it
-produces output sets.\label{tab:relational}}
 \end{table*}
 
 
