@@ -45,7 +45,7 @@ In conclusion, the following SQL query:
 is implemented as the following circuit:\footnote{The actual SQL \texttt{SUM} aggregate is
 even more complicated, because it needs to skip \texttt{NULL}s,
 and it returns \texttt{NULL} for an empty input set;
-this behavior can be accurately implemented in \dbsp.}
+this can be implemented in \dbsp.}
 
 \begin{tikzpicture}[auto,>=latex]
   \node[] (I) {\code{I}};
