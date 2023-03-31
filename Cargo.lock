@@ -1552,6 +1552,8 @@ dependencies = [
  "dbsp",
  "derive_more",
  "enum_dispatch",
+ "libm",
+ "num-integer",
  "paste",
  "petgraph",
  "proptest",
