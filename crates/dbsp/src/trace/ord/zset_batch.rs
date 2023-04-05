@@ -1,7 +1,8 @@
 use crate::{
-    algebra::{AddAssignByRef, AddByRef, MonoidValue, NegByRef},
+    algebra::{AddAssignByRef, AddByRef, HasZero, MonoidValue, NegByRef},
     time::AntichainRef,
     trace::{
+        consolidation::consolidate_payload_from,
         layers::{
             column_layer::{
                 ColumnLayer, ColumnLayerBuilder, ColumnLayerConsumer, ColumnLayerCursor,
@@ -30,19 +31,38 @@ pub struct OrdZSet<K, R> {
 }
 
 impl<K, R> OrdZSet<K, R> {
+    #[inline]
     pub fn len(&self) -> usize {
         self.layer.len()
     }
 
+    #[inline]
     pub fn is_empty(&self) -> bool {
         self.layer.is_empty()
     }
 
+    #[inline]
     pub fn retain<F>(&mut self, retain: F)
     where
         F: FnMut(&K, &R) -> bool,
     {
         self.layer.retain(retain);
+    }
+
+    #[doc(hidden)]
+    #[inline]
+    pub fn from_columns(mut keys: Vec<K>, mut diffs: Vec<R>) -> Self
+    where
+        K: Ord,
+        R: HasZero + AddAssign,
+    {
+        consolidate_payload_from(&mut keys, &mut diffs, 0);
+
+        Self {
+            // Safety: We've ensured that keys and diffs are the same length
+            // and are sorted & consolidated
+            layer: unsafe { ColumnLayer::from_parts(keys, diffs, 0) },
+        }
     }
 }
 

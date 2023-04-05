@@ -1,0 +1,74 @@
+# Dataflow JIT Todo list
+
+- [ ] Cleanup dataflow generation code
+  - [ ] ~~Implement dynamic scoping so that we can have arbitrarily nested scopes~~
+  - [ ] Implement a fixed level of nesting (minimum of 3, 5 probably gives us some good leeway)
+  - [ ] Dynamically generated timestamp types (e.g. dynamically generate timestamp impls for `[u32; 5]` for 5 levels of nesting)
+- [ ] More codegen debug checks, make sure that none of our pointers ever go out of bounds of any of our objects
+- [ ] Add debug layout checks to all dataflow operators
+- [ ] Validation infrastructure
+  - [ ] Type checking, make sure all accesses and operations are properly typed
+  - [ ] Well-formedness checks
+  - [ ] Initialization checks, make sure that all relevant columns are properly initialized
+  - [ ] Ensure that all things that require cloning are indeed cloned
+    - If a string comes from an `input` row, it must be cloned before being stored anywhere 
+- [ ] Row vectors
+  - Instead of `OrdZSet<Row, Weight>` we want a custom collection that holds untyped values, a truly untyped `DynVec`
+  - Requires changes in a lot of the more fundamental `Trace`-related traits
+  - A switch to an internally iterated api could address this
+- [ ] Implement `bincode::{Encode, Decode}` for row values
+- [ ] Better layout algorithm
+  - [ ] Add switch to make all null flags standalone booleans (that is, instead of bitsets make them each take up one byte)
+  - [ ] Allow null niching strings
+  - [ ] Spread out null flags as much as possible so that we have as many single byte flags as possible (they're more efficient to operate over)
+- [ ] Optimizations of both the inner functions and the dataflows themselves
+  - [ ] Eliminate const filters
+  - [ ] Fuse filters, maps and filter maps
+  - [ ] Turn non-mutating filter maps into filters
+  - [ ] Linear operators can probably be fused with neg as well
+  - [ ] Dataflow propagation, we can optimize things based off of their input attributes (e.g. a stream that comes
+        from a `filter (x > 10)` tells us that `x` will always be greater than ten)
+  - [ ] Automatically generate owned versions of functions
+    - Automatically evaluate whether or not the owned version is actually better than the borrowed one
+  - [ ] Once native row collections are implemented we can operate over them directly within our functions instead of
+        using callback functions. This should be a significant speedup for things like filter and map
+  - [ ] Auto-vectorization of operations over native row collections
+  - [ ] When operating over persistent collections we can lazily deserialize/decode values, potentially benefiting projections
+  - [x] Automatically deduplicate loads from input rows
+  - [ ] Allow functions to be modified after they're built so they can be optimized
+  - [ ] Constant folding
+- [x] Add date and timestamp generation to proptesting so we can fuzz the relevant code
+- [ ] Deduplicate functions, could help in reducing the number of functions we optimize and compile and could
+      even allow us to deduplicate nodes with previously different inner functions
+- [ ] Configurable difference/weight type, currently hardcoded to `i32`
+- [ ] Dataflow planning optimizations
+  - [ ] Push/pull differentiation and integration
+  - [ ] Automatic incrementalization
+  - [ ] Push/pull exchanges
+  - [ ] Push/pull gathers
+- [ ] Basic block parameters
+  - [ ] Promote branched allocas to basic block args (or to `select`)
+- [ ] Textual debugging for graphs
+- [ ] Textual debugging for ir
+- [ ] Add the ability to drop values (mainly strings) within ir
+- [ ] Add a borrowed/static version of strings (maybe `&str` style `{ ptr, len }`)
+- [ ] Arrays
+- [ ] Inline small row values into the `Row` pointer
+- [ ] C FFI
+- [ ] Operators
+  - [x] Flat Map
+  - [x] Fold
+  - [ ] Linear aggregations
+  - [ ] Max aggregate
+  - [ ] Windows
+- [ ] Intrinsic functions
+  - [ ] Proc macro for registering intrinsics
+  - [x] `@dbsp.row.vec.push`
+  - [ ] `@dbsp.row.vec.reserve`
+  - [ ] String manipulation
+    - [x] `@dbsp.str.truncate`
+    - [ ] `@dbsp.str.truncate_clone`
+    - [x] `@dbsp.str.clear`
+    - [ ] `@dbsp.str.concat`
+    - [ ] `@dbsp.str.concat_clone`
+  - [ ] Vec/Array manipulation

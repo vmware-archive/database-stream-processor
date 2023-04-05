@@ -17,7 +17,7 @@ use crate::{
 use size_of::SizeOf;
 use std::{
     any::TypeId,
-    cmp::Ordering,
+    cmp::{min, Ordering},
     fmt::{self, Debug},
     marker::PhantomData,
     ops::{Add, AddAssign, Neg, RangeBounds},
@@ -27,18 +27,23 @@ use std::{
 pub struct ErasedLayer {
     keys: DynVec<DataVTable>,
     diffs: DynVec<DiffVTable>,
+    lower_bound: usize,
 }
 
 impl Debug for ErasedLayer {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         struct DebugPtr(
             *const u8,
-            unsafe fn(*const u8, *mut fmt::Formatter<'_>) -> fmt::Result,
+            unsafe extern "C" fn(*const u8, *mut fmt::Formatter<'_>) -> bool,
         );
 
         impl Debug for DebugPtr {
             fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                unsafe { (self.1)(self.0, f) }
+                if unsafe { (self.1)(self.0, f) } {
+                    Ok(())
+                } else {
+                    Err(fmt::Error)
+                }
             }
         }
 
@@ -58,6 +63,7 @@ impl ErasedLayer {
         Self {
             keys: DynVec::new(key_vtable),
             diffs: DynVec::new(diff_vtable),
+            lower_bound: 0,
         }
     }
 
@@ -69,6 +75,7 @@ impl ErasedLayer {
         Self {
             keys: DynVec::with_capacity(key_vtable, capacity),
             diffs: DynVec::with_capacity(diff_vtable, capacity),
+            lower_bound: 0,
         }
     }
 
@@ -203,7 +210,7 @@ impl ErasedLayer {
                         );
 
                         // If the produced diff is not zero, push the key and its merged diff
-                        if dbg!(!(self.diffs.vtable().is_zero)(diff_buf.as_ptr().cast())) {
+                        if !(self.diffs.vtable().is_zero)(diff_buf.as_ptr().cast()) {
                             // Clone the element at `lhs[lower1]` into `key_buf`
                             (key_common.clone)(lhs.keys.index(lower1), key_buf.as_mut_ptr().cast());
 
@@ -282,9 +289,12 @@ impl ErasedLayer {
             diffs.set_len(self.diffs.len());
         }
 
+        // TODO: We can eliminate elements from `0..lower_bound` when creating the
+        // negated layer
         Self {
             keys: self.keys.clone(),
             diffs,
+            lower_bound: self.lower_bound,
         }
     }
 }
@@ -376,6 +386,16 @@ where
 
     fn cursor_from(&self, lower: usize, upper: usize) -> Self::Cursor<'_> {
         TypedLayerCursor::new(lower, self, (lower, upper))
+    }
+
+    fn truncate_below(&mut self, lower_bound: usize) {
+        if lower_bound > self.layer.lower_bound {
+            self.layer.lower_bound = min(lower_bound, self.len());
+        }
+    }
+
+    fn lower_bound(&self) -> usize {
+        self.layer.lower_bound
     }
 }
 

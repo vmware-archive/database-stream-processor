@@ -1,0 +1,62 @@
+[package]
+name = "dataflow-jit"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+default = []
+binary = ["clap", "tracing-subscriber"]
+
+[[bin]]
+name = "dataflow-jit"
+required-features = ["binary"]
+
+[dependencies]
+paste = "1.0.9"
+# pretty = "0.11.3"
+size-of = "0.1.4"
+tracing = "0.1.37"
+cranelift = "0.94.0"
+enum_dispatch = "0.3.8"
+cranelift-jit = "0.94.0"
+target-lexicon = "0.12.5"
+cranelift-module = "0.94.0"
+cranelift-native = "0.94.0"
+dbsp = { path = "../dbsp", features = ["serde"] }
+bitvec = { version = "1.0.1", features = ["serde"] }
+bitflags = { version = "2.0.1", features = ["serde"] }
+xxhash-rust = { version = "0.8.6", features = ["xxh3"] }
+petgraph = { version = "0.6.2", features = ["graphmap", "serde-1"] }
+bincode = { version = "2.0.0-rc.2", features = ["serde"] }
+
+# FIXME: Better serialization protocol
+serde_with = "2.2.0"
+serde_json = "1.0.92"
+serde = { version = "1.0.152", features = ["derive"] }
+
+# Argument parsing for the binary
+clap = { version = "4.1.8", features = ["derive"], optional = true }
+
+    [dependencies.tracing-subscriber]
+    version = "0.3.16"
+    features = ["env-filter"]
+    optional = true
+
+    [dependencies.chrono]
+    version = "0.4.23"
+    default-features = false
+    features = ["std"]
+
+    [dependencies.derive_more]
+    version = "0.99.17"
+    default-features = false
+    features = ["from", "is_variant", "unwrap", "display"]
+
+    [dependencies.tinyvec]
+    version = "1.6.0"
+    features = ["std", "rustc_1_57"]
+
+[dev-dependencies]
+proptest = "1.0.0"
+proptest-derive = "0.3.0"
+tracing-subscriber = { version = "0.3.16", features = ["env-filter"] }

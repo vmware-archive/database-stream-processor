@@ -1,6 +1,6 @@
 use crate::{
     algebra::{AddAssignByRef, AddByRef, HasZero, NegByRef},
-    utils::DynVecVTable,
+    utils::{self, DynVecVTable},
 };
 use core::slice;
 use size_of::{Context, SizeOf};
@@ -8,6 +8,7 @@ use std::{
     any::{self, TypeId},
     cmp::Ordering,
     fmt::{self, Debug},
+    hash::{Hash, Hasher},
     mem::{self, align_of, size_of, MaybeUninit},
     num::NonZeroUsize,
     ops::{AddAssign, Neg},
@@ -18,17 +19,45 @@ use std::{
 pub struct ErasedVTable {
     pub size_of: usize,
     pub align_of: NonZeroUsize,
-    pub eq: unsafe fn(*const u8, *const u8) -> bool,
-    pub lt: unsafe fn(*const u8, *const u8) -> bool,
-    pub cmp: unsafe fn(*const u8, *const u8) -> Ordering,
-    pub clone: unsafe fn(*const u8, *mut u8),
-    pub clone_into_slice: unsafe fn(*const u8, *mut u8, usize),
-    pub size_of_children: unsafe fn(*const u8, &mut Context),
-    pub debug: unsafe fn(*const u8, *mut fmt::Formatter<'_>) -> fmt::Result,
-    pub drop_in_place: unsafe fn(*mut u8),
-    pub drop_slice_in_place: unsafe fn(*mut u8, usize),
+    pub eq: unsafe extern "C" fn(*const u8, *const u8) -> bool,
+    pub lt: unsafe extern "C" fn(*const u8, *const u8) -> bool,
+    pub cmp: unsafe extern "C" fn(*const u8, *const u8) -> Ordering,
+    pub clone: unsafe extern "C" fn(*const u8, *mut u8),
+    pub clone_into_slice: unsafe extern "C" fn(*const u8, *mut u8, usize),
+    pub size_of_children: unsafe extern "C" fn(*const u8, &mut Context),
+    pub debug: unsafe extern "C" fn(*const u8, *mut fmt::Formatter<'_>) -> bool,
+    pub drop_in_place: unsafe extern "C" fn(*mut u8),
+    pub drop_slice_in_place: unsafe extern "C" fn(*mut u8, usize),
     pub type_id: fn() -> TypeId,
-    pub type_name: fn() -> &'static str,
+    // Writes the string's length to the out pointer and returns the string's start
+    pub type_name: unsafe extern "C" fn(*mut usize) -> *const u8,
+    pub hash: unsafe extern "C" fn(&mut &mut dyn Hasher, *const u8),
+    // pub default: unsafe extern "C" fn(*mut u8),
+}
+
+impl ErasedVTable {
+    pub fn type_name(&self) -> &'static str {
+        unsafe {
+            let mut len = 0;
+            let ptr = (self.type_name)(&mut len);
+
+            let bytes = slice::from_raw_parts(ptr, len);
+            debug_assert!(std::str::from_utf8(bytes).is_ok());
+            std::str::from_utf8_unchecked(bytes)
+        }
+    }
+
+    /// # Safety
+    ///
+    /// `value` must be a valid pointer to a value associated with the current
+    /// vtable
+    pub unsafe fn debug(&self, value: *const u8, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if (self.debug)(value, f) {
+            Ok(())
+        } else {
+            Err(fmt::Error)
+        }
+    }
 }
 
 impl PartialEq for ErasedVTable {
@@ -79,7 +108,7 @@ unsafe impl DynVecVTable for DataVTable {
     }
 
     fn type_name(&self) -> &'static str {
-        (self.common.type_name)()
+        self.common.type_name()
     }
 
     unsafe fn clone_slice(&self, src: *const u8, dest: *mut u8, count: usize) {
@@ -95,7 +124,11 @@ unsafe impl DynVecVTable for DataVTable {
     }
 
     unsafe fn debug(&self, value: *const u8, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        (self.common.debug)(value, f)
+        self.common.debug(value, f)
+    }
+
+    unsafe fn eq(&self, lhs: *const u8, rhs: *const u8) -> bool {
+        (self.common.eq)(lhs, rhs)
     }
 }
 
@@ -123,7 +156,7 @@ unsafe impl DynVecVTable for DiffVTable {
     }
 
     fn type_name(&self) -> &'static str {
-        (self.common.type_name)()
+        self.common.type_name()
     }
 
     unsafe fn clone_slice(&self, src: *const u8, dest: *mut u8, count: usize) {
@@ -139,37 +172,51 @@ unsafe impl DynVecVTable for DiffVTable {
     }
 
     unsafe fn debug(&self, value: *const u8, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        (self.common.debug)(value, f)
+        self.common.debug(value, f)
+    }
+
+    unsafe fn eq(&self, lhs: *const u8, rhs: *const u8) -> bool {
+        (self.common.eq)(lhs, rhs)
     }
 }
 
-pub trait IntoErased: Sized + Eq + Ord + Clone + Send + SizeOf + Debug + 'static {
+pub trait IntoErased: Sized + Hash + Eq + Ord + Clone + Send + SizeOf + Debug + 'static {
     // + Sync
     const ERASED_VTABLE: ErasedVTable;
 }
 
 impl<T> IntoErased for T
 where
-    T: Sized + Eq + Ord + Clone + Send + SizeOf + Debug + 'static, // + Sync
+    T: Sized + Hash + Eq + Ord + Clone + Send + SizeOf + Debug + 'static, // + Sync
 {
     const ERASED_VTABLE: ErasedVTable = {
-        unsafe fn eq<T: PartialEq>(lhs: *const u8, rhs: *const u8) -> bool {
+        unsafe extern "C" fn eq<T: PartialEq>(lhs: *const u8, rhs: *const u8) -> bool {
+            debug_assert!(!lhs.is_null() && !rhs.is_null());
             unsafe { T::eq(&*lhs.cast(), &*rhs.cast()) }
         }
 
-        unsafe fn lt<T: Ord>(lhs: *const u8, rhs: *const u8) -> bool {
+        unsafe extern "C" fn lt<T: Ord>(lhs: *const u8, rhs: *const u8) -> bool {
+            debug_assert!(!lhs.is_null() && !rhs.is_null());
             unsafe { T::lt(&*lhs.cast(), &*rhs.cast()) }
         }
 
-        unsafe fn cmp<T: Ord>(lhs: *const u8, rhs: *const u8) -> Ordering {
+        unsafe extern "C" fn cmp<T: Ord>(lhs: *const u8, rhs: *const u8) -> Ordering {
+            debug_assert!(!lhs.is_null() && !rhs.is_null());
             unsafe { T::cmp(&*lhs.cast(), &*rhs.cast()) }
         }
 
-        unsafe fn clone<T: Clone>(src: *const u8, dest: *mut u8) {
+        unsafe extern "C" fn clone<T: Clone>(src: *const u8, dest: *mut u8) {
+            debug_assert!(!src.is_null() && !dest.is_null());
             unsafe { dest.cast::<T>().write(T::clone(&*src.cast())) };
         }
 
-        unsafe fn clone_into_slice<T: Clone>(src: *const u8, dest: *mut u8, count: usize) {
+        unsafe extern "C" fn clone_into_slice<T: Clone>(
+            src: *const u8,
+            dest: *mut u8,
+            count: usize,
+        ) {
+            debug_assert!(!src.is_null() && !dest.is_null());
+
             if count == 0 {
                 return;
             }
@@ -177,25 +224,48 @@ where
             unsafe {
                 let src = slice::from_raw_parts(src.cast(), count);
                 let dest = slice::from_raw_parts_mut(dest.cast(), count);
-                MaybeUninit::<T>::write_slice_cloned(dest, src);
+                utils::write_uninit_slice_cloned::<T>(dest, src);
             }
         }
 
-        unsafe fn size_of_children<T: SizeOf>(value: *const u8, context: &mut Context) {
+        unsafe extern "C" fn size_of_children<T: SizeOf>(value: *const u8, context: &mut Context) {
+            debug_assert!(!value.is_null());
             unsafe { T::size_of_children(&*value.cast(), context) }
         }
 
-        unsafe fn debug<T: Debug>(value: *const u8, f: *mut fmt::Formatter<'_>) -> fmt::Result {
-            unsafe { <T as Debug>::fmt(&*value.cast(), &mut *f) }
+        unsafe extern "C" fn debug<T: Debug>(value: *const u8, f: *mut fmt::Formatter<'_>) -> bool {
+            debug_assert!(!value.is_null() && !f.is_null());
+            unsafe { <T as Debug>::fmt(&*value.cast(), &mut *f).is_ok() }
         }
 
-        unsafe fn drop_in_place<T>(value: *mut u8) {
+        unsafe extern "C" fn drop_in_place<T>(value: *mut u8) {
+            debug_assert!(!value.is_null());
             unsafe { ptr::drop_in_place(value.cast::<T>()) }
         }
 
-        unsafe fn drop_slice_in_place<T>(ptr: *mut u8, length: usize) {
+        unsafe extern "C" fn drop_slice_in_place<T>(ptr: *mut u8, length: usize) {
+            debug_assert!(!ptr.is_null());
             unsafe { ptr::drop_in_place(slice::from_raw_parts_mut(ptr.cast::<T>(), length)) }
         }
+
+        unsafe extern "C" fn type_name<T>(length: *mut usize) -> *const u8 {
+            debug_assert!(!length.is_null());
+
+            let name = any::type_name::<T>();
+            length.write(name.len());
+            name.as_ptr()
+        }
+
+        unsafe extern "C" fn hash<T: Hash>(hasher: &mut &mut dyn Hasher, value: *const u8) {
+            debug_assert!(!value.is_null());
+
+            let value = &*value.cast::<T>();
+            value.hash(hasher);
+        }
+
+        // unsafe extern "C" fn default<T>(_place: *mut u8) {
+        //     unimplemented!()
+        // }
 
         ErasedVTable {
             size_of: size_of::<Self>(),
@@ -213,7 +283,9 @@ where
             drop_in_place: drop_in_place::<Self>,
             drop_slice_in_place: drop_slice_in_place::<Self>,
             type_id: TypeId::of::<Self>,
-            type_name: any::type_name::<Self>,
+            type_name: type_name::<Self>,
+            hash: hash::<Self>,
+            // default: default::<Self>,
         }
     };
 }
