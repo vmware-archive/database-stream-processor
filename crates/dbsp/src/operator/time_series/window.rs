@@ -77,9 +77,10 @@ where
         let bound_clone = bound.clone();
         bounds.apply(move |(lower, _upper)| {
             bound_clone.set(lower.clone());
-            ()
         });
-        let trace = self.integrate_trace_with_bound(Some(bound)).delay_trace();
+        let trace = self
+            .integrate_trace_with_bound(bound, TraceBound::new())
+            .delay_trace();
         self.circuit()
             .add_ternary_operator(<Window<B>>::new(), &trace, self, bounds)
     }
@@ -238,10 +239,12 @@ where
 #[cfg(test)]
 mod test {
     use crate::{
-        indexed_zset, operator::{Generator, trace::TraceBound}, zset, Circuit, OrdIndexedZSet, RootCircuit, Runtime, Stream,
+        indexed_zset,
+        operator::{trace::TraceBound, Generator},
+        zset, Circuit, OrdIndexedZSet, RootCircuit, Runtime, Stream,
     };
-    use std::vec;
     use size_of::SizeOf;
+    use std::vec;
 
     #[test]
     fn sliding() {
@@ -451,24 +454,28 @@ mod test {
     fn bounded_memory() {
         let (mut dbsp, input_handle) = Runtime::init_circuit(8, |circuit| {
             let (input, input_handle) = circuit.add_input_zset::<isize, isize>();
-            let bounds = input.watermark_monotonic(|ts| *ts).apply(|ts| (*ts - 1000, *ts));
+            let bounds = input
+                .watermark_monotonic(|ts| *ts)
+                .apply(|ts| (*ts - 1000, *ts));
 
             let bound = TraceBound::new();
             bound.set(isize::max_value());
 
             input.window(&bounds);
 
-            input.integrate_trace_with_bound(Some(bound))
+            input
+                .integrate_trace_with_bound(bound, TraceBound::new())
                 .apply(|trace| {
                     assert!(trace.size_of().total_bytes() < 20000);
                     ()
                 });
 
             input_handle
-        }).unwrap();
+        })
+        .unwrap();
 
-        for i in 0 .. 10000 {
-            for j in i * 100 .. (i + 1) * 100 {
+        for i in 0..10000 {
+            for j in i * 100..(i + 1) * 100 {
                 input_handle.push(j, 1);
             }
             dbsp.step().unwrap();
