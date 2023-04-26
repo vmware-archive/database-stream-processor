@@ -1704,6 +1704,7 @@ dependencies = [
  "proptest",
  "proptest-derive",
  "rand",
+ "rand_chacha",
  "rand_xoshiro",
  "reqwest",
  "rocksdb",

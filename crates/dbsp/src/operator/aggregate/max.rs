@@ -38,7 +38,7 @@ where
     where
         C: Cursor<V, (), T, R>,
     {
-        let mut result = None;
+        cursor.fast_forward_keys();
 
         while cursor.key_valid() {
             let mut weight = R::zero();
@@ -46,13 +46,13 @@ where
             cursor.map_times(|_t, w| weight.add_assign_by_ref(w));
 
             if !weight.is_zero() {
-                result = Some(cursor.key().clone());
+                return Some(cursor.key().clone());
             }
 
-            cursor.step_key();
+            cursor.step_key_reverse();
         }
 
-        result
+        None
     }
 
     fn finalize(&self, accumulator: Self::Accumulator) -> Self::Output {
