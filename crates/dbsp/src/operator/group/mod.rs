@@ -1,5 +1,5 @@
 
-trait GroupTransformer<I, O, R> {
+pub trait GroupTransformer<I, O, R> {
     fn transform(
         input_delta: Cursor<I, (), R, ()>,
         input_trace: Cursor<I, (), R, ()>,
@@ -14,7 +14,7 @@ impl Stream<RootCircuit, B>
 where
     B: BatchReader,
 {
-    fn group_transform_generic<>(&self, transform: GT) -> Stream<RootCircuit, OB>
+    fn group_transform_generic<GT, OB>(&self, transform: GT) -> Stream<RootCircuit, OB>
     where
         OB: IndexedZSet<Key = B::Key, R = B::R>,
         GT: GroupTransformer<B::Val, OB::Val, B::R>,
@@ -23,7 +23,7 @@ where
         let stream = self.shard();
 
         let bounds = TraceBounds::unbounded();
-        let feedback = circuit.add_integrate_trace_feedback::<Spine<OrdIndexedZSet<B::Key, O, B::R>>>(bounds);
+        let feedback = circuit.add_integrate_trace_feedback::<Spine<OB>>(bounds);
 
         let output = circuit.add_ternary_operator(
             GroupTransform::new(transform),
@@ -38,17 +38,29 @@ where
     }
 }
 
-struct GroupfTransform<B, OB, T, OT, GT> {
+struct GroupTransform<B, OB, T, OT, GT> {
+    name: Cow<'static, str>,
     transform: GT,
     _phantom: PhantomData<(B, OB, T, OT)>,
 }
 
-impl<> GroupTransform {
-    fn eval_key() {
+impl<B, OB, T, OT, GT> Operator for GroupTransform<B, OB, T, OT, GT>
+where
+    B: 'static,
+    OB: 'static,
+    T: 'static,
+    OT: 'static,
+    GT: 'static,
+{
+    fn name(&self) -> Cow<'static, str> {
+        Cow::from(format!("GroupTransform({})", self.name))
+    }
+    fn fixedpoint(&self, _scope: Scope) -> bool {
+        true
     }
 }
 
-impl<B, OB, T, OT, GT> TernaryOperator<B, T, OT, OB> for GroupTransform<TS, V, Agg>
+impl<B, OB, T, OT, GT> TernaryOperator<B, T, OT, OB> for GroupTransform<B, OB, T, OT, GT>
 where
     B: BatchReader,
     T: Trace<Batch = B>,
@@ -65,6 +77,8 @@ where
         let mut delta_cursor = delta.cursor();
         let mut input_trace_cursor = input_trace.cursor();
         let mut output_trace_cursor = output_trace.cursor();
+
+        let mut builder = OB::Builder::with_capacity(delta_cursor.len());
 
         while delta_cursor.key_valid() {
             input_trace_cursor.seek_key(delta_cursor.key());
@@ -83,9 +97,16 @@ where
                 empty_cursor
             };
 
-            eval_key(delta_cursor.group_cursor(), input_group_cursor, output_group_cursor);
+            self.transform.transform()
+                delta_cursor.group_cursor(),
+                input_group_cursor,
+                output_group_cursor,
+                |val, w| builder.push(OB::item_from(delta_cursor.key(), val), w),
+            );
             
             delta_cursor.step_key();
         }
+
+        builder.done()
     }
 }
