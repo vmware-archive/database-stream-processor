@@ -1,18 +1,34 @@
+use crate::{
+    circuit::{
+        operator_traits::{Operator, TernaryOperator},
+        Scope,
+    },
+    operator::trace::{TraceBounds, TraceFeedback},
+    trace::{cursor::CursorGroup, BatchReader, Builder, Cursor, Spine, Trace},
+    Circuit, IndexedZSet, RootCircuit, Stream,
+};
+use std::{
+    borrow::Cow,
+    marker::PhantomData,
+};
 
 pub trait GroupTransformer<I, O, R> {
-    fn transform(
-        input_delta: Cursor<I, (), R, ()>,
-        input_trace: Cursor<I, (), R, ()>,
-        output_trace: Cursor<O, (), R, ()>,
+    fn transform<C1, C2, C3, CB>(
+        input_delta: &mut C1,
+        input_trace: &mut C2,
+        output_trace: &mut C3,
         output_cb: CB
     )
     where
+        C1: Cursor<I, (), R, ()>,
+        C2: Cursor<I, (), R, ()>,
+        C3: Cursor<O, (), R, ()>,
         CB: Fn(O, R);
 }
 
-impl Stream<RootCircuit, B>
+impl<B> Stream<RootCircuit, B>
 where
-    B: BatchReader,
+    B: IndexedZSet + Send,
 {
     fn group_transform_generic<GT, OB>(&self, transform: GT) -> Stream<RootCircuit, OB>
     where
@@ -44,6 +60,16 @@ struct GroupTransform<B, OB, T, OT, GT> {
     _phantom: PhantomData<(B, OB, T, OT)>,
 }
 
+impl<B, OB, T, OT, GT> GroupTransform<B, OB, T, OT, GT> {
+    fn new(name: Cow<'static, str>, transform: GT) -> Self {
+        Self {
+            name,
+            transform,
+            _phantom: PhantomData,
+        }
+    }
+}
+
 impl<B, OB, T, OT, GT> Operator for GroupTransform<B, OB, T, OT, GT>
 where
     B: 'static,
@@ -62,11 +88,11 @@ where
 
 impl<B, OB, T, OT, GT> TernaryOperator<B, T, OT, OB> for GroupTransform<B, OB, T, OT, GT>
 where
-    B: BatchReader,
-    T: Trace<Batch = B>,
+    B: IndexedZSet,
+    T: Trace<Batch = B> + Clone,
     OB: IndexedZSet<Key = B::Key, R = B::R>,
-    OT: Trace<Batch = OB>,
-    GT: GroupTransformer<B::Val, OB::Val, B::R>,
+    OT: Trace<Batch = OB> + Clone,
+    GT: GroupTransformer<B::Val, OB::Val, B::R> + 'static,
 {
     fn eval<'a>(
         &mut self,
@@ -84,7 +110,7 @@ where
             input_trace_cursor.seek_key(delta_cursor.key());
 
             let mut input_group_cursor = if input_trace_cursor.key_valid() && input_trace_cursor.key() == delta_cursor.key() {
-                input_trace_cursor.group_cursor()
+                CursorGroup::new(input_trace_cursor, ())
             } else {
                 empty_cursor
             };
@@ -92,18 +118,18 @@ where
             output_trace_cursor.seek_key(delta_cursor.key());
 
             let mut output_group_cursor = if output_trace_cursor.key_valid() && output_trace_cursor.key() == delta_cursor.key() {
-                output_trace_cursor.group_cursor()
+                CursorGroup::new(output_trace_cursor, ())
             } else {
                 empty_cursor
             };
 
-            self.transform.transform()
-                delta_cursor.group_cursor(),
+            self.transform.transform(
+                CursorGroup::new(delta_cursor, ()),
                 input_group_cursor,
                 output_group_cursor,
                 |val, w| builder.push(OB::item_from(delta_cursor.key(), val), w),
             );
-            
+
             delta_cursor.step_key();
         }
 

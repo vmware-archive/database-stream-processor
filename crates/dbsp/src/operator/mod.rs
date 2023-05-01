@@ -32,6 +32,7 @@ mod sum;
 pub mod time_series;
 mod trace;
 mod z1;
+mod group;
 
 #[cfg(feature = "with-csv")]
 pub use self::csv::CsvSource;
