@@ -12,7 +12,7 @@ use crate::{
 };
 use std::{borrow::Cow, marker::PhantomData};
 
-pub trait GroupTransformer<I, O, R> {
+pub trait GroupTransformer<I, O, R>: 'static {
     fn name(&self) -> &str;
 
     fn transform<C1, C2, C3, CB>(
@@ -25,7 +25,7 @@ pub trait GroupTransformer<I, O, R> {
         C1: Cursor<I, (), (), R>,
         C2: Cursor<I, (), (), R>,
         C3: Cursor<O, (), (), R>,
-        CB: Fn(O, R);
+        CB: FnMut(O, R);
 }
 
 impl<B> Stream<RootCircuit, B>
@@ -78,7 +78,7 @@ where
     OB: IndexedZSet + 'static,
     T: 'static,
     OT: 'static,
-    GT: GroupTransformer<B::Val, OB::Val, B::R> + 'static,
+    GT: GroupTransformer<B::Val, OB::Val, B::R>,
 {
     fn name(&self) -> Cow<'static, str> {
         Cow::from(format!("GroupTransform({})", self.transformer.name()))
@@ -94,7 +94,7 @@ where
     T: Trace<Key = B::Key, Val = B::Val, Time = (), R = B::R> + Clone,
     OB: IndexedZSet<Key = B::Key, R = B::R>,
     OT: Trace<Key = B::Key, Val = OB::Val, Time = (), R = B::R> + Clone,
-    GT: GroupTransformer<B::Val, OB::Val, B::R> + 'static,
+    GT: GroupTransformer<B::Val, OB::Val, B::R>,
 {
     fn eval<'a>(
         &mut self,
@@ -109,15 +109,16 @@ where
         let mut builder = OB::Builder::with_capacity((), delta.len());
 
         while delta_cursor.key_valid() {
-            input_trace_cursor.seek_key(delta_cursor.key());
+            let key = delta_cursor.key().clone();
 
-            if input_trace_cursor.key_valid() && input_trace_cursor.key() == delta_cursor.key() {
+            input_trace_cursor.seek_key(&key);
+
+            if input_trace_cursor.key_valid() && input_trace_cursor.key() == &key {
                 let mut input_group_cursor = CursorGroup::new(&mut input_trace_cursor, ());
 
-                output_trace_cursor.seek_key(delta_cursor.key());
+                output_trace_cursor.seek_key(&key);
 
-                if output_trace_cursor.key_valid()
-                    && output_trace_cursor.key() == delta_cursor.key()
+                if output_trace_cursor.key_valid() && output_trace_cursor.key() == &key
                 {
                     let mut output_group_cursor = CursorGroup::new(&mut output_trace_cursor, ());
 
@@ -125,7 +126,7 @@ where
                         &mut CursorGroup::new(&mut delta_cursor, ()),
                         &mut input_group_cursor,
                         &mut output_group_cursor,
-                        |val, w| builder.push((OB::item_from(delta_cursor.key().clone(), val), w)),
+                        |val, w| builder.push((OB::item_from(key.clone(), val), w)),
                     );
                 } else {
                     let mut output_group_cursor = CursorEmpty::new();
@@ -134,16 +135,15 @@ where
                         &mut CursorGroup::new(&mut delta_cursor, ()),
                         &mut input_group_cursor,
                         &mut output_group_cursor,
-                        |val, w| builder.push((OB::item_from(delta_cursor.key().clone(), val), w)),
+                        |val, w| builder.push((OB::item_from(key.clone(), val), w)),
                     );
                 };
             } else {
                 let mut input_group_cursor = CursorEmpty::new();
 
-                output_trace_cursor.seek_key(delta_cursor.key());
+                output_trace_cursor.seek_key(&key);
 
-                if output_trace_cursor.key_valid()
-                    && output_trace_cursor.key() == delta_cursor.key()
+                if output_trace_cursor.key_valid() && output_trace_cursor.key() == &key
                 {
                     let mut output_group_cursor = CursorGroup::new(&mut output_trace_cursor, ());
 
@@ -151,7 +151,7 @@ where
                         &mut CursorGroup::new(&mut delta_cursor, ()),
                         &mut input_group_cursor,
                         &mut output_group_cursor,
-                        |val, w| builder.push((OB::item_from(delta_cursor.key().clone(), val), w)),
+                        |val, w| builder.push((OB::item_from(key.clone(), val), w)),
                     );
                 } else {
                     let mut output_group_cursor = CursorEmpty::new();
@@ -160,7 +160,7 @@ where
                         &mut CursorGroup::new(&mut delta_cursor, ()),
                         &mut input_group_cursor,
                         &mut output_group_cursor,
-                        |val, w| builder.push((OB::item_from(delta_cursor.key().clone(), val), w)),
+                        |val, w| builder.push((OB::item_from(key.clone(), val), w)),
                     );
                 };
             };
