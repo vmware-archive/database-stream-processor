@@ -15,7 +15,7 @@ use std::{borrow::Cow, marker::PhantomData};
 pub trait GroupTransformer<I, O, R>: 'static {
     fn name(&self) -> &str;
 
-    fn transform<C1, C2, C3, CB>(
+    fn transform_incremental<C1, C2, C3, CB>(
         &self,
         input_delta: &mut C1,
         input_trace: &mut C2,
@@ -26,7 +26,18 @@ pub trait GroupTransformer<I, O, R>: 'static {
         C2: Cursor<I, (), (), R>,
         C3: Cursor<O, (), (), R>,
         CB: FnMut(O, R);
+
+    fn transform_non_incremental<C, CB>(
+        &self,
+        cursor: &mut C,
+        output_cb: CB,
+    ) where
+        C1: Cursor<I, (), (), R>,
+        CB: FnMut(O, R);
 }
+
+
+
 
 impl<B> Stream<RootCircuit, B>
 where
@@ -113,6 +124,12 @@ where
 
             input_trace_cursor.seek_key(&key);
 
+            // I am not able to avoid 4-way code duplication below.  Depending on
+            // whether `key` is found in the input and output trace, we must invoke
+            // `transformer.transform` with four different combinations of
+            // empty/non-empty cursors.  Since the cursors have different types
+            // (`CursorEmpty` and `CursorGroup`), we kind bind them to the same
+            // variable.
             if input_trace_cursor.key_valid() && input_trace_cursor.key() == &key {
                 let mut input_group_cursor = CursorGroup::new(&mut input_trace_cursor, ());
 
