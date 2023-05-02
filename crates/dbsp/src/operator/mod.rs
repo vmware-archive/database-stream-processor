@@ -18,6 +18,7 @@ mod differentiate;
 mod distinct;
 mod filter_map;
 mod generator;
+mod group;
 mod index;
 mod input;
 mod integrate;
@@ -32,7 +33,6 @@ mod sum;
 pub mod time_series;
 mod trace;
 mod z1;
-mod group;
 
 #[cfg(feature = "with-csv")]
 pub use self::csv::CsvSource;

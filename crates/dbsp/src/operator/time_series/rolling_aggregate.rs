@@ -11,7 +11,7 @@ use crate::{
             OrdPartitionedIndexedZSet, PartitionCursor, PartitionedBatchReader,
             PartitionedIndexedZSet, RelOffset,
         },
-        trace::{ TraceBound, TraceBounds, TraceFeedback},
+        trace::{TraceBound, TraceBounds, TraceFeedback},
         Aggregator, FilterMap,
     },
     trace::{Builder, Cursor, Spine},
