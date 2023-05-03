@@ -39,7 +39,7 @@ async-trait = "0.1"
 pg-embed = { git = "https://github.com/gz/pg-embed.git", rev = "8906af8", optional = true }
 
 [target.'cfg(unix)'.dependencies]
-daemonize = { version = "0.4.1" }
+daemonize = { version = "0.5.0" }
 
 [build-dependencies]
 static-files = "0.2.3"
