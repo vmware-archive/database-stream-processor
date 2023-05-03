@@ -5,17 +5,17 @@ use crate::{
     },
     operator::trace::{TraceBounds, TraceFeedback},
     trace::{
-        cursor::{CursorEmpty, CursorGroup},
+        cursor::{CursorEmpty, CursorGroup, CursorPair},
         Builder, Cursor, Spine, Trace,
     },
-    Circuit, IndexedZSet, RootCircuit, Stream,
+    Circuit, DBData, DBWeight, IndexedZSet, RootCircuit, Stream,
 };
-use std::{borrow::Cow, marker::PhantomData};
+use std::{borrow::Cow, marker::PhantomData, ops::Neg,};
 
 pub trait GroupTransformer<I, O, R>: 'static {
     fn name(&self) -> &str;
 
-    fn transform_incremental<C1, C2, C3, CB>(
+    fn transform<C1, C2, C3, CB>(
         &self,
         input_delta: &mut C1,
         input_trace: &mut C2,
@@ -26,18 +26,87 @@ pub trait GroupTransformer<I, O, R>: 'static {
         C2: Cursor<I, (), (), R>,
         C3: Cursor<O, (), (), R>,
         CB: FnMut(O, R);
+}
 
-    fn transform_non_incremental<C, CB>(
+pub trait NonIncrementalGroupTransformer<I, O, R>: 'static {
+    fn name(&self) -> &str;
+
+    fn transform<C, CB>(
         &self,
         cursor: &mut C,
         output_cb: CB,
     ) where
-        C1: Cursor<I, (), (), R>,
+        C: Cursor<I, (), (), R>,
         CB: FnMut(O, R);
 }
 
+pub struct DiffGroupTransformer<I, O, R, T> {
+    transformer: T,
+    _phantom: PhantomData<(I, O, R)>,
+}
 
+impl<I, O, R, T> GroupTransformer<I, O, R> for DiffGroupTransformer<I, O, R, T>
+where
+    I: DBData,
+    O: DBData,
+    R: DBWeight + Neg<Output = R>,
+    T: NonIncrementalGroupTransformer<I, O, R>,
+{
+    fn name(&self) -> &str {
+        self.transformer.name()
+    }
 
+    fn transform<C1, C2, C3, CB>(
+        &self,
+        input_delta: &mut C1,
+        input_trace: &mut C2,
+        output_trace: &mut C3,
+        mut output_cb: CB,
+    ) where
+        C1: Cursor<I, (), (), R>,
+        C2: Cursor<I, (), (), R>,
+        C3: Cursor<O, (), (), R>,
+        CB: FnMut(O, R)
+    {
+        self.transformer.transform(&mut CursorPair::new(input_delta, input_trace), |v, w| {
+            while output_trace.key_valid() && output_trace.key() <= &v {
+                output_cb(output_trace.key().clone(), output_trace.weight().neg());
+                output_trace.step_key();
+            }
+            output_cb(v, w);
+        });
+    }
+
+}
+
+impl<I, O, R, T> DiffGroupTransformer<I, O, R, T> {
+    fn new(transformer: T) -> Self {
+        Self {
+            transformer,
+            _phantom: PhantomData,
+        }
+    }
+}
+
+/*
+pub struct LeanDiffGroupTransformer<I, O, R, T> {
+    transformer: T,
+}
+
+impl GroupTransformer<I, O, R> for LeanDiffGroupTransformer<I, O, R, T>
+where
+    T: NonIncrementalGroupTransformer<I, O, R>
+{
+}
+
+impl<I, O, R, T> LeanDiffGroupTransformer<I, O, R, T> {
+    fn new(transformer: T) -> Self {
+        Self {
+            transformer
+        }
+    }
+}
+*/
 
 impl<B> Stream<RootCircuit, B>
 where

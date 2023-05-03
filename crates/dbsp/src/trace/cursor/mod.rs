@@ -14,10 +14,12 @@
 pub mod cursor_empty;
 pub mod cursor_group;
 pub mod cursor_list;
+pub mod cursor_pair;
 
 pub use cursor_empty::CursorEmpty;
 pub use cursor_group::CursorGroup;
 pub use cursor_list::CursorList;
+pub use cursor_pair::CursorPair;
 
 /// A cursor for navigating ordered `(key, val, time, diff)` tuples.
 pub trait Cursor<K, V, T, R> {
