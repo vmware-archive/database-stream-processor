@@ -16,6 +16,12 @@ pub mod cursor_group;
 pub mod cursor_list;
 pub mod cursor_pair;
 
+#[derive(Debug, PartialEq, Eq)]
+enum Direction {
+    Forward,
+    Backward,
+}
+
 pub use cursor_empty::CursorEmpty;
 pub use cursor_group::CursorGroup;
 pub use cursor_list::CursorList;
