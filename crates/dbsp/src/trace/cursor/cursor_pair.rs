@@ -1,9 +1,6 @@
 //! A generic cursor implementation merging pairs of different cursors.
 
-use std::{
-    cmp::Ordering,
-    marker::PhantomData,
-};
+use std::{cmp::Ordering, marker::PhantomData};
 
 use crate::{
     algebra::{HasZero, MonoidValue},
@@ -18,12 +15,12 @@ pub struct CursorPair<'a, K, V, T, R, C1, C2> {
     cursor1: &'a mut C1,
     cursor2: &'a mut C2,
     key_order: Ordering, /* Invalid keys are `Greater` than all other keys when iterating
-                            forward, an `Less` than all other keys when iterating backward.
-                            `Equal` implies both valid. */
+                         forward, an `Less` than all other keys when iterating backward.
+                         `Equal` implies both valid. */
     key_direction: Direction,
     val_order: Ordering, /* Invalid vals are `Greater` than all other vals when iterating
-                            forward and `Less` than all other vals when iterating backward.
-                            `Equal` implies both valid. */
+                         forward and `Less` than all other vals when iterating backward.
+                         `Equal` implies both valid. */
     val_direction: Direction,
     _phantom: PhantomData<(K, V, T, R)>,
 }
@@ -60,13 +57,13 @@ where
     }
 
     fn current_key1(&self) -> bool {
-        self.key_direction == Direction::Forward && self.key_order == Ordering::Less ||
-        self.key_direction == Direction::Backward && self.key_order == Ordering::Greater
+        self.key_direction == Direction::Forward && self.key_order == Ordering::Less
+            || self.key_direction == Direction::Backward && self.key_order == Ordering::Greater
     }
 
     fn current_key2(&self) -> bool {
-        self.key_direction == Direction::Forward && self.key_order == Ordering::Greater ||
-        self.key_direction == Direction::Backward && self.key_order == Ordering::Less
+        self.key_direction == Direction::Forward && self.key_order == Ordering::Greater
+            || self.key_direction == Direction::Backward && self.key_order == Ordering::Less
     }
 
     fn current_key12(&self) -> bool {
@@ -74,17 +71,19 @@ where
     }
 
     fn current_val1(&self) -> bool {
-        self.current_key1() ||
-        self.current_key12() &&
-            (self.val_direction == Direction::Forward && self.val_order == Ordering::Less ||
-             self.val_direction == Direction::Backward && self.val_order == Ordering::Greater)
+        self.current_key1()
+            || self.current_key12()
+                && (self.val_direction == Direction::Forward && self.val_order == Ordering::Less
+                    || self.val_direction == Direction::Backward
+                        && self.val_order == Ordering::Greater)
     }
 
     fn current_val2(&self) -> bool {
-        self.current_key2() ||
-        self.current_key12() &&
-            (self.val_direction == Direction::Forward && self.val_order == Ordering::Greater ||
-             self.val_direction == Direction::Backward && self.val_order == Ordering::Less)
+        self.current_key2()
+            || self.current_key12()
+                && (self.val_direction == Direction::Forward && self.val_order == Ordering::Greater
+                    || self.val_direction == Direction::Backward
+                        && self.val_order == Ordering::Less)
     }
 
     fn current_val12(&self) -> bool {
@@ -103,7 +102,7 @@ where
                     self.update_val_order_forward();
                 }
                 res
-            },
+            }
         };
     }
 
@@ -116,7 +115,7 @@ where
             (true, true) => {
                 let res = self.cursor1.key().cmp(self.cursor2.key());
                 if res == Ordering::Equal {
-                    self.update_val_order_reverse();
+                    self.update_val_order_forward();
                 }
                 res
             }
@@ -265,18 +264,18 @@ where
         self.cursor1.seek_key(key);
         self.cursor2.seek_key(key);
 
-        self.update_key_order_forward();
         self.val_direction = Direction::Forward;
+        self.update_key_order_forward();
     }
 
     fn seek_key_reverse(&mut self, key: &K) {
         debug_assert_eq!(self.key_direction, Direction::Backward);
 
-        self.cursor1.seek_key(key);
-        self.cursor2.seek_key(key);
+        self.cursor1.seek_key_reverse(key);
+        self.cursor2.seek_key_reverse(key);
 
-        self.update_key_order_reverse();
         self.val_direction = Direction::Forward;
+        self.update_key_order_reverse();
     }
 
     // value methods
@@ -384,7 +383,7 @@ where
         self.cursor2.rewind_keys();
         self.key_direction = Direction::Forward;
         self.val_direction = Direction::Forward;
-        update order
+        self.update_key_order_forward();
     }
 
     fn fast_forward_keys(&mut self) {
@@ -393,7 +392,7 @@ where
 
         self.key_direction = Direction::Backward;
         self.val_direction = Direction::Forward;
-        update order
+        self.update_key_order_reverse();
     }
 
     fn rewind_vals(&mut self) {

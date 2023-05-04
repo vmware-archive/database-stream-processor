@@ -1209,6 +1209,7 @@ where
 mod test {
     use crate::{
         trace::{
+            cursor::CursorPair,
             ord::{OrdKeyBatch, OrdValBatch},
             test_batch::{assert_batch_cursors_eq, assert_batch_eq, assert_trace_eq, TestBatch},
             Batch, BatchReader, Spine, Trace,
@@ -1295,7 +1296,7 @@ mod test {
         }
 
         #[test]
-        fn test_zset_spine(batches in kr_batches(50, 2, 100, 20)) {
+        fn test_zset_spine(batches in kr_batches(50, 2, 100, 20), seed in 0..u64::max_value()) {
             let mut trace: Spine<OrdZSet<i32, i32>> = Spine::new(None);
             let mut ref_trace: TestBatch<i32, (), (), i32> = TestBatch::new(None);
 
@@ -1305,8 +1306,10 @@ mod test {
 
                 assert_batch_eq(&batch, &ref_batch);
 
-                trace.insert(batch);
                 ref_trace.insert(ref_batch);
+                assert_batch_cursors_eq(CursorPair::new(&mut batch.cursor(), &mut trace.cursor()), &ref_trace, seed);
+
+                trace.insert(batch);
 
                 assert_batch_eq(&trace, &ref_trace);
 
@@ -1327,13 +1330,15 @@ mod test {
                 let ref_batch = TestBatch::from_tuples((), tuples);
 
                 assert_batch_eq(&batch, &ref_batch);
-                assert_batch_cursors_eq(&batch, &ref_batch, seed);
+                assert_batch_cursors_eq(batch.cursor(), &ref_batch, seed);
+
+                ref_trace.insert(ref_batch);
+                assert_batch_cursors_eq(CursorPair::new(&mut batch.cursor(), &mut trace.cursor()), &ref_trace, seed);
 
                 trace.insert(batch);
-                ref_trace.insert(ref_batch);
 
                 assert_trace_eq(&trace, &ref_trace);
-                assert_batch_cursors_eq(&trace, &ref_trace, seed);
+                assert_batch_cursors_eq(trace.cursor(), &ref_trace, seed);
 
                 trace.truncate_keys_below(&key_bound);
                 ref_trace.truncate_keys_below(&key_bound);
@@ -1342,12 +1347,12 @@ mod test {
                 ref_trace.truncate_values_below(&val_bound);
 
                 assert_trace_eq(&trace, &ref_trace);
-                assert_batch_cursors_eq(&trace, &ref_trace, seed);
+                assert_batch_cursors_eq(trace.cursor(), &ref_trace, seed);
             }
         }
 
         #[test]
-        fn test_zset_trace_spine(batches in kr_batches(100, 2, 500, 20)) {
+        fn test_zset_trace_spine(batches in kr_batches(100, 2, 500, 20), seed in 0..u64::max_value()) {
             let mut trace: Spine<OrdKeyBatch<i32, u32, i32>> = Spine::new(None);
             let mut ref_trace: TestBatch<i32, (), u32, i32> = TestBatch::new(None);
 
@@ -1357,9 +1362,10 @@ mod test {
 
                 assert_batch_eq(&batch, &ref_batch);
 
-                trace.insert(batch);
                 ref_trace.insert(ref_batch);
+                assert_batch_cursors_eq(CursorPair::new(&mut trace.cursor(), &mut batch.cursor()), &ref_trace, seed);
 
+                trace.insert(batch);
                 assert_batch_eq(&trace, &ref_trace);
 
                 trace.truncate_keys_below(&bound);
@@ -1379,13 +1385,14 @@ mod test {
                 let ref_batch = TestBatch::from_tuples(time as u32, tuples);
 
                 assert_batch_eq(&batch, &ref_batch);
-                assert_batch_cursors_eq(&batch, &ref_batch, seed);
+                assert_batch_cursors_eq(batch.cursor(), &ref_batch, seed);
+
+                ref_trace.insert(ref_batch);
+                assert_batch_cursors_eq(CursorPair::new(&mut trace.cursor(), &mut batch.cursor()), &ref_trace, seed);
 
                 trace.insert(batch);
-                ref_trace.insert(ref_batch);
-
                 assert_trace_eq(&trace, &ref_trace);
-                assert_batch_cursors_eq(&trace, &ref_trace, seed);
+                assert_batch_cursors_eq(trace.cursor(), &ref_trace, seed);
 
                 trace.truncate_keys_below(&key_bound);
                 ref_trace.truncate_keys_below(&key_bound);
@@ -1394,7 +1401,7 @@ mod test {
                 ref_trace.truncate_values_below(&val_bound);
 
                 assert_trace_eq(&trace, &ref_trace);
-                assert_batch_cursors_eq(&trace, &ref_trace, seed);
+                assert_batch_cursors_eq(trace.cursor(), &ref_trace, seed);
             }
         }
     }

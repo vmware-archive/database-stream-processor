@@ -44,10 +44,10 @@ where
     #[cfg(debug_assertions)]
     fn set_val_direction(&mut self, direction: Direction) {
         self.val_direction = direction;
-    }   
+    }
 
     #[cfg(not(debug_assertions))]
-    fn set_val_direction(&mut self, _direction: Direction) {}   
+    fn set_val_direction(&mut self, _direction: Direction) {}
 
     // Initialize current_key with the indices of cursors with the minimum key.
     //
@@ -226,7 +226,7 @@ where
         for &index in self.current_key.iter() {
             self.cursors[index].step_key_reverse();
         }
-    
+
         self.set_val_direction(Direction::Forward);
         self.maximize_keys();
     }
@@ -235,7 +235,7 @@ where
         for cursor in self.cursors.iter_mut() {
             cursor.seek_key(key);
         }
-        
+
         self.set_val_direction(Direction::Forward);
         self.minimize_keys();
     }

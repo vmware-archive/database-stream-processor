@@ -10,7 +10,7 @@ use crate::{
     },
     Circuit, DBData, DBWeight, IndexedZSet, RootCircuit, Stream,
 };
-use std::{borrow::Cow, marker::PhantomData, ops::Neg,};
+use std::{borrow::Cow, marker::PhantomData, ops::Neg};
 
 pub trait GroupTransformer<I, O, R>: 'static {
     fn name(&self) -> &str;
@@ -31,11 +31,8 @@ pub trait GroupTransformer<I, O, R>: 'static {
 pub trait NonIncrementalGroupTransformer<I, O, R>: 'static {
     fn name(&self) -> &str;
 
-    fn transform<C, CB>(
-        &self,
-        cursor: &mut C,
-        output_cb: CB,
-    ) where
+    fn transform<C, CB>(&self, cursor: &mut C, output_cb: CB)
+    where
         C: Cursor<I, (), (), R>,
         CB: FnMut(O, R);
 }
@@ -66,17 +63,17 @@ where
         C1: Cursor<I, (), (), R>,
         C2: Cursor<I, (), (), R>,
         C3: Cursor<O, (), (), R>,
-        CB: FnMut(O, R)
+        CB: FnMut(O, R),
     {
-        self.transformer.transform(&mut CursorPair::new(input_delta, input_trace), |v, w| {
-            while output_trace.key_valid() && output_trace.key() <= &v {
-                output_cb(output_trace.key().clone(), output_trace.weight().neg());
-                output_trace.step_key();
-            }
-            output_cb(v, w);
-        });
+        self.transformer
+            .transform(&mut CursorPair::new(input_delta, input_trace), |v, w| {
+                while output_trace.key_valid() && output_trace.key() <= &v {
+                    output_cb(output_trace.key().clone(), output_trace.weight().neg());
+                    output_trace.step_key();
+                }
+                output_cb(v, w);
+            });
     }
-
 }
 
 impl<I, O, R, T> DiffGroupTransformer<I, O, R, T> {
@@ -204,8 +201,7 @@ where
 
                 output_trace_cursor.seek_key(&key);
 
-                if output_trace_cursor.key_valid() && output_trace_cursor.key() == &key
-                {
+                if output_trace_cursor.key_valid() && output_trace_cursor.key() == &key {
                     let mut output_group_cursor = CursorGroup::new(&mut output_trace_cursor, ());
 
                     self.transformer.transform(
@@ -229,8 +225,7 @@ where
 
                 output_trace_cursor.seek_key(&key);
 
-                if output_trace_cursor.key_valid() && output_trace_cursor.key() == &key
-                {
+                if output_trace_cursor.key_valid() && output_trace_cursor.key() == &key {
                     let mut output_group_cursor = CursorGroup::new(&mut output_trace_cursor, ());
 
                     self.transformer.transform(
