@@ -1,4 +1,5 @@
 use crate::{
+    algebra::ZRingValue,
     circuit::{
         operator_traits::{Operator, TernaryOperator},
         Scope,
@@ -8,9 +9,11 @@ use crate::{
         cursor::{CursorEmpty, CursorGroup, CursorPair},
         Builder, Cursor, Spine, Trace,
     },
-    Circuit, DBData, DBWeight, IndexedZSet, RootCircuit, Stream,
+    Circuit, DBData, DBWeight, IndexedZSet, OrdIndexedZSet, RootCircuit, Stream,
 };
 use std::{borrow::Cow, marker::PhantomData, ops::Neg};
+
+mod topk;
 
 pub trait GroupTransformer<I, O, R>: 'static {
     fn name(&self) -> &str;
@@ -109,6 +112,18 @@ impl<B> Stream<RootCircuit, B>
 where
     B: IndexedZSet + Send,
 {
+    fn group_transform<GT, OV>(
+        &self,
+        transform: GT,
+    ) -> Stream<RootCircuit, OrdIndexedZSet<B::Key, OV, B::R>>
+    where
+        GT: GroupTransformer<B::Val, OV, B::R>,
+        OV: DBData,
+        B::R: ZRingValue,
+    {
+        self.group_transform_generic(transform)
+    }
+
     fn group_transform_generic<GT, OB>(&self, transform: GT) -> Stream<RootCircuit, OB>
     where
         OB: IndexedZSet<Key = B::Key, R = B::R>,
