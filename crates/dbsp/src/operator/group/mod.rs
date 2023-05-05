@@ -15,8 +15,20 @@ use std::{borrow::Cow, marker::PhantomData, ops::Neg};
 
 mod topk;
 
+#[cfg(test)]
+mod test;
+
+#[derive(PartialEq, Eq)]
+pub enum Monotonicity {
+    Ascending,
+    Descending,
+    Unordered,
+}
+
 pub trait GroupTransformer<I, O, R>: 'static {
     fn name(&self) -> &str;
+
+    fn monotonicity(&self) -> Monotonicity;
 
     fn transform<C1, C2, C3, CB>(
         &self,
@@ -33,6 +45,8 @@ pub trait GroupTransformer<I, O, R>: 'static {
 
 pub trait NonIncrementalGroupTransformer<I, O, R>: 'static {
     fn name(&self) -> &str;
+
+    fn monotonicity(&self) -> Monotonicity;
 
     fn transform<C, CB>(&self, cursor: &mut C, output_cb: CB)
     where
@@ -56,6 +70,10 @@ where
         self.transformer.name()
     }
 
+    fn monotonicity(&self) -> Monotonicity {
+        self.transformer.monotonicity()
+    }
+
     fn transform<C1, C2, C3, CB>(
         &self,
         input_delta: &mut C1,
@@ -68,14 +86,59 @@ where
         C3: Cursor<O, (), (), R>,
         CB: FnMut(O, R),
     {
-        self.transformer
-            .transform(&mut CursorPair::new(input_delta, input_trace), |v, w| {
-                while output_trace.key_valid() && output_trace.key() <= &v {
+        match self.transformer.monotonicity() {
+            Monotonicity::Ascending => {
+                self.transformer.transform(
+                    &mut CursorPair::new(input_delta, input_trace),
+                    |v, w| {
+                        while output_trace.key_valid() && output_trace.key() <= &v {
+                            output_cb(output_trace.key().clone(), output_trace.weight().neg());
+                            output_trace.step_key();
+                        }
+                        output_cb(v, w);
+                    },
+                );
+
+                // Output remaining retractions in output trace.
+                while output_trace.key_valid() {
                     output_cb(output_trace.key().clone(), output_trace.weight().neg());
                     output_trace.step_key();
                 }
-                output_cb(v, w);
-            });
+            }
+
+            Monotonicity::Descending => {
+                output_trace.fast_forward_keys();
+                self.transformer.transform(
+                    &mut CursorPair::new(input_delta, input_trace),
+                    |v, w| {
+                        while output_trace.key_valid() && output_trace.key() >= &v {
+                            output_cb(output_trace.key().clone(), output_trace.weight().neg());
+                            output_trace.step_key_reverse();
+                        }
+                        output_cb(v, w);
+                    },
+                );
+
+                // Output remaining retractions in output trace.
+                while output_trace.key_valid() {
+                    output_cb(output_trace.key().clone(), output_trace.weight().neg());
+                    output_trace.step_key_reverse();
+                }
+            }
+
+            Monotonicity::Unordered => {
+                self.transformer
+                    .transform(&mut CursorPair::new(input_delta, input_trace), |v, w| {
+                        output_cb(v, w)
+                    });
+
+                // Output retractions in output trace.
+                while output_trace.key_valid() {
+                    output_cb(output_trace.key().clone(), output_trace.weight().neg());
+                    output_trace.step_key();
+                }
+            }
+        }
     }
 }
 
@@ -127,6 +190,7 @@ where
     fn group_transform_generic<GT, OB>(&self, transform: GT) -> Stream<RootCircuit, OB>
     where
         OB: IndexedZSet<Key = B::Key, R = B::R>,
+        OB::Item: Ord,
         GT: GroupTransformer<B::Val, OB::Val, B::R>,
     {
         let circuit = self.circuit();
@@ -139,7 +203,7 @@ where
             .add_ternary_operator(
                 GroupTransform::new(transform),
                 &stream,
-                &stream.integrate_trace(),
+                &stream.integrate_trace().delay_trace(),
                 &feedback.delayed_trace,
             )
             .mark_sharded();
@@ -150,15 +214,25 @@ where
     }
 }
 
-struct GroupTransform<B, OB, T, OT, GT> {
+struct GroupTransform<B, OB, T, OT, GT>
+where
+    B: IndexedZSet,
+    OB: IndexedZSet,
+{
     transformer: GT,
+    buffer: Vec<(OB::Item, B::R)>,
     _phantom: PhantomData<(B, OB, T, OT)>,
 }
 
-impl<B, OB, T, OT, GT> GroupTransform<B, OB, T, OT, GT> {
+impl<B, OB, T, OT, GT> GroupTransform<B, OB, T, OT, GT>
+where
+    B: IndexedZSet,
+    OB: IndexedZSet,
+{
     fn new(transformer: GT) -> Self {
         Self {
             transformer,
+            buffer: Vec::new(),
             _phantom: PhantomData,
         }
     }
@@ -185,6 +259,7 @@ where
     B: IndexedZSet,
     T: Trace<Key = B::Key, Val = B::Val, Time = (), R = B::R> + Clone,
     OB: IndexedZSet<Key = B::Key, R = B::R>,
+    OB::Item: Ord,
     OT: Trace<Key = B::Key, Val = OB::Val, Time = (), R = B::R> + Clone,
     GT: GroupTransformer<B::Val, OB::Val, B::R>,
 {
@@ -202,6 +277,17 @@ where
 
         while delta_cursor.key_valid() {
             let key = delta_cursor.key().clone();
+
+            let mut cb_asc =
+                |val: OB::Val, w: B::R| builder.push((OB::item_from(key.clone(), val), w));
+            let mut cb_desc =
+                |val: OB::Val, w: B::R| self.buffer.push((OB::item_from(key.clone(), val), w));
+
+            let cb = if self.transformer.monotonicity() == Monotonicity::Ascending {
+                &mut cb_asc as &mut dyn FnMut(OB::Val, B::R)
+            } else {
+                &mut cb_desc as &mut dyn FnMut(OB::Val, B::R)
+            };
 
             input_trace_cursor.seek_key(&key);
 
@@ -223,7 +309,7 @@ where
                         &mut CursorGroup::new(&mut delta_cursor, ()),
                         &mut input_group_cursor,
                         &mut output_group_cursor,
-                        |val, w| builder.push((OB::item_from(key.clone(), val), w)),
+                        cb,
                     );
                 } else {
                     let mut output_group_cursor = CursorEmpty::new();
@@ -232,7 +318,7 @@ where
                         &mut CursorGroup::new(&mut delta_cursor, ()),
                         &mut input_group_cursor,
                         &mut output_group_cursor,
-                        |val, w| builder.push((OB::item_from(key.clone(), val), w)),
+                        cb,
                     );
                 };
             } else {
@@ -247,7 +333,7 @@ where
                         &mut CursorGroup::new(&mut delta_cursor, ()),
                         &mut input_group_cursor,
                         &mut output_group_cursor,
-                        |val, w| builder.push((OB::item_from(key.clone(), val), w)),
+                        cb,
                     );
                 } else {
                     let mut output_group_cursor = CursorEmpty::new();
@@ -256,10 +342,24 @@ where
                         &mut CursorGroup::new(&mut delta_cursor, ()),
                         &mut input_group_cursor,
                         &mut output_group_cursor,
-                        |val, w| builder.push((OB::item_from(key.clone(), val), w)),
+                        cb,
                     );
                 };
             };
+            match self.transformer.monotonicity() {
+                Monotonicity::Descending => {
+                    for tuple in self.buffer.drain(..).rev() {
+                        builder.push(tuple)
+                    }
+                }
+                Monotonicity::Unordered => {
+                    self.buffer.sort();
+                    for tuple in self.buffer.drain(..) {
+                        builder.push(tuple)
+                    }
+                }
+                _ => {}
+            }
 
             delta_cursor.step_key();
         }

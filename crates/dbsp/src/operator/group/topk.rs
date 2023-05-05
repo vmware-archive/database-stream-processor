@@ -1,4 +1,4 @@
-use super::{DiffGroupTransformer, NonIncrementalGroupTransformer};
+use super::{DiffGroupTransformer, Monotonicity, NonIncrementalGroupTransformer};
 use crate::{
     algebra::ZRingValue, trace::Cursor, DBData, DBWeight, IndexedZSet, OrdIndexedZSet, RootCircuit,
     Stream,
@@ -9,14 +9,14 @@ impl<B> Stream<RootCircuit, B>
 where
     B: IndexedZSet + Send,
 {
-    fn topk_asc(&self, k: usize) -> Stream<RootCircuit, OrdIndexedZSet<B::Key, B::Val, B::R>>
+    pub fn topk_asc(&self, k: usize) -> Stream<RootCircuit, OrdIndexedZSet<B::Key, B::Val, B::R>>
     where
         B::R: ZRingValue,
     {
         self.group_transform(DiffGroupTransformer::new(TopK::asc(k)))
     }
 
-    fn topk_desc(&self, k: usize) -> Stream<RootCircuit, OrdIndexedZSet<B::Key, B::Val, B::R>>
+    pub fn topk_desc(&self, k: usize) -> Stream<RootCircuit, OrdIndexedZSet<B::Key, B::Val, B::R>>
     where
         B::R: ZRingValue,
     {
@@ -57,6 +57,14 @@ where
 {
     fn name(&self) -> &str {
         self.name.as_str()
+    }
+
+    fn monotonicity(&self) -> Monotonicity {
+        if self.asc {
+            Monotonicity::Ascending
+        } else {
+            Monotonicity::Descending
+        }
     }
 
     fn transform<C, CB>(&self, cursor: &mut C, mut output_cb: CB)

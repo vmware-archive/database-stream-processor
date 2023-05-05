@@ -266,7 +266,7 @@ where
     R: DBWeight,
 {
     /// Create batch from sorted or unsorted tuples.
-    fn from_data(records: &[((K, V, T), R)]) -> Self {
+    pub fn from_data(records: &[((K, V, T), R)]) -> Self {
         let mut data: BTreeMap<(K, V, T), R> = BTreeMap::new();
 
         for ((k, v, t), r) in records.iter() {

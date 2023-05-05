@@ -248,10 +248,10 @@ where
         debug_assert_eq!(self.key_direction, Direction::Backward);
 
         if self.key_order != Ordering::Less {
-            self.cursor1.step_key();
+            self.cursor1.step_key_reverse();
         }
         if self.key_order != Ordering::Greater {
-            self.cursor2.step_key();
+            self.cursor2.step_key_reverse();
         }
 
         self.update_key_order_reverse();
