@@ -43,6 +43,10 @@ install-chef:
     RUN cargo install --debug cargo-chef
 
 prepare-cache:
+    # We download and pre-build dependencies to cache it using cargo-chef.
+    # See also (on why this is so complicated :/):
+    # https://github.com/rust-lang/cargo/issues/2644
+    # https://hackmd.io/@kobzol/S17NS71bh
     FROM +install-chef
 
     RUN mkdir -p crates/dataflow-jit
@@ -73,51 +77,118 @@ prepare-cache:
     RUN mkdir -p crates/pipeline_manager/src && touch crates/pipeline_manager/src/main.rs
     #RUN mkdir -p crates/webui-tester/src && touch crates/webui-tester/src/lib.rs
 
+    ENV RUST_LOG=info
     RUN cargo chef prepare
-    SAVE ARTIFACT recipe.json
+
+    SAVE ARTIFACT --keep-ts --keep-own recipe.json
 
 build-cache:
     FROM +install-chef
-    COPY +prepare-cache/recipe.json ./
-    RUN cargo chef cook --all-targets
-    SAVE ARTIFACT target
-    SAVE ARTIFACT $CARGO_HOME cargo_home
+    COPY --keep-ts +prepare-cache/recipe.json ./
+    RUN cargo chef cook --workspace --all-targets
+    SAVE ARTIFACT --keep-ts --keep-own $CARGO_HOME
+    SAVE ARTIFACT --keep-ts --keep-own ./target
+    # In theory, once this step is done we shouldn't have to build dependencies
+    # anymore. But, this step doesn't seem to be able to cache / pre-build
+    # everything. And so e.g., `build-dbsp` still ends up compiling some
+    # dependencies again (though not all of them). It's not clear as of yet why.
+    #
+    # When using `RUST_LOG=cargo::ops::cargo_rustc::fingerprint=info` to debug,
+    # it looks like the hash for the crates change which might mean maybe mtime
+    # is not preserved properly?
+    #
+    # See also:
+    # https://github.com/moby/moby/issues/40004
+    # https://github.com/rust-lang/cargo/issues/6733
+    # Or it could also be a bug in cargo-chef.
 
-build-crates:
-    FROM +install-rust
-    COPY --keep-ts +build-cache/target target
-    COPY --keep-ts +build-cache/cargo_home $CARGO_HOME
-    COPY --keep-ts --dir crates .
-    COPY --keep-ts Cargo.toml Cargo.lock README.md .
-    RUN cargo build --all-targets
-    RUN cargo test --all-targets --no-run
+
+build-dbsp:
+    FROM +build-cache
+
+    # Remove the skeleton created in build-cache
+    RUN rm -rf crates/dbsp
+    # Copy in the actual sources
+    COPY --keep-ts --dir crates/dbsp crates/dbsp
+    COPY --keep-ts README.md README.md
+
+    RUN cargo build --package dbsp
+    RUN cargo test --package dbsp --no-run
+    # Update target folder for future tasks, the whole --keep-ts, --keep-own
+    # args were an attempt in fixing the dependency problem (see build-cache)
+    # but it doesn't seem to make a difference.
+    SAVE ARTIFACT --keep-ts --keep-own ./target/* ./target
+
+
+build-adapters:
+    FROM +build-dbsp
+
+    RUN rm -rf crates/adapters
+    COPY --keep-ts --dir crates/adapters crates/adapters
+
+    RUN cargo build --package dbsp_adapters
+    RUN cargo test --package dbsp_adapters --no-run
+    SAVE ARTIFACT --keep-ts --keep-own ./target/* ./target
+
+build-manager:
+    FROM +build-adapters
+
+    RUN rm -rf crates/pipeline_manager
+    COPY --keep-ts --dir crates/pipeline_manager crates/pipeline_manager
+
+    RUN cargo build --package dbsp_pipeline_manager
+    RUN cargo test --package dbsp_pipeline_manager --no-run
+    SAVE ARTIFACT --keep-ts --keep-own ./target/* ./target
+
+build-dataflow-jit:
+    FROM +build-dbsp
+
+    RUN rm -rf crates/dataflow-jit
+    COPY --keep-ts --dir crates/dataflow-jit crates/dataflow-jit
+
+    RUN cargo build --package dataflow-jit
+    RUN cargo test --package dataflow-jit --no-run
+    SAVE ARTIFACT --keep-ts --keep-own ./target/* ./target
+
+build-nexmark:
+    FROM +build-dbsp
+
+    RUN rm -rf crates/nexmark
+    COPY --keep-ts --dir crates/nexmark crates/nexmark
+
+    RUN cargo build --package dbsp_nexmark
+    RUN cargo test --package dbsp_nexmark --no-run
+    SAVE ARTIFACT --keep-ts --keep-own ./target/* ./target
+
+test-dbsp:
+    FROM +build-dbsp
+    RUN cargo test --package dbsp
 
 test-dataflow-jit:
-    FROM +build-crates
-    COPY  --keep-ts demo/project_demo01-TimeSeriesEnrich demo/project_demo01-TimeSeriesEnrich
+    FROM +build-dataflow-jit
+    # Tests use this demo directory
+    COPY --keep-ts demo/project_demo01-TimeSeriesEnrich demo/project_demo01-TimeSeriesEnrich
     RUN cargo test --package dataflow-jit
 
-test-dbsp-adapters:
-    FROM +build-crates
+test-adapters:
+    FROM +build-adapters
     WITH DOCKER --pull docker.redpanda.com/vectorized/redpanda:v22.3.11
         RUN docker run --name redpanda -p 9092:9092 --rm -itd docker.redpanda.com/vectorized/redpanda:v22.3.11 && \
             cargo test --package dbsp_adapters
     END
 
-test-dbsp:
-    FROM +build-crates
-    COPY demo/project_demo01-TimeSeriesEnrich demo/project_demo01-TimeSeriesEnrich
-    RUN cargo test --package dbsp
-
 test-manager:
-    FROM +build-crates
-    COPY deploy/docker-compose-dev.yml deploy/docker-compose-dev.yml
+    FROM +build-manager
     ENV PGHOST=localhost
     ENV PGUSER=postgres
     ENV PGCLIENTENCODING=UTF8
+    ENV PGPORT=5432
     ENV RUST_LOG=error
-
     WITH DOCKER --pull postgres
-        RUN docker run -p 5432:5432 --name postgres -e POSTGRES_HOST_AUTH_METHOD=trust -d postgres && \
-            cargo test --package dbsp_pipeline_manager --no-default-features
+        # We just put the PGDATA in /dev/shm because the docker fs seems very slow (test time goes to 2min vs. shm 40s)
+        RUN docker run --shm-size=256MB -p 5432:5432 --name postgres -e POSTGRES_HOST_AUTH_METHOD=trust -e PGDATA=/dev/shm -d postgres && \
+            # Sleep until postgres is up (otherwise we get connection reset if we connect too early)
+            # (See: https://github.com/docker-library/docs/blob/master/postgres/README.md#caveats)
+            sleep 3 && \
+            cargo test --package dbsp_pipeline_manager
     END
