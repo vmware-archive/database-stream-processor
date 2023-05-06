@@ -6,13 +6,13 @@ use log::{debug, error};
 use serde::{Deserialize, Serialize};
 use std::{error::Error as StdError, fmt, fmt::Display};
 use storage::Storage;
-use tokio_postgres::{Client, NoTls};
+use tokio_postgres::{tls::NoTlsStream, Client, Connection, NoTls, Socket};
 use utoipa::ToSchema;
 
 #[cfg(test)]
 mod test;
 
-#[cfg(any(test, feature = "pg-embed"))]
+#[cfg(feature = "pg-embed")]
 mod pg_setup;
 pub(crate) mod storage;
 
@@ -1041,6 +1041,31 @@ impl ProjectDB {
     /// Connect to the project database.
     ///
     /// # Arguments
+    /// - `config` a tokio postgres config
+    /// - `initial_sql`: The initial SQL to execute on the database.
+    ///
+    /// # Notes
+    /// Maybe this should become the preferred way to create a ProjectDb
+    /// together with `pg-client-config` (and drop `connect_inner`).
+    #[cfg(all(test, not(feature = "pg-embed")))]
+    async fn with_config(
+        config: tokio_postgres::Config,
+        initial_sql: &Option<String>,
+    ) -> AnyResult<Self> {
+        let (client, conn) = config.connect(NoTls).await?;
+        ProjectDB::initialize(
+            client,
+            conn,
+            initial_sql,
+            #[cfg(feature = "pg-embed")]
+            None,
+        )
+        .await
+    }
+
+    /// Connect to the project database.
+    ///
+    /// # Arguments
     /// - `connection_str`: The connection string to the database.
     /// - `pool_options`: The pool options to use.
     /// - `initial_sql`: The initial SQL to execute on the database.
@@ -1060,7 +1085,22 @@ impl ProjectDB {
 
         debug!("Opening connection to {:?}", connection_str);
         let (client, conn) = tokio_postgres::connect(connection_str, NoTls).await?;
+        ProjectDB::initialize(
+            client,
+            conn,
+            initial_sql,
+            #[cfg(feature = "pg-embed")]
+            pg_inst,
+        )
+        .await
+    }
 
+    async fn initialize(
+        client: Client,
+        conn: Connection<Socket, NoTlsStream>,
+        initial_sql: &Option<String>,
+        #[cfg(feature = "pg-embed")] pg_inst: Option<pg_embed::postgres::PgEmbed>,
+    ) -> AnyResult<Self> {
         // The `tokio_postgres` API requires allocating a thread to `connection`,
         // which will handle datbase I/O and should automatically terminate once
         // the `dbclient` is dropped.
