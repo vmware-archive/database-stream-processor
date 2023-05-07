@@ -86,22 +86,34 @@ build-cache:
     FROM +install-chef
     COPY --keep-ts +prepare-cache/recipe.json ./
     RUN cargo chef cook --workspace --all-targets
-    SAVE ARTIFACT --keep-ts --keep-own $CARGO_HOME
-    SAVE ARTIFACT --keep-ts --keep-own ./target
-    # In theory, once this step is done we shouldn't have to build dependencies
-    # anymore. But, this step doesn't seem to be able to cache / pre-build
-    # everything. And so e.g., `build-dbsp` still ends up compiling some
-    # dependencies again (though not all of them). It's not clear as of yet why.
+    # I have no clue why we need all these commands below to build all
+    # dependencies (since we just did a build --workspace --all-targets). But if
+    # we don't run all of them, it will go and compile dependencies during
+    # the `build-*` targets (which should just compile our crates ideally to
+    # maximize the cache benefit). This happens even without earthly (or docker)
+    # if you just run cargo in our repo directly on clean target...
+    #
+    # The only issues for this I found was:
+    # https://github.com/rust-lang/cargo/issues/2904
+    # https://github.com/rust-lang/cargo/issues/6733
     #
     # When using `RUST_LOG=cargo::ops::cargo_rustc::fingerprint=info` to debug,
-    # it looks like the hash for the crates change which might mean maybe mtime
-    # is not preserved properly?
-    #
-    # See also:
-    # https://github.com/moby/moby/issues/40004
-    # https://github.com/rust-lang/cargo/issues/6733
-    # Or it could also be a bug in cargo-chef.
+    # it looks like the hash for the crates changes.
+    RUN cargo build
+    RUN cargo test --no-run
+    RUN cargo build --package dbsp
+    RUN cargo test --package dbsp --no-run
+    RUN cargo build --package dbsp_adapters
+    RUN cargo test --package dbsp_adapters --no-run
+    RUN cargo build --package dbsp_pipeline_manager
+    RUN cargo test --package dbsp_pipeline_manager --no-run
+    RUN cargo build --package dataflow-jit
+    RUN cargo test --package dataflow-jit --no-run
+    RUN cargo build --package dbsp_nexmark
+    RUN cargo test --package dbsp_nexmark --no-run
 
+    SAVE ARTIFACT --keep-ts --keep-own $CARGO_HOME
+    SAVE ARTIFACT --keep-ts --keep-own ./target
 
 build-dbsp:
     FROM +build-cache
