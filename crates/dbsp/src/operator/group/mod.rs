@@ -14,6 +14,7 @@ use crate::{
 use std::{borrow::Cow, marker::PhantomData, ops::Neg};
 
 mod topk;
+mod lag;
 
 #[cfg(test)]
 mod test;

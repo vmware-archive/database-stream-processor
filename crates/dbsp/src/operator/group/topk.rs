@@ -23,6 +23,7 @@ where
         self.group_transform(DiffGroupTransformer::new(TopK::desc(k)))
     }
 }
+
 pub struct TopK<I, R> {
     k: usize,
     name: String,
