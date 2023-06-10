@@ -2,6 +2,10 @@
 [![CI workflow](https://github.com/vmware/database-stream-processor/actions/workflows/main.yml/badge.svg)](https://github.com/vmware/database-stream-processor/actions)
 [![codecov](https://codecov.io/gh/vmware/database-stream-processor/branch/main/graph/badge.svg?token=0wZcmD11gt)](https://codecov.io/gh/vmware/database-stream-processor)
 
+# Latest News
+
+The development for this project is now done at <https://github.com/feldera/dbsp>.
+
 # Database Stream Processor
 
 Database Stream Processor (DBSP) is a framework for computing over data streams
