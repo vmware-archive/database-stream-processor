@@ -31,6 +31,7 @@ import { ProjectDescr } from 'src/types/manager/models/ProjectDescr'
 import CompileIndicator from './CompileIndicator'
 import SaveIndicator, { SaveIndicatorState } from 'src/components/SaveIndicator'
 import { PLACEHOLDER_VALUES } from 'src/utils'
+import { projectQueryCacheUpdate } from 'src/types/defaultQueryFn'
 
 // How many ms to wait until we save the project.
 const SAVE_DELAY = 2000
@@ -63,6 +64,7 @@ const MetadataForm = (props: { errors: FormError; project: ProgramState; setProj
       <Grid item xs={4}>
         <FormControl fullWidth>
           <TextField
+            id='program-name' // Referenced by webui-tester
             fullWidth
             type='text'
             label='Name'
@@ -81,6 +83,7 @@ const MetadataForm = (props: { errors: FormError; project: ProgramState; setProj
       <Grid item xs={8}>
         <TextField
           fullWidth
+          id='program-description' // Referenced by webui-tester
           type='Description'
           label='Description'
           placeholder={PLACEHOLDER_VALUES['program_description']}
@@ -118,6 +121,7 @@ const stateToEditorLabel = (state: SaveIndicatorState): string =>
       return 'Saving ...'
     })
     .with('isUpToDate' as const, () => {
+      // If you change this string, adjust the webui-tester too
       return 'Saved'
     })
     .exhaustive()
@@ -245,35 +249,36 @@ const useUpdateProjectIfChanged = (
   )
   useEffect(() => {
     if (project.project_id !== null && state === 'isModified' && !isLoading) {
-      mutate(
-        {
-          project_id: project.project_id,
-          name: project.name,
-          description: project.description,
-          code: project.code
+      const updateRequest = {
+        project_id: project.project_id,
+        name: project.name,
+        description: project.description,
+        code: project.code
+      }
+      mutate(updateRequest, {
+        onSettled: () => {
+          queryClient.invalidateQueries(['project'])
+          queryClient.invalidateQueries(['projectCode', { project_id: project.project_id }])
+          queryClient.invalidateQueries(['projectStatus', { project_id: project.project_id }])
         },
-        {
-          onSuccess: (data: UpdateProjectResponse) => {
-            setProject((prevState: ProgramState) => ({ ...prevState, version: data.version }))
-            setState('isUpToDate')
-            queryClient.invalidateQueries(['project'])
-            queryClient.invalidateQueries(['projectCode', { project_id: project.project_id }])
-            queryClient.invalidateQueries(['projectStatus', { project_id: project.project_id }])
-            setFormError({})
-          },
-          onError: (error: CancelError) => {
-            // TODO: would be good to have error codes from the API
-            if (error.message.includes('name already exists')) {
-              setFormError({ name: { message: 'This name already exists. Enter a different name.' } })
-              // This won't try to save again, but set the save indicator to
-              // Saving... until the user changes something:
-              setState('isDebouncing')
-            } else {
-              pushMessage({ message: error.message, key: new Date().getTime(), color: 'error' })
-            }
+        onSuccess: (data: UpdateProjectResponse) => {
+          projectQueryCacheUpdate(queryClient, updateRequest)
+          setProject((prevState: ProgramState) => ({ ...prevState, version: data.version }))
+          setState('isUpToDate')
+          setFormError({})
+        },
+        onError: (error: CancelError) => {
+          // TODO: would be good to have error codes from the API
+          if (error.message.includes('name already exists')) {
+            setFormError({ name: { message: 'This name already exists. Enter a different name.' } })
+            // This won't try to save again, but set the save indicator to
+            // Saving... until the user changes something:
+            setState('isDebouncing')
+          } else {
+            pushMessage({ message: error.message, key: new Date().getTime(), color: 'error' })
           }
         }
-      )
+      })
     }
   }, [
     mutate,
@@ -489,11 +494,13 @@ const Editors = (props: { program: ProgramState }) => {
           </CardContent>
           <CardContent>
             <Grid item xs={12}>
-              <SaveIndicator stateToLabel={stateToEditorLabel} state={state} />
-              <CompileIndicator state={project.status} />
+              {/* ids referenced by webui-tester */}
+              <SaveIndicator id='save-indicator' stateToLabel={stateToEditorLabel} state={state} />
+              <CompileIndicator id='compile-indicator' state={project.status} />
             </Grid>
           </CardContent>
-          <CardContent>
+          {/* id referenced by webui-tester */}
+          <CardContent id='editor-content'>
             <Editor
               height='60vh'
               theme={vscodeTheme}
